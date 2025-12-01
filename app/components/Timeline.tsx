@@ -1,15 +1,32 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { TimelineState, Clip, DragState } from "../types/timeline";
 import TimelineTrack from "./TimelineTrack";
 import TimeRuler from "./TimeRuler";
-import { ZoomIn, ZoomOut } from "lucide-react";
+import { ZoomIn, ZoomOut, Play, Pause } from "lucide-react";
 
 // initial demo state
 const initialTimelineState: TimelineState = {
 	duration: 60,
 	tracks: [
+		{
+			id: "video-1",
+			type: "video",
+			clips: [
+				{
+					id: "clip-3",
+					type: "video",
+					src: "/videos/overlay.mp4",
+					startTime: 10,
+					duration: 4,
+					properties: {
+						position: { x: 100, y: 100 },
+						size: { width: 640, height: 360 },
+					},
+				},
+			],
+		},
 		{
 			id: "video-0",
 			type: "video",
@@ -39,23 +56,6 @@ const initialTimelineState: TimelineState = {
 			],
 		},
 		{
-			id: "video-1",
-			type: "video",
-			clips: [
-				{
-					id: "clip-3",
-					type: "video",
-					src: "/videos/overlay.mp4",
-					startTime: 10,
-					duration: 4,
-					properties: {
-						position: { x: 100, y: 100 },
-						size: { width: 640, height: 360 },
-					},
-				},
-			],
-		},
-		{
 			id: "audio-0",
 			type: "audio",
 			clips: [
@@ -76,13 +76,26 @@ const initialTimelineState: TimelineState = {
 
 interface TimelineProps {
 	onClipSelect?: (selection: { clip: Clip; trackId: string } | null) => void;
+	currentTime: number;
+	currentTimeRef: React.MutableRefObject<number>;
+	onTimeChange: (time: number) => void;
+	isPlaying: boolean;
+	onPlayingChange: (playing: boolean) => void;
+	onTimelineStateChange: (state: TimelineState) => void;
 }
 
-export default function Timeline({ onClipSelect }: TimelineProps) {
+export default function Timeline({
+	onClipSelect,
+	currentTime,
+	currentTimeRef,
+	onTimeChange,
+	isPlaying,
+	onPlayingChange,
+	onTimelineStateChange
+}: TimelineProps) {
 	const [timelineState, setTimelineState] = useState<TimelineState>(initialTimelineState);
 	const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
 	const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
-	const [playheadTime, setPlayheadTime] = useState(0);
 	const [pixelsPerSecond, setPixelsPerSecond] = useState(50);
 	const [dragState, setDragState] = useState<DragState | null>(null);
 	const [hoveredTrackId, setHoveredTrackId] = useState<string | null>(null);
@@ -90,6 +103,84 @@ export default function Timeline({ onClipSelect }: TimelineProps) {
 	const timelineRef = useRef<HTMLDivElement>(null);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const trackRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
+	const animationFrameRef = useRef<number | null>(null);
+	const playbackStartTimeRef = useRef<number>(0);
+	const playbackStartPositionRef = useRef<number>(0);
+	const playheadElementRef = useRef<HTMLDivElement>(null);
+	const lastStateUpdateRef = useRef<number>(0);
+
+	const actualEndTime = useMemo(() => {
+		let maxEndTime = 0;
+		timelineState.tracks.forEach((track) => {
+			track.clips.forEach((clip) => {
+				const clipEndTime = clip.startTime + clip.duration;
+				if (clipEndTime > maxEndTime) {
+					maxEndTime = clipEndTime;
+				}
+			});
+		});
+		return maxEndTime;
+	}, [timelineState]);
+
+	useEffect(() => {
+		onTimelineStateChange(timelineState);
+	}, [timelineState, onTimelineStateChange]);
+
+	useEffect(() => {
+		if (!isPlaying && playheadElementRef.current) {
+			playheadElementRef.current.style.transform = `translateX(${currentTime * pixelsPerSecond}px)`;
+		}
+	}, [currentTime, pixelsPerSecond, isPlaying]);
+
+	useEffect(() => {
+		if (!isPlaying) {
+			if (animationFrameRef.current) {
+				cancelAnimationFrame(animationFrameRef.current);
+				animationFrameRef.current = null;
+			}
+			return;
+		}
+
+		playbackStartTimeRef.current = performance.now();
+		playbackStartPositionRef.current = currentTime;
+		lastStateUpdateRef.current = performance.now();
+
+		const animate = (timestamp: number) => {
+			const elapsed = (timestamp - playbackStartTimeRef.current) / 1000;
+			let newTime = playbackStartPositionRef.current + elapsed;
+
+			if (newTime >= actualEndTime) {
+				newTime = actualEndTime;
+				onPlayingChange(false);
+			}
+
+			currentTimeRef.current = newTime;
+
+			if (playheadElementRef.current) {
+				const left = newTime * pixelsPerSecond;
+				playheadElementRef.current.style.transform = `translateX(${left}px)`;
+			}
+
+			// update at ~30fps for frame display
+			if (timestamp - lastStateUpdateRef.current > 33) {
+				onTimeChange(newTime);
+				lastStateUpdateRef.current = timestamp;
+			}
+
+			if (newTime < actualEndTime) {
+				animationFrameRef.current = requestAnimationFrame(animate);
+			}
+		};
+
+		animationFrameRef.current = requestAnimationFrame(animate);
+
+		return () => {
+			if (animationFrameRef.current) {
+				cancelAnimationFrame(animationFrameRef.current);
+			}
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [isPlaying]);
 
 	// find which track the mouse is over
 	const getTrackAtY = (clientY: number): string | null => {
@@ -373,9 +464,14 @@ export default function Timeline({ onClipSelect }: TimelineProps) {
 		setPixelsPerSecond((prev) => Math.max(prev - 10, 10));
 	}, []);
 
-	const handleSeek = (time: number) => {
-		setPlayheadTime(time);
-	};
+	const handleSeek = useCallback((time: number) => {
+		currentTimeRef.current = time;
+		onTimeChange(time);
+	}, [onTimeChange, currentTimeRef]);
+
+	const handlePlayPause = useCallback(() => {
+		onPlayingChange(!isPlaying);
+	}, [isPlaying, onPlayingChange]);
 
 	const handleTimelineClick = () => {
 		setSelectedClipId(null);
@@ -385,7 +481,15 @@ export default function Timeline({ onClipSelect }: TimelineProps) {
 
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
-			if (e.ctrlKey && (e.key === "=" || e.key === "+")) {
+			// Don't trigger shortcuts if user is typing in an input
+			if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+				return;
+			}
+
+			if (e.key === " ") {
+				e.preventDefault();
+				handlePlayPause();
+			} else if (e.ctrlKey && (e.key === "=" || e.key === "+")) {
 				e.preventDefault();
 				handleZoomIn();
 			} else if (e.ctrlKey && e.key === "-") {
@@ -404,7 +508,7 @@ export default function Timeline({ onClipSelect }: TimelineProps) {
 
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [selectedClipId, selectedTrackId, onClipSelect, handleDeleteClip, handleZoomIn, handleZoomOut]);
+	}, [selectedClipId, selectedTrackId, onClipSelect, handleDeleteClip, handleZoomIn, handleZoomOut, handlePlayPause]);
 
 	const timelineWidth = timelineState.duration * pixelsPerSecond;
 
@@ -412,12 +516,17 @@ export default function Timeline({ onClipSelect }: TimelineProps) {
 		<div className="h-full bg-[#1a1a1a] border-t border-zinc-800 flex flex-col">
 			{/* Toolbar */}
 			<div className="h-10 bg-[#1e1e1e] border-b border-zinc-800 flex items-center justify-between px-4">
-				<p className="text-sm text-zinc-400">Timeline</p>
+				<div className="flex items-center gap-3">
+					<button
+						onClick={handlePlayPause}
+						className="p-1.5 hover:bg-zinc-700 rounded text-zinc-400 hover:text-zinc-200"
+						title={isPlaying ? "Pause" : "Play"}
+					>
+						{isPlaying ? <Pause size={16} /> : <Play size={16} />}
+					</button>
+				</div>
 				<div className="flex items-center gap-2">
-					<span className="text-xs text-zinc-500">
-						{playheadTime.toFixed(2)}s / {timelineState.duration}s
-					</span>
-					<div className="flex items-center gap-1 ml-4">
+					<div className="flex items-center gap-1">
 						<button onClick={handleZoomOut} className="p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-zinc-200" title="Zoom out">
 							<ZoomOut size={16} />
 						</button>
@@ -434,9 +543,21 @@ export default function Timeline({ onClipSelect }: TimelineProps) {
 				<div className="min-w-full inline-block" style={{ width: `${timelineWidth + 200}px` }}>
 					{/* Time ruler */}
 					<div className="flex">
-						<div className="w-32 flex-shrink-0 bg-[#1e1e1e] border-r border-zinc-800 h-8" />
+						<div className="w-32 flex-shrink-0 bg-[#1e1e1e] border-r border-zinc-800 h-8 flex items-center justify-center">
+							<span className="text-sm text-zinc-300 font-mono tabular-nums">
+								{Math.floor(currentTime / 60)
+									.toString()
+									.padStart(2, "0")}
+								:{Math.floor(currentTime % 60)
+									.toString()
+									.padStart(2, "0")}
+								:{Math.floor((currentTime % 1) * 30)
+									.toString()
+									.padStart(2, "0")}
+							</span>
+						</div>
 						<div className="flex-1" ref={timelineRef}>
-							<TimeRuler duration={timelineState.duration} pixelsPerSecond={pixelsPerSecond} onSeek={handleSeek} />
+							<TimeRuler duration={actualEndTime} pixelsPerSecond={pixelsPerSecond} onSeek={handleSeek} />
 						</div>
 					</div>
 
@@ -470,21 +591,18 @@ export default function Timeline({ onClipSelect }: TimelineProps) {
 
 					{/* Playhead */}
 					<div
+						ref={playheadElementRef}
 						className="absolute z-[60]"
 						style={{
 							left: `${128}px`,
 							top: 0,
 							height: "100%",
 							pointerEvents: "none",
+							willChange: isPlaying ? "transform" : "auto",
 						}}
 					>
 						{/* Playhead line */}
-						<div
-							className="absolute w-0.5 bg-red-500 h-full"
-							style={{
-								left: `${playheadTime * pixelsPerSecond}px`,
-							}}
-						/>
+						<div className="absolute w-0.5 bg-red-500 h-full" />
 
 						{/* Triangle */}
 						<svg
@@ -494,20 +612,26 @@ export default function Timeline({ onClipSelect }: TimelineProps) {
 							className="absolute top-0 cursor-ew-resize"
 							style={{
 								pointerEvents: "auto",
-								left: `${playheadTime * pixelsPerSecond + 1}px`,
+								left: "1px",
 								transform: "translateX(-50%)",
 								display: "block",
 							}}
 							onMouseDown={(e) => {
 								e.stopPropagation();
 								const startX = e.clientX;
-								const startTime = playheadTime;
+								const startTime = currentTime;
 
 								const handleMouseMove = (moveEvent: MouseEvent) => {
 									const deltaX = moveEvent.clientX - startX;
 									const deltaTime = deltaX / pixelsPerSecond;
-									const newTime = Math.max(0, Math.min(startTime + deltaTime, timelineState.duration));
-									setPlayheadTime(newTime);
+									const newTime = Math.max(0, Math.min(startTime + deltaTime, actualEndTime));
+
+									currentTimeRef.current = newTime;
+									onTimeChange(newTime);
+
+									if (playheadElementRef.current) {
+										playheadElementRef.current.style.transform = `translateX(${newTime * pixelsPerSecond}px)`;
+									}
 								};
 
 								const handleMouseUp = () => {

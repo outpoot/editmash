@@ -1,10 +1,12 @@
+import { memo, useMemo } from "react";
+
 interface TimeRulerProps {
 	duration: number;
 	pixelsPerSecond: number;
 	onSeek: (time: number) => void;
 }
 
-export default function TimeRuler({ duration, pixelsPerSecond, onSeek }: TimeRulerProps) {
+function TimeRuler({ duration, pixelsPerSecond, onSeek }: TimeRulerProps) {
 	const handleMouseDown = (e: React.MouseEvent) => {
 		const rect = e.currentTarget.getBoundingClientRect();
 
@@ -29,41 +31,45 @@ export default function TimeRuler({ duration, pixelsPerSecond, onSeek }: TimeRul
 		window.addEventListener("mouseup", handleMouseUp);
 	};
 
-	const ticks: { time: number; label: string; isSecond: boolean }[] = [];
+	const ticks = useMemo(() => {
+		const ticksArray: { time: number; label: string; isSecond: boolean }[] = [];
 
-	// determine tick interval based on zoom level
-	let secondInterval = 1;
-	if (pixelsPerSecond < 12) {
-		secondInterval = 5;
-	} else if (pixelsPerSecond < 25) {
-		secondInterval = 2;
-	}
-
-	for (let i = 0; i <= duration; i += secondInterval) {
-		const minutes = Math.floor(i / 60);
-		const seconds = i % 60;
-		ticks.push({
-			time: i,
-			label: `${minutes}:${seconds.toString().padStart(2, "0")}`,
-			isSecond: true,
-		});
-	}
-
-	// add sub-second ticks if zoomed in enough
-	if (pixelsPerSecond >= 50) {
-		const subTicks: { time: number; label: string; isSecond: boolean }[] = [];
-		for (let i = 0; i < duration; i++) {
-			for (let j = 0.25; j < 1; j += 0.25) {
-				subTicks.push({
-					time: i + j,
-					label: "",
-					isSecond: false,
-				});
-			}
+		// determine tick interval based on zoom level
+		let secondInterval = 1;
+		if (pixelsPerSecond < 12) {
+			secondInterval = 5;
+		} else if (pixelsPerSecond < 25) {
+			secondInterval = 2;
 		}
-		ticks.push(...subTicks);
-		ticks.sort((a, b) => a.time - b.time);
-	}
+
+		for (let i = 0; i <= duration; i += secondInterval) {
+			const minutes = Math.floor(i / 60);
+			const seconds = i % 60;
+			ticksArray.push({
+				time: i,
+				label: `${minutes}:${seconds.toString().padStart(2, "0")}`,
+				isSecond: true,
+			});
+		}
+
+		// add sub-second ticks if zoomed in enough
+		if (pixelsPerSecond >= 50) {
+			const subTicks: { time: number; label: string; isSecond: boolean }[] = [];
+			for (let i = 0; i < duration; i++) {
+				for (let j = 0.25; j < 1; j += 0.25) {
+					subTicks.push({
+						time: i + j,
+						label: "",
+						isSecond: false,
+					});
+				}
+			}
+			ticksArray.push(...subTicks);
+			ticksArray.sort((a, b) => a.time - b.time);
+		}
+
+		return ticksArray;
+	}, [duration, pixelsPerSecond]);
 
 	return (
 		<div className="h-8 bg-[#1e1e1e] border-b border-zinc-800 relative cursor-pointer select-none" onMouseDown={handleMouseDown}>
@@ -78,3 +84,5 @@ export default function TimeRuler({ duration, pixelsPerSecond, onSeek }: TimeRul
 		</div>
 	);
 }
+
+export default memo(TimeRuler);

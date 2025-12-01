@@ -37,6 +37,11 @@ export interface TimelineState {
 	tracks: Track[];
 }
 
+export interface PlaybackState {
+	isPlaying: boolean;
+	currentTime: number;
+}
+
 export interface DragState {
 	clipId: string;
 	trackId: string;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, memo } from "react";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -11,17 +11,27 @@ import EffectsBrowser from "./EffectsBrowser";
 import VideoPreview from "./VideoPreview";
 import Inspector from "./Inspector";
 import Timeline from "./Timeline";
-import { Clip } from "../types/timeline";
+import { Clip, TimelineState } from "../types/timeline";
 
 interface MainLayoutProps {
   showMedia: boolean;
   showEffects: boolean;
 }
 
+// components that don't need playback state
+const MemoizedMediaBrowser = memo(MediaBrowser);
+const MemoizedEffectsBrowser = memo(EffectsBrowser);
+const MemoizedInspector = memo(Inspector);
+
 export default function MainLayout({ showMedia, showEffects }: MainLayoutProps) {
   const bothVisible = showMedia && showEffects;
   const noneVisible = !showMedia && !showEffects;
   const [selectedClip, setSelectedClip] = useState<{ clip: Clip; trackId: string } | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [timelineState, setTimelineState] = useState<TimelineState | null>(null);
+
+  const currentTimeRef = useRef(0);
 
   return (
     <div className="h-screen pt-8 bg-[#0a0a0a]">
@@ -32,17 +42,17 @@ export default function MainLayout({ showMedia, showEffects }: MainLayoutProps) 
               {bothVisible ? (
                 <ResizablePanelGroup direction="vertical">
                   <ResizablePanel defaultSize={50} minSize={20}>
-                    <MediaBrowser />
+                    <MemoizedMediaBrowser />
                   </ResizablePanel>
                   <ResizableHandle />
                   <ResizablePanel defaultSize={50} minSize={20}>
-                    <EffectsBrowser />
+                    <MemoizedEffectsBrowser />
                   </ResizablePanel>
                 </ResizablePanelGroup>
               ) : showMedia ? (
-                <MediaBrowser />
+                <MemoizedMediaBrowser />
               ) : (
-                <EffectsBrowser />
+                <MemoizedEffectsBrowser />
               )}
             </ResizablePanel>
             <ResizableHandle />
@@ -54,13 +64,19 @@ export default function MainLayout({ showMedia, showEffects }: MainLayoutProps) 
             <ResizablePanel defaultSize={60} minSize={30}>
               <ResizablePanelGroup direction="horizontal">
                 <ResizablePanel defaultSize={70} minSize={40}>
-                  <VideoPreview />
+                  <VideoPreview
+                    timelineState={timelineState}
+                    currentTime={currentTime}
+                    currentTimeRef={currentTimeRef}
+                    isPlaying={isPlaying}
+                    onPlayPause={() => setIsPlaying(!isPlaying)}
+                  />
                 </ResizablePanel>
 
                 <ResizableHandle />
 
                 <ResizablePanel defaultSize={30} minSize={20} maxSize={50}>
-                  <Inspector selectedClip={selectedClip} />
+                  <MemoizedInspector selectedClip={selectedClip} />
                 </ResizablePanel>
               </ResizablePanelGroup>
             </ResizablePanel>
@@ -68,7 +84,15 @@ export default function MainLayout({ showMedia, showEffects }: MainLayoutProps) 
             <ResizableHandle />
 
             <ResizablePanel defaultSize={40} minSize={20}>
-              <Timeline onClipSelect={setSelectedClip} />
+              <Timeline
+                onClipSelect={setSelectedClip}
+                currentTime={currentTime}
+                currentTimeRef={currentTimeRef}
+                onTimeChange={setCurrentTime}
+                isPlaying={isPlaying}
+                onPlayingChange={setIsPlaying}
+                onTimelineStateChange={setTimelineState}
+              />
             </ResizablePanel>
           </ResizablePanelGroup>
         </ResizablePanel>

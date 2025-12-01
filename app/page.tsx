@@ -10,6 +10,10 @@ export default function Home() {
 
   return (
     <>
+    <script
+  crossOrigin="anonymous"
+  src="//unpkg.com/react-scan/dist/auto.global.js"
+></script>
       <TopBar 
         showMedia={showMedia}
         showEffects={showEffects}
