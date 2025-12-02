@@ -26,7 +26,7 @@ const MemoizedInspector = memo(Inspector);
 export default function MainLayout({ showMedia, showEffects }: MainLayoutProps) {
   const bothVisible = showMedia && showEffects;
   const noneVisible = !showMedia && !showEffects;
-  const [selectedClip, setSelectedClip] = useState<{ clip: Clip; trackId: string } | null>(null);
+  const [selectedClips, setSelectedClips] = useState<{ clip: Clip; trackId: string }[] | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [timelineState, setTimelineState] = useState<TimelineState | null>(null);
@@ -76,7 +76,7 @@ export default function MainLayout({ showMedia, showEffects }: MainLayoutProps) 
                 <ResizableHandle />
 
                 <ResizablePanel defaultSize={30} minSize={20} maxSize={50}>
-                  <MemoizedInspector selectedClip={selectedClip} />
+                  <MemoizedInspector selectedClips={selectedClips} />
                 </ResizablePanel>
               </ResizablePanelGroup>
             </ResizablePanel>
@@ -85,7 +85,7 @@ export default function MainLayout({ showMedia, showEffects }: MainLayoutProps) 
 
             <ResizablePanel defaultSize={40} minSize={20}>
               <Timeline
-                onClipSelect={setSelectedClip}
+                onClipSelect={setSelectedClips}
                 currentTime={currentTime}
                 currentTimeRef={currentTimeRef}
                 onTimeChange={setCurrentTime}

@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { TimelineState, Clip, DragState } from "../types/timeline";
 import TimelineTrack from "./TimelineTrack";
 import TimeRuler from "./TimeRuler";
-import { ZoomIn, ZoomOut, Play, Pause } from "lucide-react";
+import { ZoomIn, ZoomOut, Play, Pause, MousePointer2, Scissors } from "lucide-react";
 
 // initial demo state
 const initialTimelineState: TimelineState = {
@@ -75,7 +75,7 @@ const initialTimelineState: TimelineState = {
 };
 
 interface TimelineProps {
-	onClipSelect?: (selection: { clip: Clip; trackId: string } | null) => void;
+	onClipSelect?: (selection: { clip: Clip; trackId: string }[] | null) => void;
 	currentTime: number;
 	currentTimeRef: React.MutableRefObject<number>;
 	onTimeChange: (time: number) => void;
@@ -94,11 +94,13 @@ export default function Timeline({
 	onTimelineStateChange
 }: TimelineProps) {
 	const [timelineState, setTimelineState] = useState<TimelineState>(initialTimelineState);
-	const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
-	const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
+	const [selectedClips, setSelectedClips] = useState<Array<{ clipId: string; trackId: string }>>([]);
 	const [pixelsPerSecond, setPixelsPerSecond] = useState(50);
 	const [dragState, setDragState] = useState<DragState | null>(null);
 	const [hoveredTrackId, setHoveredTrackId] = useState<string | null>(null);
+	const [toolMode, setToolMode] = useState<"select" | "blade">("select");
+	const [bladeCursorPosition, setBladeCursorPosition] = useState<{ x: number; trackId: string } | null>(null);
+	const [lastSelectedClip, setLastSelectedClip] = useState<{ clipId: string; trackId: string } | null>(null);
 
 	const timelineRef = useRef<HTMLDivElement>(null);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -396,19 +398,82 @@ export default function Timeline({
 		};
 	}, [dragState, pixelsPerSecond]);
 
-	const handleClipSelect = (clipId: string, trackId: string) => {
-		setSelectedClipId(clipId);
-		setSelectedTrackId(trackId);
+	const handleClipSelect = (clipId: string, trackId: string, event?: { ctrlKey: boolean; shiftKey: boolean }) => {
+		const ctrlKey = event?.ctrlKey || false;
+		const shiftKey = event?.shiftKey || false;
 
-		const track = timelineState.tracks.find((t) => t.id === trackId);
-		const clip = track?.clips.find((c) => c.id === clipId);
+		if (shiftKey && lastSelectedClip) {
+			// Range selection
+			const allClips: Array<{ clipId: string; trackId: string }> = [];
+			timelineState.tracks.forEach((track) => {
+				track.clips.forEach((clip) => {
+					allClips.push({ clipId: clip.id, trackId: track.id });
+				});
+			});
 
-		if (clip) {
-			onClipSelect?.({ clip, trackId });
+			const lastIndex = allClips.findIndex((c) => c.clipId === lastSelectedClip.clipId && c.trackId === lastSelectedClip.trackId);
+			const currentIndex = allClips.findIndex((c) => c.clipId === clipId && c.trackId === trackId);
+
+			if (lastIndex !== -1 && currentIndex !== -1) {
+				const start = Math.min(lastIndex, currentIndex);
+				const end = Math.max(lastIndex, currentIndex);
+				const rangeClips = allClips.slice(start, end + 1);
+				setSelectedClips(rangeClips);
+
+				const selections = rangeClips.map((c) => {
+					const track = timelineState.tracks.find((t) => t.id === c.trackId);
+					const clip = track?.clips.find((cl) => cl.id === c.clipId);
+					return clip ? { clip, trackId: c.trackId } : null;
+				}).filter((s): s is { clip: Clip; trackId: string } => s !== null);
+
+				onClipSelect?.(selections);
+			}
+		} else if (ctrlKey) {
+			const isAlreadySelected = selectedClips.some((c) => c.clipId === clipId && c.trackId === trackId);
+
+			let newSelection: Array<{ clipId: string; trackId: string }>;
+			if (isAlreadySelected) {
+				newSelection = selectedClips.filter((c) => !(c.clipId === clipId && c.trackId === trackId));
+			} else {
+				newSelection = [...selectedClips, { clipId, trackId }];
+			}
+
+			setSelectedClips(newSelection);
+			setLastSelectedClip({ clipId, trackId });
+
+			if (newSelection.length === 0) {
+				onClipSelect?.(null);
+			} else {
+				const selections = newSelection.map((c) => {
+					const track = timelineState.tracks.find((t) => t.id === c.trackId);
+					const clip = track?.clips.find((cl) => cl.id === c.clipId);
+					return clip ? { clip, trackId: c.trackId } : null;
+				}).filter((s): s is { clip: Clip; trackId: string } => s !== null);
+
+				onClipSelect?.(selections);
+			}
+		} else {
+			// Single selection
+			setSelectedClips([{ clipId, trackId }]);
+			setLastSelectedClip({ clipId, trackId });
+
+			const track = timelineState.tracks.find((t) => t.id === trackId);
+			const clip = track?.clips.find((c) => c.id === clipId);
+
+			if (clip) {
+				onClipSelect?.([{ clip, trackId }]);
+			}
 		}
 	};
 
 	const handleClipDragStart = (e: React.MouseEvent, clipId: string, trackId: string, type: "move" | "trim-start" | "trim-end") => {
+		// If this clip is not in the selection, select only this clip
+		const isInSelection = selectedClips.some((c) => c.clipId === clipId && c.trackId === trackId);
+		if (!isInSelection) {
+			setSelectedClips([{ clipId, trackId }]);
+			setLastSelectedClip({ clipId, trackId });
+		}
+
 		const track = timelineState.tracks.find((t) => t.id === trackId);
 		const clip = track?.clips.find((c) => c.id === clipId);
 
@@ -431,7 +496,7 @@ export default function Timeline({
 	};
 
 	const handleDeleteClip = useCallback(() => {
-		if (!selectedClipId || !selectedTrackId) return;
+		if (selectedClips.length === 0) return;
 
 		setTimelineState((prev) => {
 			// Deep copy tracks and clips to avoid mutation
@@ -442,19 +507,21 @@ export default function Timeline({
 					clips: [...t.clips],
 				})),
 			};
-			const trackIndex = newState.tracks.findIndex((t) => t.id === selectedTrackId);
 
-			if (trackIndex !== -1) {
-				newState.tracks[trackIndex].clips = newState.tracks[trackIndex].clips.filter((c) => c.id !== selectedClipId);
-			}
+			selectedClips.forEach(({ clipId, trackId }) => {
+				const trackIndex = newState.tracks.findIndex((t) => t.id === trackId);
+				if (trackIndex !== -1) {
+					newState.tracks[trackIndex].clips = newState.tracks[trackIndex].clips.filter((c) => c.id !== clipId);
+				}
+			});
 
 			return newState;
 		});
 
-		setSelectedClipId(null);
-		setSelectedTrackId(null);
+		setSelectedClips([]);
+		setLastSelectedClip(null);
 		onClipSelect?.(null);
-	}, [selectedClipId, selectedTrackId, onClipSelect]);
+	}, [selectedClips, onClipSelect]);
 
 	const handleZoomIn = useCallback(() => {
 		setPixelsPerSecond((prev) => Math.min(prev + 10, 200));
@@ -474,10 +541,100 @@ export default function Timeline({
 	}, [isPlaying, onPlayingChange]);
 
 	const handleTimelineClick = () => {
-		setSelectedClipId(null);
-		setSelectedTrackId(null);
+		setSelectedClips([]);
+		setLastSelectedClip(null);
 		onClipSelect?.(null);
 	};
+
+	const handleTrackMouseMove = useCallback((e: React.MouseEvent, trackId: string) => {
+		if (toolMode !== "blade") {
+			setBladeCursorPosition(null);
+			return;
+		}
+
+		const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
+		const rect = timelineRef.current?.getBoundingClientRect();
+		if (!rect) return;
+
+		const mouseX = e.clientX - rect.left + scrollLeft;
+		const mouseTime = mouseX / pixelsPerSecond;
+
+		const fps = 30;
+		const frameTime = 1 / fps;
+		const snappedTime = Math.round(mouseTime / frameTime) * frameTime;
+		const snappedX = snappedTime * pixelsPerSecond;
+
+		setBladeCursorPosition({ x: snappedX, trackId });
+	}, [toolMode, pixelsPerSecond]);
+
+	const handleBladeClick = useCallback((e: React.MouseEvent, trackId: string) => {
+		if (toolMode !== "blade") return;
+
+		e.stopPropagation();
+
+		const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
+		const rect = timelineRef.current?.getBoundingClientRect();
+		if (!rect) return;
+
+		const clickX = e.clientX - rect.left + scrollLeft;
+		const mouseTime = clickX / pixelsPerSecond;
+
+		const fps = 30;
+		const frameTime = 1 / fps;
+		const clickTime = Math.round(mouseTime / frameTime) * frameTime;
+
+		setTimelineState((prev) => {
+			const newState = {
+				...prev,
+				tracks: prev.tracks.map((t) => ({
+					...t,
+					clips: [...t.clips],
+				})),
+			};
+
+			const trackIndex = newState.tracks.findIndex((t) => t.id === trackId);
+			if (trackIndex === -1) return prev;
+
+			const track = newState.tracks[trackIndex];
+
+			// find clip at click position
+			const clipIndex = track.clips.findIndex((c) => {
+				const clipEnd = c.startTime + c.duration;
+				return clickTime >= c.startTime && clickTime < clipEnd;
+			});
+
+			if (clipIndex === -1) return prev;
+
+			const clipToSplit = track.clips[clipIndex];
+
+			// don't split at exact start or end of clip
+			const fps = 30;
+			const frameTime = 1 / fps;
+			if (clickTime <= clipToSplit.startTime || clickTime >= clipToSplit.startTime + clipToSplit.duration - frameTime) {
+				return prev;
+			}
+
+			// create left part
+			const leftPart = {
+				...clipToSplit,
+				duration: clickTime - clipToSplit.startTime,
+			};
+
+			// create right part
+			const rightPart: Clip = {
+				...clipToSplit,
+				id: `${clipToSplit.id}-split-${Date.now()}`,
+				startTime: clickTime,
+				duration: clipToSplit.startTime + clipToSplit.duration - clickTime,
+			};
+
+			// replace original with left part and add right part
+			newState.tracks[trackIndex].clips[clipIndex] = leftPart;
+			newState.tracks[trackIndex].clips.push(rightPart);
+
+			return newState;
+		});
+	}, [toolMode, pixelsPerSecond]);
 
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
@@ -489,6 +646,12 @@ export default function Timeline({
 			if (e.key === " ") {
 				e.preventDefault();
 				handlePlayPause();
+			} else if (e.key === "a" || e.key === "A") {
+				e.preventDefault();
+				setToolMode("select");
+			} else if (e.key === "b" || e.key === "B") {
+				e.preventDefault();
+				setToolMode("blade");
 			} else if (e.ctrlKey && (e.key === "=" || e.key === "+")) {
 				e.preventDefault();
 				handleZoomIn();
@@ -496,19 +659,19 @@ export default function Timeline({
 				e.preventDefault();
 				handleZoomOut();
 			} else if (e.key === "Backspace" || e.key === "Delete") {
-				if (selectedClipId && selectedTrackId) {
+				if (selectedClips.length > 0) {
 					handleDeleteClip();
 				}
 			} else if (e.key === "Escape") {
-				setSelectedClipId(null);
-				setSelectedTrackId(null);
+				setSelectedClips([]);
+				setLastSelectedClip(null);
 				onClipSelect?.(null);
 			}
 		};
 
 		window.addEventListener("keydown", handleKeyDown);
 		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [selectedClipId, selectedTrackId, onClipSelect, handleDeleteClip, handleZoomIn, handleZoomOut, handlePlayPause]);
+	}, [selectedClips, onClipSelect, handleDeleteClip, handleZoomIn, handleZoomOut, handlePlayPause]);
 
 	const timelineWidth = timelineState.duration * pixelsPerSecond;
 
@@ -524,6 +687,31 @@ export default function Timeline({
 					>
 						{isPlaying ? <Pause size={16} /> : <Play size={16} />}
 					</button>
+					<div className="w-px h-6 bg-zinc-700" />
+					<div className="flex items-center gap-1">
+						<button
+							onClick={() => setToolMode("select")}
+							className={`p-1.5 rounded ${
+								toolMode === "select"
+									? "bg-blue-600 text-white"
+									: "text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
+							}`}
+							title="Select Mode (A)"
+						>
+							<MousePointer2 size={16} />
+						</button>
+						<button
+							onClick={() => setToolMode("blade")}
+							className={`p-1.5 rounded ${
+								toolMode === "blade"
+									? "bg-blue-600 text-white"
+									: "text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
+							}`}
+							title="Blade Mode (B)"
+						>
+							<Scissors size={16} />
+						</button>
+					</div>
 				</div>
 				<div className="flex items-center gap-2">
 					<div className="flex items-center gap-1">
@@ -539,7 +727,12 @@ export default function Timeline({
 			</div>
 
 			{/* timeline area */}
-			<div ref={scrollContainerRef} className="flex-1 overflow-auto relative" onClick={handleTimelineClick}>
+			<div
+				ref={scrollContainerRef}
+				className="flex-1 overflow-auto relative"
+				style={{ cursor: toolMode === "blade" ? "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2'%3E%3Cpath d='M9 3H5a2 2 0 0 0-2 2v4m6-6v6.5m0 0l-3.5 3.5M9 9.5l3.5 3.5M19 3h4m0 0v4m0-4l-7 7m7 10v-4m0 4h-4m4 0l-7-7'/%3E%3C/svg%3E\") 12 12, crosshair" : "default" }}
+				onClick={handleTimelineClick}
+			>
 				<div className="min-w-full inline-block" style={{ width: `${timelineWidth + 200}px` }}>
 					{/* Time ruler */}
 					<div className="flex">
@@ -577,13 +770,17 @@ export default function Timeline({
 								<TimelineTrack
 									track={track}
 									pixelsPerSecond={pixelsPerSecond}
-									selectedClipId={selectedClipId}
+									selectedClips={selectedClips}
 									draggedClipId={dragState?.clipId || null}
 									isHovered={hoveredTrackId === track.id}
 									onClipSelect={handleClipSelect}
 									onClipDragStart={handleClipDragStart}
 									onTrackClick={handleTimelineClick}
 									onTrackMouseEnter={() => setHoveredTrackId(track.id)}
+									toolMode={toolMode}
+									onBladeClick={handleBladeClick}
+									onTrackMouseMove={handleTrackMouseMove}
+									bladeCursorPosition={bladeCursorPosition?.trackId === track.id ? bladeCursorPosition.x : null}
 								/>
 							</div>
 						))}

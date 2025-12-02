@@ -4,15 +4,15 @@ import { useState } from "react";
 import { Clip } from "../types/timeline";
 
 interface InspectorProps {
-	selectedClip: { clip: Clip; trackId: string } | null;
+	selectedClips: { clip: Clip; trackId: string }[] | null;
 }
 
-export default function Inspector({ selectedClip }: InspectorProps) {
+export default function Inspector({ selectedClips }: InspectorProps) {
 	const [activeTab, setActiveTab] = useState<string>("Video");
 
 	const tabs = ["Video", "Audio", "Color", "Effects"];
 
-	if (!selectedClip) {
+	if (!selectedClips || selectedClips.length === 0) {
 		return (
 			<div className="h-full bg-[#1e1e1e] border-l border-zinc-800 flex items-center justify-center">
 				<p className="text-sm text-zinc-500">No clip selected</p>
@@ -20,7 +20,7 @@ export default function Inspector({ selectedClip }: InspectorProps) {
 		);
 	}
 
-	const { clip, trackId } = selectedClip;
+	const { clip, trackId } = selectedClips[selectedClips.length - 1];
 
 	return (
 		<div className="h-full bg-[#1e1e1e] border-l border-zinc-800 flex flex-col">

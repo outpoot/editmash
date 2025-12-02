@@ -4,25 +4,33 @@ import TimelineClip from "./TimelineClip";
 interface TimelineTrackProps {
 	track: Track;
 	pixelsPerSecond: number;
-	selectedClipId: string | null;
+	selectedClips: Array<{ clipId: string; trackId: string }>;
 	draggedClipId: string | null;
 	isHovered: boolean;
-	onClipSelect: (clipId: string, trackId: string) => void;
+	onClipSelect: (clipId: string, trackId: string, event?: { ctrlKey: boolean; shiftKey: boolean }) => void;
 	onClipDragStart: (e: React.MouseEvent, clipId: string, trackId: string, type: "move" | "trim-start" | "trim-end") => void;
 	onTrackClick: () => void;
 	onTrackMouseEnter: () => void;
+	toolMode: "select" | "blade";
+	onBladeClick: (e: React.MouseEvent, trackId: string) => void;
+	onTrackMouseMove: (e: React.MouseEvent, trackId: string) => void;
+	bladeCursorPosition: number | null;
 }
 
 export default function TimelineTrack({
 	track,
 	pixelsPerSecond,
-	selectedClipId,
+	selectedClips,
 	draggedClipId,
 	isHovered,
 	onClipSelect,
 	onClipDragStart,
 	onTrackClick,
 	onTrackMouseEnter,
+	toolMode,
+	onBladeClick,
+	onTrackMouseMove,
+	bladeCursorPosition,
 }: TimelineTrackProps) {
 	return (
 		<div className="flex border-b border-zinc-800">
@@ -41,8 +49,15 @@ export default function TimelineTrack({
 				className={`flex-1 h-[2.5rem] relative cursor-crosshair transition-colors ${
 					isHovered && draggedClipId ? "bg-[#252525]" : "bg-[#1a1a1a]"
 				}`}
-				onClick={onTrackClick}
+				onClick={(e) => {
+					if (toolMode === "blade") {
+						onBladeClick(e, track.id);
+					} else {
+						onTrackClick();
+					}
+				}}
 				onMouseEnter={onTrackMouseEnter}
+				onMouseMove={(e) => onTrackMouseMove(e, track.id)}
 			>
 				{track.clips.map((clip) => (
 					<TimelineClip
@@ -50,10 +65,13 @@ export default function TimelineTrack({
 						clip={clip}
 						trackId={track.id}
 						pixelsPerSecond={pixelsPerSecond}
-						isSelected={selectedClipId === clip.id}
+						isSelected={selectedClips.some((c) => c.clipId === clip.id && c.trackId === track.id)}
 						isDragging={draggedClipId === clip.id}
-						onSelect={() => onClipSelect(clip.id, track.id)}
+						onSelect={(e) => onClipSelect(clip.id, track.id, { ctrlKey: e.ctrlKey, shiftKey: e.shiftKey })}
 						onDragStart={(e, type) => onClipDragStart(e, clip.id, track.id, type)}
+						toolMode={toolMode}
+						onBladeClick={onBladeClick}
+						bladeCursorPosition={bladeCursorPosition}
 					/>
 				))}
 			</div>
