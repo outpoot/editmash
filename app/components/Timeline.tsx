@@ -861,6 +861,28 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 
 					if (clipDuration <= 0) return;
 
+					let clipWidth = 1920;
+					let clipHeight = 1080;
+					let clipX = 0;
+					let clipY = 0;
+
+					if (mediaItem.type === "video" && mediaItem.width && mediaItem.height) {
+						const videoAspect = mediaItem.width / mediaItem.height;
+						const canvasAspect = 1920 / 1080;
+
+						if (videoAspect > canvasAspect) {
+							clipWidth = 1920;
+							clipHeight = 1920 / videoAspect;
+							clipX = 0;
+							clipY = (1080 - clipHeight) / 2;
+						} else {
+							clipHeight = 1080;
+							clipWidth = 1080 * videoAspect;
+							clipX = (1920 - clipWidth) / 2;
+							clipY = 0;
+						}
+					}
+
 					const newClip: Clip =
 						mediaItem.type === "video"
 							? {
@@ -871,8 +893,8 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 									duration: clipDuration,
 									sourceIn: 0,
 									properties: {
-										position: { x: 0, y: 0 },
-										size: { width: 1920, height: 1080 },
+										position: { x: clipX, y: clipY },
+										size: { width: clipWidth, height: clipHeight },
 										zoom: { x: 1, y: 1, linked: true },
 										rotation: 0,
 										pitch: 0,

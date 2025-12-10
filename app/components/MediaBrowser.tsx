@@ -70,6 +70,8 @@ export default function MediaBrowser() {
 					type,
 					url,
 					duration: element.duration,
+					width: type === "video" ? (element as HTMLVideoElement).videoWidth : undefined,
+					height: type === "video" ? (element as HTMLVideoElement).videoHeight : undefined,
 				};
 
 				// generate thumbnail

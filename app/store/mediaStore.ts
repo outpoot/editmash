@@ -5,6 +5,8 @@ interface MediaItem {
 	url: string;
 	duration: number;
 	thumbnail?: string;
+	width?: number;
+	height?: number;
 }
 
 class MediaStore {
