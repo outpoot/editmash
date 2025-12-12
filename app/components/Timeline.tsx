@@ -140,6 +140,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			type: "video" | "audio";
 		} | null>(null);
 		const [isSnappingEnabled, setIsSnappingEnabled] = useState(true);
+		const [clipboard, setClipboard] = useState<Array<{ clip: Clip; trackId: string }> | null>(null);
 
 		const timelineRef = useRef<HTMLDivElement>(null);
 		const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -158,7 +159,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		useImperativeHandle(
 			ref,
 			() => ({
-updateClip: (trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<AudioClip>) => {
+				updateClip: (trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<AudioClip>) => {
 					setTimelineState((prev) => {
 						const newState = {
 							...prev,
@@ -749,6 +750,106 @@ updateClip: (trackId: string, clipId: string, updates: Partial<VideoClip> | Part
 			onClipSelect?.(null);
 		}, [selectedClips, onClipSelect]);
 
+		const handleCutClips = useCallback(() => {
+			if (selectedClips.length === 0) return;
+
+			const clipsToClip: Array<{ clip: Clip; trackId: string }> = [];
+			selectedClips.forEach(({ clipId, trackId }) => {
+				const track = timelineState.tracks.find((t) => t.id === trackId);
+				const clip = track?.clips.find((c) => c.id === clipId);
+				if (clip && track) {
+					clipsToClip.push({ clip: { ...clip }, trackId });
+				}
+			});
+
+			setClipboard(clipsToClip);
+
+			setTimelineState((prev) => {
+				const newState = {
+					...prev,
+					tracks: prev.tracks.map((t) => ({
+						...t,
+						clips: [...t.clips],
+					})),
+				};
+
+				selectedClips.forEach(({ clipId, trackId }) => {
+					const trackIndex = newState.tracks.findIndex((t) => t.id === trackId);
+					if (trackIndex !== -1) {
+						newState.tracks[trackIndex].clips = newState.tracks[trackIndex].clips.filter((c) => c.id !== clipId);
+					}
+				});
+
+				return newState;
+			});
+
+			setSelectedClips([]);
+			setLastSelectedClip(null);
+			onClipSelect?.(null);
+		}, [selectedClips, timelineState, onClipSelect]);
+
+		const handleCopyClips = useCallback(() => {
+			if (selectedClips.length === 0) return;
+
+			const clipsToClip: Array<{ clip: Clip; trackId: string }> = [];
+			selectedClips.forEach(({ clipId, trackId }) => {
+				const track = timelineState.tracks.find((t) => t.id === trackId);
+				const clip = track?.clips.find((c) => c.id === clipId);
+				if (clip && track) {
+					clipsToClip.push({ clip: { ...clip }, trackId });
+				}
+			});
+
+			setClipboard(clipsToClip);
+		}, [selectedClips, timelineState]);
+
+		const handlePasteClips = useCallback(() => {
+			if (!clipboard || clipboard.length === 0) return;
+
+			const minStartTime = Math.min(...clipboard.map((c) => c.clip.startTime));
+			const offset = currentTimeRef.current - minStartTime;
+
+			const newClipIds: Array<{ clipId: string; trackId: string }> = [];
+
+			setTimelineState((prev) => {
+				let newState = {
+					...prev,
+					tracks: prev.tracks.map((t) => ({
+						...t,
+						clips: [...t.clips],
+					})),
+				};
+
+				clipboard.forEach(({ clip, trackId }) => {
+					const newClip: Clip = {
+						...clip,
+						id: `clip-${Date.now()}-${Math.random()}`,
+						startTime: Math.max(0, clip.startTime + offset),
+					};
+
+					if (newClip.startTime + newClip.duration > prev.duration) {
+						newClip.duration = prev.duration - newClip.startTime;
+					}
+
+					if (newClip.duration <= 0) return;
+
+					const trackIndex = newState.tracks.findIndex((t) => t.id === trackId);
+					if (trackIndex !== -1) {
+						newState.tracks[trackIndex].clips.push(newClip);
+						newState = handleClipPlacement(newClip, trackId, newState);
+						newClipIds.push({ clipId: newClip.id, trackId });
+					}
+				});
+
+				return newState;
+			});
+
+			setSelectedClips(newClipIds);
+			if (newClipIds.length > 0) {
+				setLastSelectedClip(newClipIds[0]);
+			}
+		}, [clipboard, currentTimeRef, handleClipPlacement]);
+
 		const handleZoomIn = useCallback(() => {
 			setPixelsPerSecond((prev) => Math.min(prev + 10, 200));
 		}, []);
@@ -1087,6 +1188,15 @@ updateClip: (trackId: string, clipId: string, updates: Partial<VideoClip> | Part
 				} else if (e.ctrlKey && e.key === "-") {
 					e.preventDefault();
 					handleZoomOut();
+				} else if (e.ctrlKey && e.key === "x") {
+					e.preventDefault();
+					handleCutClips();
+				} else if (e.ctrlKey && e.key === "c") {
+					e.preventDefault();
+					handleCopyClips();
+				} else if (e.ctrlKey && e.key === "v") {
+					e.preventDefault();
+					handlePasteClips();
 				} else if (e.key === "Backspace" || e.key === "Delete") {
 					if (selectedClips.length > 0) {
 						handleDeleteClip();
@@ -1100,7 +1210,17 @@ updateClip: (trackId: string, clipId: string, updates: Partial<VideoClip> | Part
 
 			window.addEventListener("keydown", handleKeyDown);
 			return () => window.removeEventListener("keydown", handleKeyDown);
-		}, [selectedClips, onClipSelect, handleDeleteClip, handleZoomIn, handleZoomOut, handlePlayPause]);
+		}, [
+			selectedClips,
+			onClipSelect,
+			handleDeleteClip,
+			handleCutClips,
+			handleCopyClips,
+			handlePasteClips,
+			handleZoomIn,
+			handleZoomOut,
+			handlePlayPause,
+		]);
 
 		// handle timeline scroll thru shortcuts
 		useEffect(() => {

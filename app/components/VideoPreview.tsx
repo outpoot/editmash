@@ -226,6 +226,12 @@ export default function VideoPreview({ timelineState, currentTime, currentTimeRe
 				// speed
 				if (props.freezeFrame) {
 					internalTime = clip.sourceIn + props.freezeFrameTime;
+					if (!videoEl.paused) {
+						videoEl.pause();
+					}
+					if (Math.abs(videoEl.currentTime - internalTime) > 0.1) {
+						videoEl.currentTime = Math.max(0, Math.min(internalTime, videoDuration));
+					}
 				} else {
 					internalTime = clip.sourceIn + timeInClip * props.speed;
 				}
@@ -235,8 +241,25 @@ export default function VideoPreview({ timelineState, currentTime, currentTimeRe
 
 				internalTime = Math.max(0, Math.min(internalTime, clampMax));
 
-				if (Math.abs(videoEl.currentTime - internalTime) > 0.1) {
-					videoEl.currentTime = Math.max(0, Math.min(internalTime, clampMax));
+				if (!props.freezeFrame) {
+					videoEl.playbackRate = Math.max(0.25, Math.min(4, props.speed));
+
+					if (isPlaying && videoEl.paused) {
+						if (Math.abs(videoEl.currentTime - internalTime) > 0.1) {
+							videoEl.currentTime = Math.max(0, Math.min(internalTime, clampMax));
+						}
+						videoEl.play().catch((err) => {
+							if (err.name !== "AbortError") {
+								console.error("Error playing video:", err);
+							}
+						});
+					} else if (!isPlaying && !videoEl.paused) {
+						videoEl.pause();
+					} else if (!isPlaying) {
+						if (Math.abs(videoEl.currentTime - internalTime) > 0.1) {
+							videoEl.currentTime = Math.max(0, Math.min(internalTime, clampMax));
+						}
+					}
 				}
 
 				// transformations & crop
@@ -377,6 +400,13 @@ export default function VideoPreview({ timelineState, currentTime, currentTimeRe
 							}
 						}
 					});
+				}
+			});
+
+			const activeVideoIds = new Set(activeVideoClips.map(({ clip }) => clip.id));
+			videoElementsRef.current.forEach((video, id) => {
+				if (!activeVideoIds.has(id) && !video.paused) {
+					video.pause();
 				}
 			});
 
