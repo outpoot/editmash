@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Clip, VideoClip } from "../types/timeline";
 import { useVideoThumbnails } from "../hooks/useVideoThumbnails";
 import { Snowflake } from "lucide-react";
@@ -8,14 +9,14 @@ interface TimelineClipProps {
 	pixelsPerSecond: number;
 	isSelected: boolean;
 	isDragging: boolean;
-	onSelect: (e: React.MouseEvent) => void;
-	onDragStart: (e: React.MouseEvent, type: "move" | "trim-start" | "trim-end") => void;
+	onSelect: (clipId: string, trackId: string, event: { ctrlKey: boolean; shiftKey: boolean }) => void;
+	onDragStart: (e: React.MouseEvent, clipId: string, trackId: string, type: "move" | "trim-start" | "trim-end") => void;
 	toolMode: "select" | "blade";
 	onBladeClick: (e: React.MouseEvent, trackId: string) => void;
 	bladeCursorPosition: number | null;
 }
 
-export default function TimelineClip({
+function TimelineClip({
 	clip,
 	trackId,
 	pixelsPerSecond,
@@ -56,7 +57,7 @@ export default function TimelineClip({
 
 		e.stopPropagation();
 
-		onSelect(e);
+		onSelect(clip.id, trackId, { ctrlKey: e.ctrlKey, shiftKey: e.shiftKey });
 
 		if (e.ctrlKey || e.shiftKey) {
 			return;
@@ -72,7 +73,7 @@ export default function TimelineClip({
 			dragType = "trim-end";
 		}
 
-		onDragStart(e, dragType);
+		onDragStart(e, clip.id, trackId, dragType);
 	};
 
 	const thumbnailWidth = 80;
@@ -140,8 +141,8 @@ export default function TimelineClip({
 						className="absolute left-0 top-0 w-2 h-full cursor-ew-resize"
 						onMouseDown={(e) => {
 							e.stopPropagation();
-							onSelect(e);
-							onDragStart(e, "trim-start");
+							onSelect(clip.id, trackId, { ctrlKey: e.ctrlKey, shiftKey: e.shiftKey });
+							onDragStart(e, clip.id, trackId, "trim-start");
 						}}
 						onClick={(e) => e.stopPropagation()}
 					/>
@@ -149,8 +150,8 @@ export default function TimelineClip({
 						className="absolute right-0 top-0 w-2 h-full cursor-ew-resize"
 						onMouseDown={(e) => {
 							e.stopPropagation();
-							onSelect(e);
-							onDragStart(e, "trim-end");
+							onSelect(clip.id, trackId, { ctrlKey: e.ctrlKey, shiftKey: e.shiftKey });
+							onDragStart(e, clip.id, trackId, "trim-end");
 						}}
 						onClick={(e) => e.stopPropagation()}
 					/>
@@ -169,3 +170,5 @@ export default function TimelineClip({
 		</div>
 	);
 }
+
+export default memo(TimelineClip);

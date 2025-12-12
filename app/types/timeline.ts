@@ -14,6 +14,9 @@ export interface VideoClipProperties {
 
 export interface AudioClipProperties {
 	volume: number;
+	pan: number; // -1 (left) to 1 (right)
+	pitch: number; // semitones (-24 to 24)
+	speed: number;
 }
 
 export interface BaseClip {
@@ -58,6 +61,7 @@ export interface DragState {
 	type: "move" | "trim-start" | "trim-end";
 	startX: number;
 	startY: number;
+	startScrollLeft: number;
 	startTime: number;
 	startDuration: number;
 	originalSourceIn: number;

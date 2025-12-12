@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Track, Clip } from "../types/timeline";
 import TimelineClip from "./TimelineClip";
 
@@ -24,7 +25,7 @@ interface TimelineTrackProps {
 	dragPreview: { trackId: string; startTime: number; duration: number; type: "video" | "audio" } | null;
 }
 
-export default function TimelineTrack({
+function TimelineTrack({
 	track,
 	pixelsPerSecond,
 	selectedClips,
@@ -99,8 +100,8 @@ export default function TimelineTrack({
 					pixelsPerSecond={pixelsPerSecond}
 					isSelected={selectedClips.some((c) => c.clipId === clip.id && c.trackId === track.id)}
 					isDragging={draggedClipId === clip.id}
-					onSelect={(e) => onClipSelect(clip.id, track.id, { ctrlKey: e.ctrlKey, shiftKey: e.shiftKey })}
-					onDragStart={(e, type) => onClipDragStart(e, clip.id, track.id, type)}
+					onSelect={onClipSelect}
+					onDragStart={onClipDragStart}
 					toolMode={toolMode}
 					onBladeClick={onBladeClick}
 					bladeCursorPosition={bladeCursorPosition}
@@ -109,3 +110,5 @@ export default function TimelineTrack({
 		</div>
 	);
 }
+
+export default memo(TimelineTrack);

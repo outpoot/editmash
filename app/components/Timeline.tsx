@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
-import { TimelineState, Clip, DragState, VideoClip } from "../types/timeline";
+import { TimelineState, Clip, DragState, VideoClip, AudioClip } from "../types/timeline";
 import TimelineTrack from "./TimelineTrack";
 import TimeRuler from "./TimeRuler";
 import { ZoomIn, ZoomOut, Play, Pause, MousePointer2, Scissors, Magnet } from "lucide-react";
@@ -99,6 +99,9 @@ const initialTimelineState: TimelineState = {
 					sourceIn: 0,
 					properties: {
 						volume: 0.8,
+						pan: 0,
+						pitch: 0,
+						speed: 1,
 					},
 				},
 			],
@@ -117,7 +120,7 @@ interface TimelineProps {
 }
 
 export interface TimelineRef {
-	updateClip: (trackId: string, clipId: string, updates: Partial<VideoClip>) => void;
+	updateClip: (trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<AudioClip>) => void;
 }
 
 const Timeline = forwardRef<TimelineRef, TimelineProps>(
@@ -155,7 +158,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		useImperativeHandle(
 			ref,
 			() => ({
-				updateClip: (trackId: string, clipId: string, updates: Partial<VideoClip>) => {
+updateClip: (trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<AudioClip>) => {
 					setTimelineState((prev) => {
 						const newState = {
 							...prev,
@@ -164,11 +167,21 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 									? {
 											...t,
 											clips: t.clips.map((c) => {
-												if (c.id === clipId && c.type === "video") {
-													return {
-														...c,
-														...updates,
-													};
+												if (c.id === clipId) {
+													// Type-safe merging based on clip type
+													if (c.type === "video") {
+														const videoUpdates = updates as Partial<VideoClip>;
+														return {
+															...c,
+															...videoUpdates,
+														} as VideoClip;
+													} else {
+														const audioUpdates = updates as Partial<AudioClip>;
+														return {
+															...c,
+															...audioUpdates,
+														} as AudioClip;
+													}
 												}
 												return c;
 											}),
@@ -184,8 +197,9 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		);
 
 		useEffect(() => {
+			if (dragState) return;
 			onTimelineStateChange(timelineState);
-		}, [timelineState, onTimelineStateChange]);
+		}, [timelineState, onTimelineStateChange, dragState]);
 
 		useEffect(() => {
 			if (selectedClips.length > 0 && onClipSelect) {
@@ -205,7 +219,8 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 
 		useEffect(() => {
 			if (!isPlaying && playheadElementRef.current) {
-				playheadElementRef.current.style.transform = `translateX(${currentTime * pixelsPerSecond}px)`;
+				const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
+				playheadElementRef.current.style.transform = `translateX(${currentTime * pixelsPerSecond - scrollLeft}px)`;
 			}
 		}, [currentTime, pixelsPerSecond, isPlaying]);
 
@@ -234,7 +249,8 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				currentTimeRef.current = newTime;
 
 				if (playheadElementRef.current) {
-					const left = newTime * pixelsPerSecond;
+					const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
+					const left = newTime * pixelsPerSecond - scrollLeft;
 					playheadElementRef.current.style.transform = `translateX(${left}px)`;
 				}
 
@@ -270,7 +286,18 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			return null;
 		};
 
-		// calculate snapping for clip positions
+		const snapPointsCache = useMemo(() => {
+			const points: number[] = [0, timelineState.duration];
+
+			timelineState.tracks.forEach((track) => {
+				track.clips.forEach((clip) => {
+					points.push(clip.startTime, clip.startTime + clip.duration);
+				});
+			});
+
+			return points;
+		}, [timelineState]);
+
 		const calculateSnappedTime = useCallback(
 			(targetTime: number, clipId: string, clipDuration: number): number => {
 				if (!isSnappingEnabled) return targetTime;
@@ -281,23 +308,10 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 
 				const clipEnd = targetTime + clipDuration;
 
-				const snapPoints: number[] = [0]; // timeline start
+				const snapPoints = [...snapPointsCache, currentTimeRef.current];
 
-				snapPoints.push(currentTimeRef.current);
-
-				timelineState.tracks.forEach((track) => {
-					track.clips.forEach((clip) => {
-						if (clip.id === clipId) return; // skip the clip being dragged
-
-						const start = clip.startTime;
-						const end = clip.startTime + clip.duration;
-
-						snapPoints.push(start, end);
-					});
-				});
-
-				// check snap for clip start
-				for (const snapPoint of snapPoints) {
+				for (let i = 0; i < snapPoints.length; i++) {
+					const snapPoint = snapPoints[i];
 					const distance = Math.abs(targetTime - snapPoint);
 					if (distance < minDistance) {
 						minDistance = distance;
@@ -305,8 +319,8 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					}
 				}
 
-				// check snap for clip end
-				for (const snapPoint of snapPoints) {
+				for (let i = 0; i < snapPoints.length; i++) {
+					const snapPoint = snapPoints[i];
 					const distance = Math.abs(clipEnd - snapPoint);
 					if (distance < minDistance) {
 						minDistance = distance;
@@ -316,10 +330,9 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 
 				return closestSnapPoint !== null ? closestSnapPoint : targetTime;
 			},
-			[isSnappingEnabled, timelineState.tracks, currentTimeRef]
+			[isSnappingEnabled, snapPointsCache, currentTimeRef]
 		);
 
-		// calculate snapping for playhead position
 		const calculatePlayheadSnappedTime = useCallback(
 			(targetTime: number): number => {
 				if (!isSnappingEnabled) return targetTime;
@@ -328,19 +341,10 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				let closestSnapPoint: number | null = null;
 				let minDistance = snapThreshold;
 
-				const snapPoints: number[] = [0];
+				const snapPoints = snapPointsCache;
 
-				timelineState.tracks.forEach((track) => {
-					track.clips.forEach((clip) => {
-						const start = clip.startTime;
-						const end = clip.startTime + clip.duration;
-
-						snapPoints.push(start, end);
-					});
-				});
-
-				// find closest snap point
-				for (const snapPoint of snapPoints) {
+				for (let i = 0; i < snapPoints.length; i++) {
+					const snapPoint = snapPoints[i];
 					const distance = Math.abs(targetTime - snapPoint);
 					if (distance < minDistance) {
 						minDistance = distance;
@@ -350,7 +354,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 
 				return closestSnapPoint !== null ? closestSnapPoint : targetTime;
 			},
-			[isSnappingEnabled, timelineState.tracks]
+			[isSnappingEnabled, snapPointsCache]
 		);
 
 		// clip placement on drop
@@ -447,30 +451,35 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		}, []);
 
 		// handle mouse move and up for dragging
+		const dragStateRef = useRef<DragState | null>(null);
+		dragStateRef.current = dragState;
+
 		useEffect(() => {
 			if (!dragState) return;
 
 			const handleMouseMove = (e: MouseEvent) => {
-				if (!timelineRef.current) return;
+				const currentDragState = dragStateRef.current;
+				if (!timelineRef.current || !currentDragState) return;
 
 				const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
-				const deltaX = e.clientX - dragState.startX + scrollLeft;
-				const deltaY = Math.abs(e.clientY - dragState.startY);
+				const scrollDelta = scrollLeft - currentDragState.startScrollLeft;
+				const deltaX = e.clientX - currentDragState.startX + scrollDelta;
+				const deltaY = Math.abs(e.clientY - currentDragState.startY);
 
 				// 3px threshold to prevent accidental drags
-				if (!dragState.hasMoved && Math.abs(deltaX) < 3 && deltaY < 3) {
+				if (!currentDragState.hasMoved && Math.abs(deltaX) < 3 && deltaY < 3) {
 					return;
 				}
 
 				// we moving
-				if (!dragState.hasMoved) {
+				if (!currentDragState.hasMoved) {
 					setDragState((prev) => (prev ? { ...prev, hasMoved: true } : null));
 				}
 
 				const deltaTime = deltaX / pixelsPerSecond;
 
-				let currentTrackId = dragState.trackId;
-				if (dragState.type === "move") {
+				let currentTrackId = currentDragState.trackId;
+				if (currentDragState.type === "move") {
 					const hoveredTrack = getTrackAtY(e.clientY);
 					if (hoveredTrack) {
 						currentTrackId = hoveredTrack;
@@ -488,7 +497,8 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					requestAnimationFrame(() => {
 						dragUpdateScheduledRef.current = false;
 						const update = pendingDragUpdateRef.current;
-						if (!update || !dragState) return;
+						const latestDragState = dragStateRef.current;
+						if (!update || !latestDragState) return;
 
 						const { deltaTime, currentTrackId } = update;
 
@@ -501,33 +511,30 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 								})),
 							};
 
-							const sourceTrackIndex = newState.tracks.findIndex((t) => t.id === dragState.trackId);
+							const sourceTrackIndex = newState.tracks.findIndex((t) => t.id === latestDragState.trackId);
 							if (sourceTrackIndex === -1) return prev;
 
-							const clipIndex = newState.tracks[sourceTrackIndex].clips.findIndex((c) => c.id === dragState.clipId);
+							const clipIndex = newState.tracks[sourceTrackIndex].clips.findIndex((c) => c.id === latestDragState.clipId);
 							if (clipIndex === -1) return prev;
 
 							let clip = {
 								...newState.tracks[sourceTrackIndex].clips[clipIndex],
 							};
 
-							if (dragState.type === "move") {
-								let newStartTime = Math.max(0, dragState.startTime + deltaTime);
+							if (latestDragState.type === "move") {
+								let newStartTime = Math.max(0, latestDragState.startTime + deltaTime);
 								newStartTime = Math.min(newStartTime, prev.duration - clip.duration);
-
 								newStartTime = calculateSnappedTime(newStartTime, clip.id, clip.duration);
-
 								clip.startTime = newStartTime;
 
 								// handle cross-track movement
-								if (currentTrackId !== dragState.trackId) {
+								if (currentTrackId !== latestDragState.trackId) {
 									const targetTrackIndex = newState.tracks.findIndex((t) => t.id === currentTrackId);
 									const targetTrack = newState.tracks[targetTrackIndex];
 
-									// only allow movement to same type track
 									if (targetTrack && targetTrack.type === clip.type) {
 										newState.tracks[sourceTrackIndex].clips = newState.tracks[sourceTrackIndex].clips.filter(
-											(c) => c.id !== dragState.clipId
+											(c) => c.id !== latestDragState.clipId
 										);
 
 										newState.tracks[targetTrackIndex].clips.push(clip);
@@ -540,21 +547,20 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 									// moving within same track - just update position
 									newState.tracks[sourceTrackIndex].clips[clipIndex] = clip;
 								}
-							} else if (dragState.type === "trim-start") {
-								const newStartTime = Math.max(0, dragState.startTime + deltaTime);
-								const maxStartTime = dragState.startTime + dragState.startDuration - 0.1;
+							} else if (latestDragState.type === "trim-start") {
+								const newStartTime = Math.max(0, latestDragState.startTime + deltaTime);
+								const maxStartTime = latestDragState.startTime + latestDragState.startDuration - 0.1;
 								clip.startTime = Math.min(newStartTime, maxStartTime);
-								const trimAmount = clip.startTime - dragState.startTime;
-								clip.duration = dragState.startDuration - trimAmount;
+								const trimAmount = clip.startTime - latestDragState.startTime;
+								clip.duration = latestDragState.startDuration - trimAmount;
 
-								// Update sourceIn for video clips (adjust for speed)
 								if (clip.type === "video") {
-									const originalSourceIn = dragState.originalSourceIn || 0;
-									clip.sourceIn = originalSourceIn + (trimAmount * clip.properties.speed);
+									const originalSourceIn = latestDragState.originalSourceIn || 0;
+									clip.sourceIn = originalSourceIn + trimAmount * clip.properties.speed;
 								}
 								newState.tracks[sourceTrackIndex].clips[clipIndex] = clip;
-							} else if (dragState.type === "trim-end") {
-								const newDuration = Math.max(0.1, dragState.startDuration + deltaTime);
+							} else if (latestDragState.type === "trim-end") {
+								const newDuration = Math.max(0.1, latestDragState.startDuration + deltaTime);
 								const maxDuration = prev.duration - clip.startTime;
 								clip.duration = Math.min(newDuration, maxDuration);
 								newState.tracks[sourceTrackIndex].clips[clipIndex] = clip;
@@ -567,14 +573,15 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			};
 
 			const handleMouseUp = () => {
-				if (dragState && dragState.type === "move" && dragState.hasMoved) {
+				const currentDragState = dragStateRef.current;
+				if (currentDragState && currentDragState.type === "move" && currentDragState.hasMoved) {
 					setTimelineState((prev) => {
-						const track = prev.tracks.find((t) => t.id === dragState.trackId);
-						const clip = track?.clips.find((c) => c.id === dragState.clipId);
+						const track = prev.tracks.find((t) => t.id === currentDragState.trackId);
+						const clip = track?.clips.find((c) => c.id === currentDragState.clipId);
 
 						if (!clip) return prev;
 
-						return handleClipPlacement(clip, dragState.trackId, prev);
+						return handleClipPlacement(clip, currentDragState.trackId, prev);
 					});
 				}
 
@@ -592,22 +599,36 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				window.removeEventListener("mousemove", handleMouseMove);
 				window.removeEventListener("mouseup", handleMouseUp);
 			};
-		}, [dragState, pixelsPerSecond, calculateSnappedTime, handleClipPlacement]);
+		}, [!!dragState, pixelsPerSecond, calculateSnappedTime, handleClipPlacement]);
 
-		const handleClipSelect = (clipId: string, trackId: string, event?: { ctrlKey: boolean; shiftKey: boolean }) => {
+		const timelineStateRef = useRef(timelineState);
+		timelineStateRef.current = timelineState;
+		const selectedClipsRef = useRef(selectedClips);
+		selectedClipsRef.current = selectedClips;
+		const lastSelectedClipRef = useRef(lastSelectedClip);
+		lastSelectedClipRef.current = lastSelectedClip;
+		const onClipSelectRef = useRef(onClipSelect);
+		onClipSelectRef.current = onClipSelect;
+
+		const handleClipSelect = useCallback((clipId: string, trackId: string, event?: { ctrlKey: boolean; shiftKey: boolean }) => {
 			const ctrlKey = event?.ctrlKey || false;
 			const shiftKey = event?.shiftKey || false;
+			const currentTimelineState = timelineStateRef.current;
+			const currentSelectedClips = selectedClipsRef.current;
+			const currentLastSelectedClip = lastSelectedClipRef.current;
+			const currentOnClipSelect = onClipSelectRef.current;
 
-			if (shiftKey && lastSelectedClip) {
-				// Range selection
+			if (shiftKey && currentLastSelectedClip) {
 				const allClips: Array<{ clipId: string; trackId: string }> = [];
-				timelineState.tracks.forEach((track) => {
+				currentTimelineState.tracks.forEach((track) => {
 					track.clips.forEach((clip) => {
 						allClips.push({ clipId: clip.id, trackId: track.id });
 					});
 				});
 
-				const lastIndex = allClips.findIndex((c) => c.clipId === lastSelectedClip.clipId && c.trackId === lastSelectedClip.trackId);
+				const lastIndex = allClips.findIndex(
+					(c) => c.clipId === currentLastSelectedClip.clipId && c.trackId === currentLastSelectedClip.trackId
+				);
 				const currentIndex = allClips.findIndex((c) => c.clipId === clipId && c.trackId === trackId);
 
 				if (lastIndex !== -1 && currentIndex !== -1) {
@@ -618,83 +639,88 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 
 					const selections = rangeClips
 						.map((c) => {
-							const track = timelineState.tracks.find((t) => t.id === c.trackId);
+							const track = currentTimelineState.tracks.find((t) => t.id === c.trackId);
 							const clip = track?.clips.find((cl) => cl.id === c.clipId);
 							return clip ? { clip, trackId: c.trackId } : null;
 						})
 						.filter((s): s is { clip: Clip; trackId: string } => s !== null);
 
-					onClipSelect?.(selections);
+					currentOnClipSelect?.(selections);
 				}
 			} else if (ctrlKey) {
-				const isAlreadySelected = selectedClips.some((c) => c.clipId === clipId && c.trackId === trackId);
+				const isAlreadySelected = currentSelectedClips.some((c) => c.clipId === clipId && c.trackId === trackId);
 
 				let newSelection: Array<{ clipId: string; trackId: string }>;
 				if (isAlreadySelected) {
-					newSelection = selectedClips.filter((c) => !(c.clipId === clipId && c.trackId === trackId));
+					newSelection = currentSelectedClips.filter((c) => !(c.clipId === clipId && c.trackId === trackId));
 				} else {
-					newSelection = [...selectedClips, { clipId, trackId }];
+					newSelection = [...currentSelectedClips, { clipId, trackId }];
 				}
 
 				setSelectedClips(newSelection);
 				setLastSelectedClip({ clipId, trackId });
 
 				if (newSelection.length === 0) {
-					onClipSelect?.(null);
+					currentOnClipSelect?.(null);
 				} else {
 					const selections = newSelection
 						.map((c) => {
-							const track = timelineState.tracks.find((t) => t.id === c.trackId);
+							const track = currentTimelineState.tracks.find((t) => t.id === c.trackId);
 							const clip = track?.clips.find((cl) => cl.id === c.clipId);
 							return clip ? { clip, trackId: c.trackId } : null;
 						})
 						.filter((s): s is { clip: Clip; trackId: string } => s !== null);
 
-					onClipSelect?.(selections);
+					currentOnClipSelect?.(selections);
 				}
 			} else {
-				// Single selection
 				setSelectedClips([{ clipId, trackId }]);
 				setLastSelectedClip({ clipId, trackId });
 
-				const track = timelineState.tracks.find((t) => t.id === trackId);
+				const track = currentTimelineState.tracks.find((t) => t.id === trackId);
 				const clip = track?.clips.find((c) => c.id === clipId);
 
 				if (clip) {
-					onClipSelect?.([{ clip, trackId }]);
+					currentOnClipSelect?.([{ clip, trackId }]);
 				}
 			}
-		};
+		}, []);
 
-		const handleClipDragStart = (e: React.MouseEvent, clipId: string, trackId: string, type: "move" | "trim-start" | "trim-end") => {
-			// If this clip is not in the selection, select only this clip
-			const isInSelection = selectedClips.some((c) => c.clipId === clipId && c.trackId === trackId);
-			if (!isInSelection) {
-				setSelectedClips([{ clipId, trackId }]);
-				setLastSelectedClip({ clipId, trackId });
-			}
+		const handleClipDragStart = useCallback(
+			(e: React.MouseEvent, clipId: string, trackId: string, type: "move" | "trim-start" | "trim-end") => {
+				const currentSelectedClips = selectedClipsRef.current;
+				const currentTimelineState = timelineStateRef.current;
 
-			const track = timelineState.tracks.find((t) => t.id === trackId);
-			const clip = track?.clips.find((c) => c.id === clipId);
+				const isInSelection = currentSelectedClips.some((c) => c.clipId === clipId && c.trackId === trackId);
+				if (!isInSelection) {
+					setSelectedClips([{ clipId, trackId }]);
+					setLastSelectedClip({ clipId, trackId });
+				}
 
-			if (!clip) return;
+				const track = currentTimelineState.tracks.find((t) => t.id === trackId);
+				const clip = track?.clips.find((c) => c.id === clipId);
 
-			const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
+				if (!clip) return;
 
-			setDragState({
-				clipId,
-				trackId,
-				type,
-				startX: e.clientX - scrollLeft,
-				startY: e.clientY,
-				startTime: clip.startTime,
-				startDuration: clip.duration,
-				originalSourceIn: clip.sourceIn,
-				originalTrackId: trackId,
-				currentTrackId: trackId,
-				hasMoved: false,
-			});
-		};
+				const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
+
+				setDragState({
+					clipId,
+					trackId,
+					type,
+					startX: e.clientX,
+					startY: e.clientY,
+					startScrollLeft: scrollLeft,
+					startTime: clip.startTime,
+					startDuration: clip.duration,
+					originalSourceIn: clip.sourceIn,
+					originalTrackId: trackId,
+					currentTrackId: trackId,
+					hasMoved: false,
+				});
+			},
+			[]
+		);
 
 		const handleDeleteClip = useCallback(() => {
 			if (selectedClips.length === 0) return;
@@ -731,18 +757,25 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			setPixelsPerSecond((prev) => Math.max(prev - 10, 10));
 		}, []);
 
+		const calculatePlayheadSnappedTimeRef = useRef(calculatePlayheadSnappedTime);
+		calculatePlayheadSnappedTimeRef.current = calculatePlayheadSnappedTime;
+		const isPlayingRef = useRef(isPlaying);
+		isPlayingRef.current = isPlaying;
+		const onTimeChangeRef = useRef(onTimeChange);
+		onTimeChangeRef.current = onTimeChange;
+
 		const handleSeek = useCallback(
 			(time: number) => {
-				const snappedTime = calculatePlayheadSnappedTime(time);
+				const snappedTime = calculatePlayheadSnappedTimeRef.current(time);
 				currentTimeRef.current = snappedTime;
-				onTimeChange(snappedTime);
+				onTimeChangeRef.current(snappedTime);
 
-				if (isPlaying) {
+				if (isPlayingRef.current) {
 					playbackStartTimeRef.current = performance.now();
 					playbackStartPositionRef.current = snappedTime;
 				}
 			},
-			[onTimeChange, currentTimeRef, isPlaying, calculatePlayheadSnappedTime]
+			[currentTimeRef]
 		);
 
 		const handlePlayPause = useCallback(() => {
@@ -904,7 +937,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 										speed: 1,
 										freezeFrame: false,
 										freezeFrameTime: 0,
-													},
+									},
 							  }
 							: {
 									id: `clip-${Date.now()}-${Math.random()}`,
@@ -915,6 +948,9 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 									sourceIn: 0,
 									properties: {
 										volume: 1.0,
+										pan: 0,
+										pitch: 0,
+										speed: 1,
 									},
 							  };
 
@@ -998,7 +1034,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						return prev;
 					}
 
-					// create left part
 					const leftPart = {
 						...clipToSplit,
 						duration: clickTime - clipToSplit.startTime,
@@ -1030,7 +1065,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 
 		useEffect(() => {
 			const handleKeyDown = (e: KeyboardEvent) => {
-				// Don't trigger shortcuts if user is typing in an input
 				if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
 					return;
 				}
@@ -1087,11 +1121,27 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			return () => scrollContainer.removeEventListener("wheel", handleWheel);
 		}, []);
 
+		useEffect(() => {
+			const scrollContainer = scrollContainerRef.current;
+			if (!scrollContainer) return;
+
+			const handleScroll = () => {
+				const newScrollLeft = scrollContainer.scrollLeft;
+				if (playheadElementRef.current) {
+					playheadElementRef.current.style.transform = `translateX(${currentTimeRef.current * pixelsPerSecond - newScrollLeft}px)`;
+					const shouldBeAbove = currentTimeRef.current === 0 && newScrollLeft < 6;
+					playheadElementRef.current.style.zIndex = shouldBeAbove ? "80" : "60";
+				}
+			};
+
+			scrollContainer.addEventListener("scroll", handleScroll);
+			return () => scrollContainer.removeEventListener("scroll", handleScroll);
+		}, [pixelsPerSecond]);
+
 		const timelineWidth = timelineState.duration * pixelsPerSecond;
 
 		return (
 			<div className="h-full bg-[#1a1a1a] border-t border-zinc-800 flex flex-col">
-				{/* Toolbar */}
 				<div className="h-10 bg-[#1e1e1e] border-b border-zinc-800 flex items-center justify-between px-4">
 					<div className="flex items-center gap-3">
 						<button
@@ -1146,12 +1196,10 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					</div>
 				</div>
 
-				{/* timeline area */}
 				<div className="flex-1 flex overflow-hidden relative">
-					{/* Left column - track labels */}
-					<div className="w-32 flex-shrink-0 bg-[#1e1e1e] border-r border-zinc-800 flex flex-col">
-						{/* Time display */}
-						<div className="h-8 border-b border-zinc-800 flex items-center justify-center">
+					<div className="w-32 flex-shrink-0 bg-[#1e1e1e] border-r border-zinc-800 flex flex-col relative z-[70]">
+						<div className="absolute left-0 top-0 bottom-0 bg-[#1e1e1e] pointer-events-none" style={{ width: "calc(100% - 4px)" }} />
+						<div className="h-8 border-b border-zinc-800 flex items-center justify-center relative">
 							<span className="text-sm text-zinc-300 font-mono tabular-nums">
 								{Math.floor(currentTime / 60)
 									.toString()
@@ -1166,9 +1214,8 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 									.padStart(2, "0")}
 							</span>
 						</div>
-						{/* Track labels */}
 						{timelineState.tracks.map((track) => (
-							<div key={track.id} className="h-[2.5rem] border-b border-zinc-800 flex items-center px-3">
+							<div key={track.id} className="h-[2.5rem] border-b border-zinc-800 flex items-center px-3 relative">
 								<div className="flex items-center gap-2">
 									<div className={`w-2 h-2 rounded-full ${track.type === "video" ? "bg-purple-500" : "bg-green-500"}`} />
 									<span className="text-sm text-zinc-300 font-medium">
@@ -1179,7 +1226,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						))}
 					</div>
 
-					{/* Right column - scrollable timeline */}
 					<div
 						ref={scrollContainerRef}
 						className="flex-1 overflow-auto relative"
@@ -1192,12 +1238,10 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						onClick={handleTimelineClick}
 					>
 						<div className="min-w-full inline-block" style={{ width: `${timelineWidth + 200}px` }}>
-							{/* Time ruler */}
 							<div ref={timelineRef}>
 								<TimeRuler duration={timelineState.duration} pixelsPerSecond={pixelsPerSecond} onSeek={handleSeek} />
 							</div>
 
-							{/* Tracks */}
 							<div className="relative">
 								{timelineState.tracks.map((track) => (
 									<div
@@ -1238,21 +1282,19 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						</div>
 					</div>
 
-					{/* Playhead */}
 					<div
 						ref={playheadElementRef}
-						className="absolute z-[60] pointer-events-none"
+						className="absolute pointer-events-none"
 						style={{
 							left: "8rem",
 							top: 0,
 							height: "100%",
 							willChange: isPlaying ? "transform" : "auto",
+							zIndex: currentTime === 0 ? 80 : 60,
 						}}
 					>
-						{/* Playhead line */}
 						<div className="absolute w-0.5 bg-red-500 h-full" />
 
-						{/* Triangle */}
 						<svg
 							width="12"
 							height="10"
@@ -1281,7 +1323,8 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 									onTimeChange(newTime);
 
 									if (playheadElementRef.current) {
-										playheadElementRef.current.style.transform = `translateX(${newTime * pixelsPerSecond}px)`;
+										const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
+										playheadElementRef.current.style.transform = `translateX(${newTime * pixelsPerSecond - scrollLeft}px)`;
 									}
 								};
 

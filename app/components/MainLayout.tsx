@@ -7,7 +7,7 @@ import EffectsBrowser from "./EffectsBrowser";
 import VideoPreview from "./VideoPreview";
 import Inspector from "./Inspector";
 import Timeline, { TimelineRef } from "./Timeline";
-import { Clip, TimelineState, VideoClip } from "../types/timeline";
+import { Clip, TimelineState, VideoClip, AudioClip } from "../types/timeline";
 
 interface MainLayoutProps {
 	showMedia: boolean;
@@ -29,7 +29,7 @@ export default function MainLayout({ showMedia, showEffects }: MainLayoutProps) 
 	const currentTimeRef = useRef(0);
 	const timelineRef = useRef<TimelineRef>(null);
 
-	const handleClipUpdate = useCallback((trackId: string, clipId: string, updates: Partial<VideoClip>) => {
+	const handleClipUpdate = useCallback((trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<AudioClip>) => {
 		timelineRef.current?.updateClip(trackId, clipId, updates);
 	}, []);
 
