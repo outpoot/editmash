@@ -7,6 +7,10 @@ interface MediaItem {
 	thumbnail?: string;
 	width?: number;
 	height?: number;
+	fileId?: string;
+	isUploading?: boolean;
+	uploadProgress?: number;
+	uploadError?: string;
 }
 
 class MediaStore {
@@ -30,13 +34,23 @@ class MediaStore {
 	removeItem(id: string) {
 		const item = this.items.find((item) => item.id === id);
 		if (item) {
-			URL.revokeObjectURL(item.url);
-			if (item.thumbnail) {
+			if (item.url.startsWith("blob:")) {
+				URL.revokeObjectURL(item.url);
+			}
+			if (item.thumbnail && item.thumbnail.startsWith("blob:")) {
 				URL.revokeObjectURL(item.thumbnail);
 			}
 		}
 		this.items = this.items.filter((item) => item.id !== id);
 		this.notify();
+	}
+
+	updateItem(id: string, updates: Partial<MediaItem>) {
+		const index = this.items.findIndex((item) => item.id === id);
+		if (index !== -1) {
+			this.items[index] = { ...this.items[index], ...updates };
+			this.notify();
+		}
 	}
 
 	getItems() {
@@ -49,8 +63,10 @@ class MediaStore {
 
 	cleanup() {
 		this.items.forEach((item) => {
-			URL.revokeObjectURL(item.url);
-			if (item.thumbnail) {
+			if (item.url.startsWith("blob:")) {
+				URL.revokeObjectURL(item.url);
+			}
+			if (item.thumbnail && item.thumbnail.startsWith("blob:")) {
 				URL.revokeObjectURL(item.thumbnail);
 			}
 		});

@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { mediaStore, MediaItem } from "../store/mediaStore";
 import { Folder, Image, Video, Music } from "lucide-react";
+import { validateFile, getAcceptAttribute } from "@/lib/validation";
+import { toast } from "sonner";
 
 let currentDragItem: MediaItem | null = null;
 
@@ -49,32 +51,48 @@ export default function MediaBrowser() {
 		setContextMenu({ x: e.clientX, y: e.clientY });
 	};
 
-	const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+	const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const files = e.target.files;
 		if (!files) return;
 
-		Array.from(files).forEach((file) => {
-			const url = URL.createObjectURL(file);
-			const type = file.type.startsWith("video/") ? "video" : "audio";
+		for (const file of Array.from(files)) {
+			const validation = validateFile({
+				name: file.name,
+				size: file.size,
+				type: file.type,
+			});
+
+			if (!validation.valid) {
+				toast.error(validation.message || "Invalid file", {
+					description: file.name,
+				});
+				continue;
+			}
+
+			const tempUrl = URL.createObjectURL(file);
+			const type: "video" | "audio" = validation.category === "video" || validation.category === "image" ? "video" : "audio";
+			const itemId = `${Date.now()}-${Math.random()}`;
 
 			// get duration
 			const element = type === "video" ? document.createElement("video") : document.createElement("audio");
-
-			element.src = url;
+			element.src = tempUrl;
 			element.preload = "metadata";
 
-			element.addEventListener("loadedmetadata", () => {
+			element.addEventListener("loadedmetadata", async () => {
 				const mediaItem: MediaItem = {
-					id: `${Date.now()}-${Math.random()}`,
+					id: itemId,
 					name: file.name,
 					type,
-					url,
+					url: tempUrl,
 					duration: element.duration,
 					width: type === "video" ? (element as HTMLVideoElement).videoWidth : undefined,
 					height: type === "video" ? (element as HTMLVideoElement).videoHeight : undefined,
+					isUploading: true,
 				};
 
 				// generate thumbnail
+				mediaStore.addItem(mediaItem);
+
 				if (type === "video") {
 					const video = element as HTMLVideoElement;
 					const canvas = document.createElement("canvas");
@@ -88,19 +106,70 @@ export default function MediaBrowser() {
 						() => {
 							if (ctx) {
 								ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-								mediaItem.thumbnail = canvas.toDataURL("image/jpeg", 0.7);
-								mediaStore.addItem(mediaItem);
+								const thumbnail = canvas.toDataURL("image/jpeg", 0.7);
+								mediaStore.updateItem(itemId, { thumbnail });
 							}
 						},
 						{ once: true }
 					);
-				} else {
-					mediaStore.addItem(mediaItem);
+				}
+
+				// upload to server
+				try {
+					const formData = new FormData();
+					formData.append("file", file);
+
+					const xhr = new XMLHttpRequest();
+
+					xhr.upload.addEventListener("progress", (e) => {
+						if (e.lengthComputable) {
+							const progress = Math.round((e.loaded / e.total) * 100);
+							mediaStore.updateItem(itemId, { uploadProgress: progress });
+						}
+					});
+
+					const uploadPromise = new Promise<{ url: string; fileId: string }>((resolve, reject) => {
+						xhr.addEventListener("load", () => {
+							if (xhr.status >= 200 && xhr.status < 300) {
+								resolve(JSON.parse(xhr.responseText));
+							} else {
+								reject(new Error(`Upload failed: ${xhr.status}`));
+							}
+						});
+						xhr.addEventListener("error", () => reject(new Error("Network error")));
+						xhr.addEventListener("abort", () => reject(new Error("Upload cancelled")));
+
+						xhr.open("POST", "/api/upload");
+						xhr.send(formData);
+					});
+
+					const data = await uploadPromise;
+
+					mediaStore.updateItem(itemId, {
+						url: data.url,
+						fileId: data.fileId,
+						isUploading: false,
+						uploadProgress: 100,
+					});
+
+					URL.revokeObjectURL(tempUrl);
+				} catch (error) {
+					console.error("Error uploading to B2:", error);
+
+					const errorMessage = error instanceof Error ? error.message : "Upload failed";
+					mediaStore.updateItem(itemId, {
+						isUploading: false,
+						uploadError: errorMessage,
+					});
+
+					URL.revokeObjectURL(tempUrl);
 				}
 			});
-		});
+		}
 
-		e.target.value = "";
+		if (fileInputRef.current) {
+			fileInputRef.current.value = "";
+		}
 	};
 
 	const handleImportClick = () => {
@@ -110,7 +179,7 @@ export default function MediaBrowser() {
 
 	return (
 		<>
-			<input ref={fileInputRef} type="file" accept="video/*,audio/*" multiple className="hidden" onChange={handleFileSelect} />
+			<input ref={fileInputRef} type="file" accept={getAcceptAttribute()} multiple className="hidden" onChange={handleFileSelect} />
 
 			{contextMenu && (
 				<div
@@ -194,7 +263,25 @@ export default function MediaBrowser() {
 											currentDragItem = null;
 										}}
 									>
-										<div className="w-[155px] h-[90px] bg-zinc-800 rounded overflow-hidden mb-2 hover:ring-2 hover:ring-blue-500 flex items-center justify-center">
+										<div className="w-[155px] h-[90px] bg-zinc-800 rounded overflow-hidden mb-2 hover:ring-2 hover:ring-blue-500 flex items-center justify-center relative">
+											{item.isUploading && (
+												<div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-10 p-2">
+													<div className="text-xs text-white mb-2">{item.uploadProgress ? `${item.uploadProgress}%` : "Uploading..."}</div>
+													{item.uploadProgress !== undefined && (
+														<div className="w-full h-1 bg-zinc-700 rounded overflow-hidden">
+															<div
+																className="h-full bg-blue-500 transition-all duration-300"
+																style={{ width: `${item.uploadProgress}%` }}
+															/>
+														</div>
+													)}
+												</div>
+											)}
+											{item.uploadError && (
+												<div className="absolute inset-0 bg-red-900/70 flex items-center justify-center z-10 p-2">
+													<div className="text-xs text-white text-center">{item.uploadError}</div>
+												</div>
+											)}
 											{item.type === "video" && item.thumbnail ? (
 												<img src={item.thumbnail} alt={item.name} className="w-full h-full object-cover" />
 											) : item.type === "video" ? (

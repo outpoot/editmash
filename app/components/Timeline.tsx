@@ -8,105 +8,12 @@ import { ZoomIn, ZoomOut, Play, Pause, MousePointer2, Scissors, Magnet, Undo2, R
 import { getCurrentDragItem } from "./MediaBrowser";
 import { historyStore } from "../store/historyStore";
 
-// initial demo state
 const initialTimelineState: TimelineState = {
 	duration: 60,
 	tracks: [
-		{
-			id: "video-1",
-			type: "video",
-			clips: [
-				{
-					id: "clip-3",
-					type: "video",
-					src: "/videos/overlay.mp4",
-					startTime: 10,
-					duration: 4,
-					sourceIn: 0,
-					properties: {
-						position: { x: 100, y: 100 },
-						size: { width: 640, height: 360 },
-						zoom: { x: 1, y: 1, linked: true },
-						rotation: 0,
-						pitch: 0,
-						yaw: 0,
-						flip: { horizontal: false, vertical: false },
-						crop: { left: 0, right: 0, top: 0, bottom: 0, softness: 0 },
-						speed: 1,
-						freezeFrame: false,
-						freezeFrameTime: 0,
-					},
-				},
-			],
-		},
-		{
-			id: "video-0",
-			type: "video",
-			clips: [
-				{
-					id: "clip-1",
-					type: "video",
-					src: "/videos/intro.mp4",
-					startTime: 0,
-					duration: 5,
-					sourceIn: 0,
-					properties: {
-						position: { x: 0, y: 0 },
-						size: { width: 1920, height: 1080 },
-						zoom: { x: 1, y: 1, linked: true },
-						rotation: 0,
-						pitch: 0,
-						yaw: 0,
-						flip: { horizontal: false, vertical: false },
-						crop: { left: 0, right: 0, top: 0, bottom: 0, softness: 0 },
-						speed: 1,
-						freezeFrame: false,
-						freezeFrameTime: 0,
-					},
-				},
-				{
-					id: "clip-2",
-					type: "video",
-					src: "/videos/scene1.mp4",
-					startTime: 6,
-					duration: 8,
-					sourceIn: 0,
-					properties: {
-						position: { x: 0, y: 0 },
-						size: { width: 1920, height: 1080 },
-						zoom: { x: 1, y: 1, linked: true },
-						rotation: 0,
-						pitch: 0,
-						yaw: 0,
-						flip: { horizontal: false, vertical: false },
-						crop: { left: 0, right: 0, top: 0, bottom: 0, softness: 0 },
-						speed: 1,
-						freezeFrame: false,
-						freezeFrameTime: 0,
-					},
-				},
-			],
-		},
-		{
-			id: "audio-0",
-			type: "audio",
-			clips: [
-				{
-					id: "clip-4",
-					type: "audio",
-					src: "/audio/music.mp3",
-					startTime: 0,
-					duration: 15,
-					sourceIn: 0,
-					properties: {
-						volume: 0.8,
-						pan: 0,
-						pitch: 0,
-						speed: 1,
-					},
-				},
-			],
-		},
+		{ id: "video-0", type: "video", clips: [] },
+		{ id: "video-1", type: "video", clips: [] },
+		{ id: "audio-0", type: "audio", clips: [] },
 	],
 };
 
@@ -1082,10 +989,12 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 							? {
 									id: `clip-${Date.now()}-${Math.random()}`,
 									type: "video",
+									name: mediaItem.name,
 									src: mediaItem.url,
 									startTime: dropTime,
 									duration: clipDuration,
 									sourceIn: 0,
+									thumbnail: mediaItem.thumbnail,
 									properties: {
 										position: { x: clipX, y: clipY },
 										size: { width: clipWidth, height: clipHeight },
@@ -1103,10 +1012,12 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 							: {
 									id: `clip-${Date.now()}-${Math.random()}`,
 									type: "audio",
+									name: mediaItem.name,
 									src: mediaItem.url,
 									startTime: dropTime,
 									duration: clipDuration,
 									sourceIn: 0,
+									thumbnail: mediaItem.thumbnail,
 									properties: {
 										volume: 1.0,
 										pan: 0,
@@ -1553,9 +1464,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 											onMediaDrop={handleMediaDrop}
 											onMediaDragOver={handleMediaDragOver}
 											onMediaDragLeave={handleMediaDragLeave}
-											timelineRef={timelineRef}
-											scrollContainerRef={scrollContainerRef}
-											timelineDuration={timelineState.duration}
 											dragPreview={dragPreview}
 										/>
 									</div>

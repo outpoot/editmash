@@ -33,8 +33,11 @@ function TimelineClip({
 	const width = clip.duration * pixelsPerSecond;
 	const clipEnd = left + width;
 
-	const thumbnailCount = clip.type === "video" ? Math.max(5, Math.ceil(clip.duration / 2)) : 0;
-	const thumbnails = useVideoThumbnails(clip.type === "video" ? clip.src : "", clip.duration, thumbnailCount);
+	const shouldGenerateThumbnails = clip.type === "video" && !clip.thumbnail;
+	const thumbnailCount = shouldGenerateThumbnails ? Math.max(5, Math.ceil(clip.duration / 2)) : 0;
+	const generatedThumbnails = useVideoThumbnails(shouldGenerateThumbnails ? clip.src : "", clip.duration, thumbnailCount);
+
+	const thumbnails = clip.thumbnail ? [clip.thumbnail] : generatedThumbnails;
 
 	const waveformSampleCount = Math.max(50, Math.ceil(width / 3));
 	const waveformPeaks = useAudioWaveform(clip.type === "audio" ? clip.src : "", waveformSampleCount);
@@ -182,7 +185,7 @@ function TimelineClip({
 			<div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
 
 			<div className="relative h-full flex items-end px-2 pb-1 overflow-hidden">
-				<span className="text-xs text-white truncate drop-shadow-md">{clip.src.split("/").pop()}</span>
+				<span className="text-xs text-white truncate drop-shadow-md">{clip.name}</span>
 			</div>
 
 			{clip.type === "video" && (clip as VideoClip).properties.freezeFrame && (

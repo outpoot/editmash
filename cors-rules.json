@@ -1,0 +1,10 @@
+[
+  {
+    "corsRuleName": "allowAll",
+    "allowedOrigins": ["*"],
+    "allowedOperations": ["b2_download_file_by_id", "b2_download_file_by_name"],
+    "allowedHeaders": ["*"],
+    "exposeHeaders": ["x-bz-content-sha1", "x-bz-file-id", "x-bz-file-name", "content-range", "content-length"],
+    "maxAgeSeconds": 3600
+  }
+]

@@ -77,6 +77,7 @@ export default function VideoPreview({
 						videoEl.preload = "auto";
 						videoEl.muted = true; // mute to avoid audio conflict. ideally we'd wanna extract it into an audio clip, but this will be too disruptive to the user experience when multiplayer.
 						videoEl.playsInline = true;
+						videoEl.crossOrigin = "anonymous";
 					}
 					newVideoElements.set(videoClip.id, videoEl);
 				});
@@ -97,6 +98,7 @@ export default function VideoPreview({
 						audioEl.src = audioClip.src;
 						audioEl.preload = "auto";
 						audioEl.volume = 1.0;
+						audioEl.crossOrigin = "anonymous";
 
 						if (audioSourcesMap.has(audioEl)) {
 							console.warn("Audio element already has a source node, skipping");

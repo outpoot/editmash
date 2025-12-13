@@ -21,10 +21,12 @@ export interface AudioClipProperties {
 
 export interface BaseClip {
 	id: string;
+	name: string;
 	src: string;
 	startTime: number; // position on timeline
 	duration: number; // duration on timeline (can be affected by speed)
 	sourceIn: number; // offset into the source video file
+	thumbnail?: string;
 }
 
 export interface VideoClip extends BaseClip {

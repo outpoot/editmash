@@ -12,13 +12,14 @@ import { Clip, TimelineState, VideoClip, AudioClip } from "../types/timeline";
 interface MainLayoutProps {
 	showMedia: boolean;
 	showEffects: boolean;
+	onTimelineStateChange?: (timelineState: TimelineState | null) => void;
 }
 
 // components that don't need playback state
 const MemoizedMediaBrowser = memo(MediaBrowser);
 const MemoizedEffectsBrowser = memo(EffectsBrowser);
 
-export default function MainLayout({ showMedia, showEffects }: MainLayoutProps) {
+export default function MainLayout({ showMedia, showEffects, onTimelineStateChange }: MainLayoutProps) {
 	const bothVisible = showMedia && showEffects;
 	const noneVisible = !showMedia && !showEffects;
 	const [selectedClips, setSelectedClips] = useState<{ clip: Clip; trackId: string }[] | null>(null);
@@ -33,6 +34,14 @@ export default function MainLayout({ showMedia, showEffects }: MainLayoutProps) 
 	const handleClipUpdate = useCallback((trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<AudioClip>) => {
 		timelineRef.current?.updateClip(trackId, clipId, updates);
 	}, []);
+
+	const handleTimelineStateChange = useCallback(
+		(state: TimelineState) => {
+			setTimelineState(state);
+			onTimelineStateChange?.(state);
+		},
+		[onTimelineStateChange]
+	);
 
 	return (
 		<div className="h-screen pt-8 bg-[#0a0a0a]">
@@ -96,7 +105,7 @@ export default function MainLayout({ showMedia, showEffects }: MainLayoutProps) 
 								onTimeChange={setCurrentTime}
 								isPlaying={isPlaying}
 								onPlayingChange={setIsPlaying}
-								onTimelineStateChange={setTimelineState}
+								onTimelineStateChange={handleTimelineStateChange}
 								onTransformModeChange={setTransformMode}
 							/>
 						</ResizablePanel>

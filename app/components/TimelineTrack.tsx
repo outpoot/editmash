@@ -19,9 +19,6 @@ interface TimelineTrackProps {
 	onMediaDrop: (e: React.DragEvent, trackId: string) => void;
 	onMediaDragOver: (e: React.DragEvent, trackId: string) => void;
 	onMediaDragLeave: () => void;
-	timelineRef: React.RefObject<HTMLDivElement | null>;
-	scrollContainerRef: React.RefObject<HTMLDivElement | null>;
-	timelineDuration: number;
 	dragPreview: { trackId: string; startTime: number; duration: number; type: "video" | "audio" } | null;
 }
 
@@ -42,9 +39,6 @@ function TimelineTrack({
 	onMediaDrop,
 	onMediaDragOver,
 	onMediaDragLeave,
-	timelineRef,
-	scrollContainerRef,
-	timelineDuration,
 	dragPreview,
 }: TimelineTrackProps) {
 	const handleDragOver = (e: React.DragEvent) => {
