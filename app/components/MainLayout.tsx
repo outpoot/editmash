@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, memo, useCallback } from "react";
+import { useState, useRef, memo, useCallback, useImperativeHandle, forwardRef } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import MediaBrowser from "./MediaBrowser";
 import EffectsBrowser from "./EffectsBrowser";
@@ -15,11 +15,15 @@ interface MainLayoutProps {
 	onTimelineStateChange?: (timelineState: TimelineState | null) => void;
 }
 
+export interface MainLayoutRef {
+	loadTimeline: (state: TimelineState) => void;
+}
+
 // components that don't need playback state
 const MemoizedMediaBrowser = memo(MediaBrowser);
 const MemoizedEffectsBrowser = memo(EffectsBrowser);
 
-export default function MainLayout({ showMedia, showEffects, onTimelineStateChange }: MainLayoutProps) {
+const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(({ showMedia, showEffects, onTimelineStateChange }, ref) => {
 	const bothVisible = showMedia && showEffects;
 	const noneVisible = !showMedia && !showEffects;
 	const [selectedClips, setSelectedClips] = useState<{ clip: Clip; trackId: string }[] | null>(null);
@@ -42,6 +46,14 @@ export default function MainLayout({ showMedia, showEffects, onTimelineStateChan
 		},
 		[onTimelineStateChange]
 	);
+
+	useImperativeHandle(ref, () => ({
+		loadTimeline: (state: TimelineState) => {
+			timelineRef.current?.loadTimeline(state);
+			setTimelineState(state);
+			onTimelineStateChange?.(state);
+		},
+	}), [onTimelineStateChange]);
 
 	return (
 		<div className="h-screen pt-8 bg-[#0a0a0a]">
@@ -114,4 +126,8 @@ export default function MainLayout({ showMedia, showEffects, onTimelineStateChan
 			</ResizablePanelGroup>
 		</div>
 	);
-}
+});
+
+MainLayout.displayName = "MainLayout";
+
+export default MainLayout;

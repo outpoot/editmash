@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Video } from "lucide-react";
+import { useState, useRef } from "react";
+import { Check, Video, Download, Upload } from "lucide-react";
 
 interface TopBarProps {
 	showMedia: boolean;
@@ -9,10 +9,14 @@ interface TopBarProps {
 	onToggleMedia: () => void;
 	onToggleEffects: () => void;
 	onRender?: () => void;
+	onSaveTimeline?: () => void;
+	onImportTimeline?: (file: File) => void;
 }
 
-export default function TopBar({ showMedia, showEffects, onToggleMedia, onToggleEffects, onRender }: TopBarProps) {
+export default function TopBar({ showMedia, showEffects, onToggleMedia, onToggleEffects, onRender, onSaveTimeline, onImportTimeline }: TopBarProps) {
 	const [activeMenu, setActiveMenu] = useState<string | null>(null);
+	const fileInputRef = useRef<HTMLInputElement>(null);
+	const isDev = process.env.NODE_ENV === "development";
 
 	const menuItems = ["EditMash", "File", "Edit", "View", "Playback", "Help"];
 
@@ -118,6 +122,43 @@ export default function TopBar({ showMedia, showEffects, onToggleMedia, onToggle
 						<Video size={14} />
 						Render
 					</button>
+				)}
+
+				{isDev && onSaveTimeline && (
+					<button
+						onClick={onSaveTimeline}
+						className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors text-xs font-medium"
+						title="Save timeline state as JSON (dev only)"
+					>
+						<Download size={14} />
+						Save Timeline
+					</button>
+				)}
+
+				{isDev && onImportTimeline && (
+					<>
+						<input
+							ref={fileInputRef}
+							type="file"
+							accept=".json"
+							className="hidden"
+							onChange={(e) => {
+								const file = e.target.files?.[0];
+								if (file) {
+									onImportTimeline(file);
+									e.target.value = "";
+								}
+							}}
+						/>
+						<button
+							onClick={() => fileInputRef.current?.click()}
+							className="flex items-center gap-1.5 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded transition-colors text-xs font-medium"
+							title="Import timeline from JSON (dev only)"
+						>
+							<Upload size={14} />
+							Import Timeline
+						</button>
+					</>
 				)}
 			</div>
 			{/* rightside window controls but idk if i wanna keep them so commented for now */}

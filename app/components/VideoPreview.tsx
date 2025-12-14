@@ -298,17 +298,25 @@ export default function VideoPreview({
 					// rotation
 					ctx.rotate((rotation * Math.PI) / 180);
 
-					// flip
-					const scaleX = flip.horizontal ? -1 : 1;
-					const scaleY = flip.vertical ? -1 : 1;
-					ctx.scale(scaleX * zoom.x, scaleY * zoom.y);
-
 					// pitch & yaw
 					const pitchRad = (pitch * Math.PI) / 180;
 					const yawRad = (yaw * Math.PI) / 180;
 
-					const pitchScale = Math.cos(pitchRad);
-					const yawScale = Math.cos(yawRad);
+					const sx = Math.cos(yawRad);
+					const sy = Math.cos(pitchRad);
+					const kx = Math.sin(yawRad) * 0.6;
+					const ky = Math.sin(pitchRad) * 0.6;
+
+					// flip
+					const flipX = flip.horizontal ? -1 : 1;
+					const flipY = flip.vertical ? -1 : 1;
+
+					const a = sx * flipX * zoom.x;
+					const b = ky * flipY * zoom.y;
+					const c = kx * flipX * zoom.x;
+					const d = sy * flipY * zoom.y;
+					
+					ctx.transform(a, b, c, d, 0, 0);
 
 					// crop
 					const sourceX = crop.left;
@@ -329,8 +337,8 @@ export default function VideoPreview({
 					const croppedDestWidth = width * cropWidthRatio;
 					const croppedDestHeight = height * cropHeightRatio;
 
-					const finalWidth = croppedDestWidth * yawScale;
-					const finalHeight = croppedDestHeight * pitchScale;
+					const finalWidth = croppedDestWidth;
+					const finalHeight = croppedDestHeight;
 
 					const cropOffsetX = (width * (crop.left - crop.right)) / (2 * vw);
 					const cropOffsetY = (height * (crop.top - crop.bottom)) / (2 * vh);

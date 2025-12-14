@@ -30,6 +30,7 @@ interface TimelineProps {
 
 export interface TimelineRef {
 	updateClip: (trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<AudioClip>) => void;
+	loadTimeline: (state: TimelineState) => void;
 }
 
 const Timeline = forwardRef<TimelineRef, TimelineProps>(
@@ -116,6 +117,13 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						};
 						return newState;
 					});
+				},
+				loadTimeline: (state: TimelineState) => {
+					setTimelineState(state);
+					setSelectedClips([]);
+					setLastSelectedClip(null);
+					historyStore.clear();
+					historyStore.push(state);
 				},
 			}),
 			[updateTimelineState]
