@@ -1008,8 +1008,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 										size: { width: clipWidth, height: clipHeight },
 										zoom: { x: 1, y: 1, linked: true },
 										rotation: 0,
-										pitch: 0,
-										yaw: 0,
 										flip: { horizontal: false, vertical: false },
 										crop: { left: 0, right: 0, top: 0, bottom: 0, softness: 0 },
 										speed: 1,

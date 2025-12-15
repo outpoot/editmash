@@ -60,8 +60,6 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 					...clip.properties,
 					zoom: { x: 1, y: 1, linked: true },
 					rotation: 0,
-					pitch: 0,
-					yaw: 0,
 					flip: { horizontal: false, vertical: false },
 				},
 			});
@@ -298,60 +296,6 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														min={-180}
 														max={180}
 														step={0.1}
-														className="w-14"
-													/>
-												</div>
-											)}
-
-											{/* Pitch */}
-											{clip && clip.type === "video" && (
-												<div className="flex items-center gap-2">
-													<Label className="text-zinc-500 text-xs w-16 flex-shrink-0">Pitch</Label>
-													<Slider
-														value={[clip.properties.pitch]}
-														onValueChange={([value]) => {
-															updateVideoProperty({ pitch: value });
-														}}
-														min={-90}
-														max={90}
-														step={0.001}
-														className="flex-1"
-													/>
-													<DragNumberInput
-														value={clip.properties.pitch}
-														onChange={(newValue) => {
-															updateVideoProperty({ pitch: newValue });
-														}}
-														min={-90}
-														max={90}
-														step={0.001}
-														className="w-14"
-													/>
-												</div>
-											)}
-
-											{/* Yaw */}
-											{clip && clip.type === "video" && (
-												<div className="flex items-center gap-2">
-													<Label className="text-zinc-500 text-xs w-16 flex-shrink-0">Yaw</Label>
-													<Slider
-														value={[clip.properties.yaw]}
-														onValueChange={([value]) => {
-															updateVideoProperty({ yaw: value });
-														}}
-														min={-90}
-														max={90}
-														step={0.001}
-														className="flex-1"
-													/>
-													<DragNumberInput
-														value={clip.properties.yaw}
-														onChange={(newValue) => {
-															updateVideoProperty({ yaw: newValue });
-														}}
-														min={-90}
-														max={90}
-														step={0.001}
 														className="w-14"
 													/>
 												</div>

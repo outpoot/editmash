@@ -86,9 +86,6 @@ function generateVideoFilter(clip: VideoClip, inputIndex: number, outputLabel: s
 	}
 
 	// 5. zoom
-	const pitchRad = (props.pitch * Math.PI) / 180;
-	const yawRad = (props.yaw * Math.PI) / 180;
-	
 	const L = props.crop.left;
 	const R = props.crop.right;
 	const T = props.crop.top;
@@ -121,37 +118,11 @@ function generateVideoFilter(clip: VideoClip, inputIndex: number, outputLabel: s
 	}
 
 	// 7. rotation
-	const hasSkew = props.pitch !== 0 || props.yaw !== 0;
-	if (hasSkew) {
-		const pitchCos = Math.cos(pitchRad);
-		const yawCos = Math.cos(yawRad);
-		const kx = Math.sin(yawRad) * 0.6;
-		const ky = Math.sin(pitchRad) * 0.6;
-		
-		filters.push(`format=rgba`);
-		
-		const safeYawCos = Math.max(0.01, Math.abs(yawCos));
-		const safePitchCos = Math.max(0.01, Math.abs(pitchCos));
-		if (safeYawCos !== 1 || safePitchCos !== 1) {
-			filters.push(`scale=iw*${safeYawCos}:ih*${safePitchCos}`);
-		}
-		
-		if (kx !== 0 || ky !== 0) {
-			const maxShear = Math.max(Math.abs(kx), Math.abs(ky));
-			const padAmount = Math.ceil(maxShear * 1200);
-			
-			filters.push(`pad=iw+${padAmount * 2}:ih+${padAmount * 2}:${padAmount}:${padAmount}:black@0`);
-			filters.push(`shear=shx=${-kx}:shy=${ky}:fillcolor=black@0`);
-		}
-	}
-
 	if (props.rotation !== 0) {
+		filters.push(`format=rgba`);
 		const radians = (props.rotation * Math.PI) / 180;
 		filters.push(`rotate=${radians}:c=none:ow='hypot(iw,ih)':oh='hypot(iw,ih)'`);
-	}
-
-	// 8. pitch & yaw
-	if (!hasSkew) {
+	} else {
 		filters.push(`format=rgba`);
 	}
 
@@ -224,10 +195,6 @@ function calculateOverlayPosition(clip: VideoClip): { x: string; y: string } {
 	
 	const Mw = props.size.width * props.zoom.x;
 	const Mh = props.size.height * props.zoom.y;
-	
-	const pitchRad = (props.pitch * Math.PI) / 180;
-	const yawRad = (props.yaw * Math.PI) / 180;
-	const hasSkew = props.pitch !== 0 || props.yaw !== 0;
 	
 	let xExpr: string;
 	if (L + R > 0) {

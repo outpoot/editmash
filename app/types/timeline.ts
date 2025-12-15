@@ -3,8 +3,6 @@ export interface VideoClipProperties {
 	size: { width: number; height: number };
 	zoom: { x: number; y: number; linked: boolean };
 	rotation: number;
-	pitch: number;
-	yaw: number;
 	flip: { horizontal: boolean; vertical: boolean };
 	crop: { left: number; right: number; top: number; bottom: number; softness: number };
 	speed: number;

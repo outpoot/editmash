@@ -285,7 +285,7 @@ export default function VideoPreview({
 				try {
 					const { x, y } = props.position;
 					const { width, height } = props.size;
-					const { zoom, rotation, pitch, yaw, flip, crop } = props;
+					const { zoom, rotation, flip, crop } = props;
 
 					ctx.save();
 
@@ -298,25 +298,14 @@ export default function VideoPreview({
 					// rotation
 					ctx.rotate((rotation * Math.PI) / 180);
 
-					// pitch & yaw
-					const pitchRad = (pitch * Math.PI) / 180;
-					const yawRad = (yaw * Math.PI) / 180;
-
-					const sx = Math.cos(yawRad);
-					const sy = Math.cos(pitchRad);
-					const kx = Math.sin(yawRad) * 0.6;
-					const ky = Math.sin(pitchRad) * 0.6;
-
-					// flip
+					// flip and zoom
 					const flipX = flip.horizontal ? -1 : 1;
 					const flipY = flip.vertical ? -1 : 1;
 
-					const a = sx * flipX * zoom.x;
-					const b = ky * flipY * zoom.y;
-					const c = kx * flipX * zoom.x;
-					const d = sy * flipY * zoom.y;
+					const scaleX = flipX * zoom.x;
+					const scaleY = flipY * zoom.y;
 					
-					ctx.transform(a, b, c, d, 0, 0);
+					ctx.scale(scaleX, scaleY);
 
 					// crop
 					const sourceX = crop.left;
