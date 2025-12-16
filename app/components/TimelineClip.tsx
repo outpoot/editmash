@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Clip, VideoClip, AudioClip } from "../types/timeline";
+import { Clip, VideoClip, ImageClip, AudioClip } from "../types/timeline";
 import { useVideoThumbnails } from "../hooks/useVideoThumbnails";
 import { useAudioWaveform } from "../hooks/useAudioWaveform";
 import { Snowflake } from "lucide-react";
@@ -9,7 +9,6 @@ interface TimelineClipProps {
 	trackId: string;
 	pixelsPerSecond: number;
 	isSelected: boolean;
-	isDragging: boolean;
 	onSelect: (clipId: string, trackId: string, event: { ctrlKey: boolean; shiftKey: boolean }) => void;
 	onDragStart: (e: React.MouseEvent, clipId: string, trackId: string, type: "move" | "trim-start" | "trim-end") => void;
 	toolMode: "select" | "blade";
@@ -22,7 +21,6 @@ function TimelineClip({
 	trackId,
 	pixelsPerSecond,
 	isSelected,
-	isDragging,
 	onSelect,
 	onDragStart,
 	toolMode,
@@ -37,7 +35,8 @@ function TimelineClip({
 	const thumbnailCount = shouldGenerateThumbnails ? Math.max(5, Math.ceil(clip.duration / 2)) : 0;
 	const generatedThumbnails = useVideoThumbnails(shouldGenerateThumbnails ? clip.src : "", clip.duration, thumbnailCount);
 
-	const thumbnails = clip.thumbnail ? [clip.thumbnail] : generatedThumbnails;
+	const thumbnails =
+		clip.type === "image" ? (clip.thumbnail ? [clip.thumbnail] : []) : clip.thumbnail ? [clip.thumbnail] : generatedThumbnails;
 
 	const waveformSampleCount = Math.max(50, Math.ceil(width / 3));
 	const waveformPeaks = useAudioWaveform(
@@ -96,7 +95,7 @@ function TimelineClip({
 	return (
 		<div
 			className={`absolute h-full select-none border-2 rounded overflow-hidden ${
-				clip.type === "video" ? "bg-purple-600" : "bg-green-600"
+				clip.type === "video" || clip.type === "image" ? "bg-purple-600" : "bg-green-600"
 			} ${isSelected ? "border-primary" : "border-border"}`}
 			style={{
 				left: `${left}px`,
@@ -115,7 +114,7 @@ function TimelineClip({
 				}
 			}}
 		>
-			{clip.type === "video" && thumbnails.length > 0 && (
+			{(clip.type === "video" || clip.type === "image") && thumbnails.length > 0 && (
 				<div className="absolute inset-0 flex pointer-events-none">
 					{Array.from({ length: repeatCount }).map((_, i) => {
 						const thumbnailIndex = i % thumbnails.length;

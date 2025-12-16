@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { mediaStore, MediaItem } from "../store/mediaStore";
-import { Folder, Image, Video, Music } from "lucide-react";
+import { Image, Video, Music, ImageIcon } from "lucide-react";
 import { validateFile, getAcceptAttribute } from "@/lib/validation";
 import { toast } from "sonner";
 import { useAudioWaveform } from "../hooks/useAudioWaveform";
+
+const DEFAULT_IMAGE_DURATION = 2;
 
 let currentDragItem: MediaItem | null = null;
 
@@ -129,10 +131,121 @@ export default function MediaBrowser() {
 			}
 
 			const tempUrl = URL.createObjectURL(file);
-			const type: "video" | "audio" = validation.category === "video" || validation.category === "image" ? "video" : "audio";
+			const type: "video" | "audio" | "image" =
+				validation.category === "video" ? "video" : validation.category === "image" ? "image" : "audio";
 			const itemId = `${Date.now()}-${Math.random()}`;
 
-			// get duration
+			// image
+			if (type === "image") {
+				const img = document.createElement("img");
+				img.src = tempUrl;
+
+				img.addEventListener("error", () => {
+					URL.revokeObjectURL(tempUrl);
+					toast.error("Failed to load image", {
+						description: file.name,
+					});
+				});
+
+				img.addEventListener("load", async () => {
+					const canvas = document.createElement("canvas");
+					canvas.width = 320;
+					canvas.height = 180;
+					const ctx = canvas.getContext("2d");
+
+					let thumbnail: string | undefined;
+					if (ctx) {
+						const imgAspect = img.naturalWidth / img.naturalHeight;
+						const thumbAspect = canvas.width / canvas.height;
+
+						let drawWidth, drawHeight, drawX, drawY;
+						if (imgAspect > thumbAspect) {
+							drawWidth = canvas.width;
+							drawHeight = canvas.width / imgAspect;
+							drawX = 0;
+							drawY = (canvas.height - drawHeight) / 2;
+						} else {
+							drawHeight = canvas.height;
+							drawWidth = canvas.height * imgAspect;
+							drawX = (canvas.width - drawWidth) / 2;
+							drawY = 0;
+						}
+
+						ctx.fillStyle = "#000";
+						ctx.fillRect(0, 0, canvas.width, canvas.height);
+						ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+						thumbnail = canvas.toDataURL("image/jpeg", 0.7);
+					}
+
+					const mediaItem: MediaItem = {
+						id: itemId,
+						name: file.name,
+						type: "image",
+						url: tempUrl,
+						duration: DEFAULT_IMAGE_DURATION,
+						width: img.naturalWidth,
+						height: img.naturalHeight,
+						thumbnail,
+						isUploading: true,
+					};
+
+					mediaStore.addItem(mediaItem);
+
+					try {
+						const formData = new FormData();
+						formData.append("file", file);
+
+						const xhr = new XMLHttpRequest();
+
+						xhr.upload.addEventListener("progress", (e) => {
+							if (e.lengthComputable) {
+								const progress = Math.round((e.loaded / e.total) * 100);
+								mediaStore.updateItem(itemId, { uploadProgress: progress });
+							}
+						});
+
+						const uploadPromise = new Promise<{ url: string; fileId: string }>((resolve, reject) => {
+							xhr.addEventListener("load", () => {
+								if (xhr.status >= 200 && xhr.status < 300) {
+									resolve(JSON.parse(xhr.responseText));
+								} else {
+									reject(new Error(`Upload failed: ${xhr.status}`));
+								}
+							});
+							xhr.addEventListener("error", () => reject(new Error("Network error")));
+							xhr.addEventListener("abort", () => reject(new Error("Upload cancelled")));
+
+							xhr.open("POST", "/api/upload");
+							xhr.send(formData);
+						});
+
+						const data = await uploadPromise;
+
+						mediaStore.updateItem(itemId, {
+							url: data.url,
+							fileId: data.fileId,
+							isUploading: false,
+							uploadProgress: 100,
+						});
+
+						URL.revokeObjectURL(tempUrl);
+					} catch (error) {
+						console.error("Error uploading to B2:", error);
+
+						const errorMessage = error instanceof Error ? error.message : "Upload failed";
+						mediaStore.updateItem(itemId, {
+							isUploading: false,
+							uploadError: errorMessage,
+						});
+
+						URL.revokeObjectURL(tempUrl);
+					}
+				});
+
+				continue;
+			}
+
+			// video/audio
 			const element = type === "video" ? document.createElement("video") : document.createElement("audio");
 			element.src = tempUrl;
 			element.preload = "metadata";
@@ -300,6 +413,10 @@ export default function MediaBrowser() {
 												<img src={item.thumbnail} alt={item.name} className="w-full h-full object-cover" />
 											) : item.type === "video" ? (
 												<Video size={32} strokeWidth={1.5} className="text-muted-foreground" />
+											) : item.type === "image" && item.thumbnail ? (
+												<img src={item.thumbnail} alt={item.name} className="w-full h-full object-cover" />
+											) : item.type === "image" ? (
+												<ImageIcon size={32} strokeWidth={1.5} className="text-muted-foreground" />
 											) : (
 												<AudioWaveformPreview src={item.url} isUploading={item.isUploading} />
 											)}

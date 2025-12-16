@@ -1,7 +1,7 @@
 interface MediaItem {
 	id: string;
 	name: string;
-	type: "video" | "audio";
+	type: "video" | "audio" | "image";
 	url: string;
 	duration: number;
 	thumbnail?: string;

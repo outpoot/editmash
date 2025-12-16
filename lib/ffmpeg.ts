@@ -1,5 +1,5 @@
 import ffmpeg from "fluent-ffmpeg";
-import { TimelineState, VideoClip, AudioClip, Track } from "../app/types/timeline";
+import { TimelineState, VideoClip, ImageClip, AudioClip, Track } from "../app/types/timeline";
 import path from "path";
 import fs from "fs/promises";
 import fsSync from "fs";
@@ -59,25 +59,25 @@ function generateVideoFilter(clip: VideoClip, inputIndex: number, outputLabel: s
 	const filters: string[] = [];
 	const clampedSpeed = Math.max(0.25, Math.min(4, props.speed));
 
-	// 1. extract the portion of video based on sourceIn and duration
+	// extract the portion of video based on sourceIn and duration
 	const sourceEndTime = clip.sourceIn + clip.duration * clampedSpeed;
 	filters.push(`[${inputIndex}:v]trim=start=${clip.sourceIn}:end=${sourceEndTime},setpts=PTS-STARTPTS`);
 
-	// 2. speed
+	// speed
 	if (clampedSpeed !== 1) {
 		filters.push(`setpts=${1 / clampedSpeed}*PTS`);
 	}
 
-	// 3. freeze frame
+	// freeze frame
 	if (props.freezeFrame) {
 		const freezePoint = props.freezeFrameTime;
 		const frameDuration = 1 / 30; // 30fps, one frame duration
 		const loopCount = Math.ceil(clip.duration / frameDuration);
-		
+
 		filters.push(`trim=start=${freezePoint}:duration=${frameDuration},loop=loop=${loopCount}:size=1,setpts=PTS-STARTPTS`);
 	}
 
-	// 4. crop
+	// crop
 	const hasCrop = props.crop.left > 0 || props.crop.right > 0 || props.crop.top > 0 || props.crop.bottom > 0;
 	if (hasCrop) {
 		filters.push(
@@ -85,15 +85,15 @@ function generateVideoFilter(clip: VideoClip, inputIndex: number, outputLabel: s
 		);
 	}
 
-	// 5. zoom
+	// zoom
 	const L = props.crop.left;
 	const R = props.crop.right;
 	const T = props.crop.top;
 	const B = props.crop.bottom;
-	
+
 	const widthMultiplier = props.size.width * props.zoom.x;
 	const heightMultiplier = props.size.height * props.zoom.y;
-	
+
 	let scaleExpr: string;
 	if (hasCrop) {
 		scaleExpr = `scale='trunc(${widthMultiplier}*iw/(iw+${L}+${R})/2)*2':'trunc(${heightMultiplier}*ih/(ih+${T}+${B})/2)*2'`;
@@ -106,10 +106,10 @@ function generateVideoFilter(clip: VideoClip, inputIndex: number, outputLabel: s
 		const evenHeight = safeHeight % 2 === 0 ? safeHeight : safeHeight + 1;
 		scaleExpr = `scale=${evenWidth}:${evenHeight}`;
 	}
-	
+
 	filters.push(scaleExpr);
 
-	// 6. flip
+	// flip
 	if (props.flip.horizontal) {
 		filters.push(`hflip`);
 	}
@@ -117,7 +117,7 @@ function generateVideoFilter(clip: VideoClip, inputIndex: number, outputLabel: s
 		filters.push(`vflip`);
 	}
 
-	// 7. rotation
+	// rotation
 	if (props.rotation !== 0) {
 		filters.push(`format=rgba`);
 		const radians = (props.rotation * Math.PI) / 180;
@@ -125,6 +125,74 @@ function generateVideoFilter(clip: VideoClip, inputIndex: number, outputLabel: s
 	} else {
 		filters.push(`format=rgba`);
 	}
+
+	if (clip.startTime > 0) {
+		filters.push(`setpts=PTS+${clip.startTime}/TB`);
+	}
+
+	const filterString = filters.join(",") + `[${outputLabel}]`;
+	return filterString;
+}
+
+function generateImageFilter(clip: ImageClip, inputIndex: number, outputLabel: string): string {
+	const props = clip.properties;
+	const filters: string[] = [];
+
+	// loop the image for the clip duration at 30fps
+	const frameCount = Math.ceil(clip.duration * 30);
+	filters.push(`[${inputIndex}:v]loop=loop=${frameCount}:size=1:start=0,setpts=PTS-STARTPTS,fps=30`);
+
+	// crop
+	const hasCrop = props.crop.left > 0 || props.crop.right > 0 || props.crop.top > 0 || props.crop.bottom > 0;
+	if (hasCrop) {
+		filters.push(
+			`crop=iw-${props.crop.left}-${props.crop.right}:ih-${props.crop.top}-${props.crop.bottom}:${props.crop.left}:${props.crop.top}`
+		);
+	}
+
+	// zoom/scale
+	const L = props.crop.left;
+	const R = props.crop.right;
+	const T = props.crop.top;
+	const B = props.crop.bottom;
+
+	const widthMultiplier = props.size.width * props.zoom.x;
+	const heightMultiplier = props.size.height * props.zoom.y;
+
+	let scaleExpr: string;
+	if (hasCrop) {
+		scaleExpr = `scale='trunc(${widthMultiplier}*iw/(iw+${L}+${R})/2)*2':'trunc(${heightMultiplier}*ih/(ih+${T}+${B})/2)*2'`;
+	} else {
+		const finalWidth = Math.round(props.size.width * props.zoom.x);
+		const finalHeight = Math.round(props.size.height * props.zoom.y);
+		const safeWidth = Math.max(2, finalWidth);
+		const safeHeight = Math.max(2, finalHeight);
+		const evenWidth = safeWidth % 2 === 0 ? safeWidth : safeWidth + 1;
+		const evenHeight = safeHeight % 2 === 0 ? safeHeight : safeHeight + 1;
+		scaleExpr = `scale=${evenWidth}:${evenHeight}`;
+	}
+
+	filters.push(scaleExpr);
+
+	// flip
+	if (props.flip.horizontal) {
+		filters.push(`hflip`);
+	}
+	if (props.flip.vertical) {
+		filters.push(`vflip`);
+	}
+
+	// rotation
+	if (props.rotation !== 0) {
+		filters.push(`format=rgba`);
+		const radians = (props.rotation * Math.PI) / 180;
+		filters.push(`rotate=${radians}:c=none:ow='hypot(iw,ih)':oh='hypot(iw,ih)'`);
+	} else {
+		filters.push(`format=rgba`);
+	}
+
+	// trim to exact duration
+	filters.push(`trim=duration=${clip.duration}`);
 
 	if (clip.startTime > 0) {
 		filters.push(`setpts=PTS+${clip.startTime}/TB`);
@@ -182,20 +250,20 @@ function generateAudioFilter(clip: AudioClip, inputIndex: number, outputLabel: s
 	return filterString;
 }
 
-function calculateOverlayPosition(clip: VideoClip): { x: string; y: string } {
+function calculateOverlayPosition(clip: VideoClip | ImageClip): { x: string; y: string } {
 	const props = clip.properties;
-	
+
 	const centerX = props.position.x + props.size.width / 2;
 	const centerY = props.position.y + props.size.height / 2;
-	
+
 	const L = props.crop.left;
 	const R = props.crop.right;
 	const T = props.crop.top;
 	const B = props.crop.bottom;
-	
+
 	const Mw = props.size.width * props.zoom.x;
 	const Mh = props.size.height * props.zoom.y;
-	
+
 	let xExpr: string;
 	if (L + R > 0) {
 		const cropOffsetExpr = `(${L - R})*(${Mw}-w)/(2*${L + R})`;
@@ -203,7 +271,7 @@ function calculateOverlayPosition(clip: VideoClip): { x: string; y: string } {
 	} else {
 		xExpr = `${centerX}-w/2`;
 	}
-	
+
 	let yExpr: string;
 	if (T + B > 0) {
 		const cropOffsetExpr = `(${T - B})*(${Mh}-h)/(2*${T + B})`;
@@ -211,7 +279,7 @@ function calculateOverlayPosition(clip: VideoClip): { x: string; y: string } {
 	} else {
 		yExpr = `${centerY}-h/2`;
 	}
-	
+
 	return { x: xExpr, y: yExpr };
 }
 
@@ -224,25 +292,38 @@ function buildComplexFilter(
 	const filterChains: string[] = [];
 	const duration = timeline.duration || 1;
 
-	const videoOutputs: string[] = [];
+	const videoOutputs: Array<{ label: string; clip: VideoClip | ImageClip; trackIndex: number }> = [];
 	let videoLabelCounter = 0;
 
 	videoTracks.forEach((track, trackIndex) => {
 		track.clips.forEach((clip) => {
-			const videoClip = clip as VideoClip;
-			const inputIndex = inputFileMap.get(videoClip.src);
-			if (inputIndex === undefined) return;
+			if (clip.type === "video") {
+				const videoClip = clip as VideoClip;
+				const inputIndex = inputFileMap.get(videoClip.src);
+				if (inputIndex === undefined) return;
 
-			const label = `v${videoLabelCounter++}`;
+				const label = `v${videoLabelCounter++}`;
 
-			const filter = generateVideoFilter(videoClip, inputIndex, label);
-			filterChains.push(filter);
+				const filter = generateVideoFilter(videoClip, inputIndex, label);
+				filterChains.push(filter);
 
-			videoOutputs.push(JSON.stringify({ label, clip: videoClip, trackIndex }));
+				videoOutputs.push({ label, clip: videoClip, trackIndex });
+			} else if (clip.type === "image") {
+				const imageClip = clip as ImageClip;
+				const inputIndex = inputFileMap.get(imageClip.src);
+				if (inputIndex === undefined) return;
+
+				const label = `v${videoLabelCounter++}`;
+
+				const filter = generateImageFilter(imageClip, inputIndex, label);
+				filterChains.push(filter);
+
+				videoOutputs.push({ label, clip: imageClip, trackIndex });
+			}
 		});
 	});
 
-	const timelineSegments: Array<{ label: string; clip: VideoClip; trackIndex: number }> = videoOutputs.map((s) => JSON.parse(s));
+	const timelineSegments = videoOutputs;
 
 	filterChains.push(`color=c=black:s=${CANVAS_WIDTH}x${CANVAS_HEIGHT}:d=${duration}:r=30[base]`);
 

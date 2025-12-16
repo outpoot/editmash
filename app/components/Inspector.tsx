@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Clip, VideoClip, AudioClip, VideoClipProperties, AudioClipProperties } from "../types/timeline";
+import { Clip, VideoClip, ImageClip, AudioClip, VideoClipProperties, AudioClipProperties } from "../types/timeline";
 import { ChevronDown, ChevronRight, Link2, Link2Off, RotateCcw, FlipHorizontal, FlipVertical } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
@@ -11,7 +11,7 @@ import DragNumberInput from "./DragNumberInput";
 
 interface InspectorProps {
 	selectedClips: { clip: Clip; trackId: string }[] | null;
-	onClipUpdate?: (trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<AudioClip>) => void;
+	onClipUpdate?: (trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<ImageClip> | Partial<AudioClip>) => void;
 	currentTime: number;
 }
 
@@ -26,7 +26,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 	const trackId = selectedClips?.[selectedClips.length - 1]?.trackId;
 
 	useEffect(() => {
-		if (clip?.type === "video") {
+		if (clip?.type === "video" || clip?.type === "image") {
 			setActiveTab("video");
 		} else if (clip?.type === "audio") {
 			setActiveTab("audio");
@@ -41,7 +41,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 		);
 	}
 
-	const handlePropertyUpdate = (updates: Partial<VideoClip> | Partial<AudioClip>) => {
+	const handlePropertyUpdate = (updates: Partial<VideoClip> | Partial<ImageClip> | Partial<AudioClip>) => {
 		if (onClipUpdate && clip && trackId) {
 			onClipUpdate(trackId, clip.id, updates);
 		}
@@ -54,7 +54,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 	};
 
 	const resetTransform = () => {
-		if (clip && clip.type === "video") {
+		if (clip && (clip.type === "video" || clip.type === "image")) {
 			handlePropertyUpdate({
 				properties: {
 					...clip.properties,
@@ -67,7 +67,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 	};
 
 	const resetCropping = () => {
-		if (clip && clip.type === "video") {
+		if (clip && (clip.type === "video" || clip.type === "image")) {
 			handlePropertyUpdate({
 				properties: {
 					...clip.properties,
@@ -105,7 +105,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 	};
 
 	const updateVideoProperty = (propertyUpdate: Partial<VideoClipProperties>) => {
-		if (clip && clip.type === "video" && trackId) {
+		if (clip && (clip.type === "video" || clip.type === "image") && trackId) {
 			handlePropertyUpdate({
 				properties: {
 					...clip.properties,
@@ -126,7 +126,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 		}
 	};
 
-	const isVideoClip = clip && clip.type === "video" && "properties" in clip;
+	const isVideoClip = clip && (clip.type === "video" || clip.type === "image") && "properties" in clip;
 	const isAudioClip = clip && clip.type === "audio" && "properties" in clip;
 
 	return (
@@ -135,7 +135,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 				<TabsList className="w-full grid grid-cols-3 rounded-none border-b border-border bg-transparent h-auto p-0">
 					<TabsTrigger
 						value="video"
-						disabled={!clip || clip.type !== "video"}
+						disabled={!clip || (clip.type !== "video" && clip.type !== "image")}
 						className="rounded-none text-secondary-foreground data-[state=active]:bg-accent data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-primary disabled:opacity-50 disabled:cursor-not-allowed py-2"
 					>
 						Video
@@ -186,7 +186,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 									{transformExpanded && (
 										<div className="px-3 pb-2 space-y-2 border-t border-border">
 											{/* Zoom */}
-											{clip && clip.type === "video" && (
+											{clip && (clip.type === "video" || clip.type === "image") && (
 												<div className="pt-2 flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Zoom</Label>
 													<span className="text-muted-foreground/60 text-xs">X</span>
@@ -215,7 +215,9 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 																},
 															});
 														}}
-														className={`p-1 rounded ${clip.properties.zoom.linked ? "text-primary" : "text-muted-foreground"} hover:bg-muted`}
+														className={`p-1 rounded ${
+															clip.properties.zoom.linked ? "text-primary" : "text-muted-foreground"
+														} hover:bg-muted`}
 													>
 														{clip.properties.zoom.linked ? <Link2 size={14} /> : <Link2Off size={14} />}
 													</button>
@@ -240,7 +242,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 											)}
 
 											{/* Position */}
-											{clip && clip.type === "video" && (
+											{clip && (clip.type === "video" || clip.type === "image") && (
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Position</Label>
 													<span className="text-muted-foreground/60 text-xs">X</span>
@@ -275,7 +277,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 											)}
 
 											{/* Rotation Angle */}
-											{clip && clip.type === "video" && (
+											{clip && (clip.type === "video" || clip.type === "image") && (
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Rotation</Label>
 													<Slider
@@ -302,7 +304,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 											)}
 
 											{/* Flip */}
-											{clip && clip.type === "video" && (
+											{clip && (clip.type === "video" || clip.type === "image") && (
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Flip</Label>
 													<button
@@ -375,7 +377,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 									{croppingExpanded && (
 										<div className="px-3 pb-2 space-y-2 border-t border-border">
 											{/* Crop Left */}
-											{clip && clip.type === "video" && (
+											{clip && (clip.type === "video" || clip.type === "image") && (
 												<div className="pt-2 flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Left</Label>
 													<Slider
@@ -412,7 +414,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 											)}
 
 											{/* Crop Right */}
-											{clip && clip.type === "video" && (
+											{clip && (clip.type === "video" || clip.type === "image") && (
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Right</Label>
 													<Slider
@@ -449,7 +451,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 											)}
 
 											{/* Crop Top */}
-											{clip && clip.type === "video" && (
+											{clip && (clip.type === "video" || clip.type === "image") && (
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Top</Label>
 													<Slider
@@ -486,7 +488,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 											)}
 
 											{/* Crop Bottom */}
-											{clip && clip.type === "video" && (
+											{clip && (clip.type === "video" || clip.type === "image") && (
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Bottom</Label>
 													<Slider
@@ -553,7 +555,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 									{speedExpanded && (
 										<div className="px-3 pb-2 space-y-2 border-t border-border">
 											{/* Speed */}
-											{clip && clip.type === "video" && (
+											{clip && (clip.type === "video" || clip.type === "image") && (
 												<div className="pt-2 flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Speed</Label>
 													<DragNumberInput
@@ -579,14 +581,14 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														step={1}
 														className="flex-1"
 													/>
-												<span className="text-muted-foreground/60 text-xs">%</span>
-											</div>
-										)}
+													<span className="text-muted-foreground/60 text-xs">%</span>
+												</div>
+											)}
 
-										{/* Freeze Frame */}
-										{clip && clip.type === "video" && (
-											<div className="flex items-center gap-2">
-												<Label className="text-muted-foreground text-xs flex-1">Freeze Frame</Label>
+											{/* Freeze Frame */}
+											{clip && (clip.type === "video" || clip.type === "image") && (
+												<div className="flex items-center gap-2">
+													<Label className="text-muted-foreground text-xs flex-1">Freeze Frame</Label>
 													<Checkbox
 														checked={clip.properties.freezeFrame}
 														onCheckedChange={(checked) => {

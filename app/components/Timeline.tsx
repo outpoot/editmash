@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
-import { TimelineState, Clip, DragState, VideoClip, AudioClip } from "../types/timeline";
+import { TimelineState, Clip, DragState, VideoClip, ImageClip, AudioClip } from "../types/timeline";
 import TimelineTrack from "./TimelineTrack";
 import TimeRuler from "./TimeRuler";
 import { ZoomIn, ZoomOut, Play, Pause, MousePointer2, Scissors, Magnet, Undo2, Redo2, Square, Crop, ChevronDown } from "lucide-react";
@@ -29,7 +29,7 @@ interface TimelineProps {
 }
 
 export interface TimelineRef {
-	updateClip: (trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<AudioClip>) => void;
+	updateClip: (trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<ImageClip> | Partial<AudioClip>) => void;
 	loadTimeline: (state: TimelineState) => void;
 }
 
@@ -84,7 +84,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		useImperativeHandle(
 			ref,
 			() => ({
-				updateClip: (trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<AudioClip>) => {
+				updateClip: (trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<ImageClip> | Partial<AudioClip>) => {
 					updateTimelineState((prev) => {
 						const newState = {
 							...prev,
@@ -101,6 +101,12 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 															...c,
 															...videoUpdates,
 														} as VideoClip;
+													} else if (c.type === "image") {
+														const imageUpdates = updates as Partial<ImageClip>;
+														return {
+															...c,
+															...imageUpdates,
+														} as ImageClip;
 													} else {
 														const audioUpdates = updates as Partial<AudioClip>;
 														return {
@@ -470,7 +476,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 							const clipIndex = newState.tracks[sourceTrackIndex].clips.findIndex((c) => c.id === latestDragState.clipId);
 							if (clipIndex === -1) return prev;
 
-							let clip = {
+							const clip = {
 								...newState.tracks[sourceTrackIndex].clips[clipIndex],
 							};
 
@@ -948,11 +954,12 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					Math.abs(last.startTime - dragTime) > threshold ||
 					Math.abs(last.duration - clipDuration) > threshold
 				) {
+					const previewType = mediaItem.type === "image" ? "video" : mediaItem.type;
 					const newPreview = {
 						trackId,
 						startTime: dragTime,
 						duration: clipDuration,
-						type: mediaItem.type,
+						type: previewType,
 					};
 					lastDragPreviewRef.current = newPreview;
 					setDragPreview(newPreview);
@@ -990,64 +997,90 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					let clipX = 0;
 					let clipY = 0;
 
-					if (mediaItem.type === "video" && mediaItem.width && mediaItem.height) {
-						const videoAspect = mediaItem.width / mediaItem.height;
+					if ((mediaItem.type === "video" || mediaItem.type === "image") && mediaItem.width && mediaItem.height) {
+						const mediaAspect = mediaItem.width / mediaItem.height;
 						const canvasAspect = 1920 / 1080;
 
-						if (videoAspect > canvasAspect) {
+						if (mediaAspect > canvasAspect) {
 							clipWidth = 1920;
-							clipHeight = 1920 / videoAspect;
+							clipHeight = 1920 / mediaAspect;
 							clipX = 0;
 							clipY = (1080 - clipHeight) / 2;
 						} else {
 							clipHeight = 1080;
-							clipWidth = 1080 * videoAspect;
+							clipWidth = 1080 * mediaAspect;
 							clipX = (1920 - clipWidth) / 2;
 							clipY = 0;
 						}
 					}
 
-					const newClip: Clip =
-						mediaItem.type === "video"
-							? {
-									id: `clip-${Date.now()}-${Math.random()}`,
-									type: "video",
-									name: mediaItem.name,
-									src: mediaItem.url,
-									startTime: dropTime,
-									duration: clipDuration,
-									sourceIn: 0,
-									sourceDuration: mediaItem.duration,
-									thumbnail: mediaItem.thumbnail,
-									properties: {
-										position: { x: clipX, y: clipY },
-										size: { width: clipWidth, height: clipHeight },
-										zoom: { x: 1, y: 1, linked: true },
-										rotation: 0,
-										flip: { horizontal: false, vertical: false },
-										crop: { left: 0, right: 0, top: 0, bottom: 0, softness: 0 },
-										speed: 1,
-										freezeFrame: false,
-										freezeFrameTime: 0,
-									},
-							  }
-							: {
-									id: `clip-${Date.now()}-${Math.random()}`,
-									type: "audio",
-									name: mediaItem.name,
-									src: mediaItem.url,
-									startTime: dropTime,
-									duration: clipDuration,
-									sourceIn: 0,
-									sourceDuration: mediaItem.duration,
-									thumbnail: mediaItem.thumbnail,
-									properties: {
-										volume: 1.0,
-										pan: 0,
-										pitch: 0,
-										speed: 1,
-									},
-							  };
+					let newClip: Clip;
+
+					if (mediaItem.type === "video") {
+						newClip = {
+							id: `clip-${Date.now()}-${Math.random()}`,
+							type: "video",
+							name: mediaItem.name,
+							src: mediaItem.url,
+							startTime: dropTime,
+							duration: clipDuration,
+							sourceIn: 0,
+							sourceDuration: mediaItem.duration,
+							thumbnail: mediaItem.thumbnail,
+							properties: {
+								position: { x: clipX, y: clipY },
+								size: { width: clipWidth, height: clipHeight },
+								zoom: { x: 1, y: 1, linked: true },
+								rotation: 0,
+								flip: { horizontal: false, vertical: false },
+								crop: { left: 0, right: 0, top: 0, bottom: 0, softness: 0 },
+								speed: 1,
+								freezeFrame: false,
+								freezeFrameTime: 0,
+							},
+						};
+					} else if (mediaItem.type === "image") {
+						newClip = {
+							id: `clip-${Date.now()}-${Math.random()}`,
+							type: "image",
+							name: mediaItem.name,
+							src: mediaItem.url,
+							startTime: dropTime,
+							duration: clipDuration,
+							sourceIn: 0,
+							sourceDuration: mediaItem.duration,
+							thumbnail: mediaItem.thumbnail,
+							properties: {
+								position: { x: clipX, y: clipY },
+								size: { width: clipWidth, height: clipHeight },
+								zoom: { x: 1, y: 1, linked: true },
+								rotation: 0,
+								flip: { horizontal: false, vertical: false },
+								crop: { left: 0, right: 0, top: 0, bottom: 0, softness: 0 },
+								speed: 1,
+								freezeFrame: false,
+								freezeFrameTime: 0,
+							},
+						};
+					} else {
+						newClip = {
+							id: `clip-${Date.now()}-${Math.random()}`,
+							type: "audio",
+							name: mediaItem.name,
+							src: mediaItem.url,
+							startTime: dropTime,
+							duration: clipDuration,
+							sourceIn: 0,
+							sourceDuration: mediaItem.duration,
+							thumbnail: mediaItem.thumbnail,
+							properties: {
+								volume: 1.0,
+								pan: 0,
+								pitch: 0,
+								speed: 1,
+							},
+						};
+					}
 
 					updateTimelineState((prev) => {
 						const newState = {
@@ -1063,7 +1096,8 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 
 						const track = newState.tracks[trackIndex];
 
-						if (track.type !== mediaItem.type) return prev;
+						const expectedTrackType = mediaItem.type === "image" ? "video" : mediaItem.type;
+						if (track.type !== expectedTrackType) return prev;
 
 						newState.tracks[trackIndex].clips.push(newClip);
 

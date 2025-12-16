@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
-import { TimelineState, VideoClip, AudioClip, Clip } from "../types/timeline";
+import { TimelineState, VideoClip, ImageClip, AudioClip, Clip } from "../types/timeline";
 import * as Tone from "tone";
 
 interface VideoPreviewProps {
@@ -38,6 +38,7 @@ export default function VideoPreview({
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const videoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map());
+	const imageElementsRef = useRef<Map<string, HTMLImageElement>>(new Map());
 	const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
 	const audioNodesRef = useRef<Map<string, AudioNodes>>(new Map());
 	const audioContextRef = useRef<AudioContext | null>(null);
@@ -62,6 +63,7 @@ export default function VideoPreview({
 		}
 
 		const newVideoElements = new Map<string, HTMLVideoElement>();
+		const newImageElements = new Map<string, HTMLImageElement>();
 		const newAudioElements = new Map<string, HTMLAudioElement>();
 		const newAudioNodes = new Map<string, AudioNodes>();
 
@@ -69,17 +71,28 @@ export default function VideoPreview({
 		timelineState.tracks.forEach((track) => {
 			if (track.type === "video") {
 				track.clips.forEach((clip) => {
-					const videoClip = clip as VideoClip;
-					let videoEl = videoElementsRef.current.get(videoClip.id);
-					if (!videoEl) {
-						videoEl = document.createElement("video");
-						videoEl.src = videoClip.src;
-						videoEl.preload = "auto";
-						videoEl.muted = true; // mute to avoid audio conflict. ideally we'd wanna extract it into an audio clip, but this will be too disruptive to the user experience when multiplayer.
-						videoEl.playsInline = true;
-						videoEl.crossOrigin = "anonymous";
+					if (clip.type === "video") {
+						const videoClip = clip as VideoClip;
+						let videoEl = videoElementsRef.current.get(videoClip.id);
+						if (!videoEl) {
+							videoEl = document.createElement("video");
+							videoEl.src = videoClip.src;
+							videoEl.preload = "auto";
+							videoEl.muted = true; // mute to avoid audio conflict. ideally we'd wanna extract it into an audio clip, but this will be too disruptive to the user experience when multiplayer.
+							videoEl.playsInline = true;
+							videoEl.crossOrigin = "anonymous";
+						}
+						newVideoElements.set(videoClip.id, videoEl);
+					} else if (clip.type === "image") {
+						const imageClip = clip as ImageClip;
+						let imgEl = imageElementsRef.current.get(imageClip.id);
+						if (!imgEl) {
+							imgEl = document.createElement("img");
+							imgEl.src = imageClip.src;
+							imgEl.crossOrigin = "anonymous";
+						}
+						newImageElements.set(imageClip.id, imgEl);
 					}
-					newVideoElements.set(videoClip.id, videoEl);
 				});
 			} else if (track.type === "audio") {
 				track.clips.forEach((clip) => {
@@ -143,6 +156,11 @@ export default function VideoPreview({
 				video.load();
 			}
 		});
+		imageElementsRef.current.forEach((img, id) => {
+			if (!newImageElements.has(id)) {
+				img.src = "";
+			}
+		});
 		audioNodesRef.current.forEach((nodes, id) => {
 			if (!newAudioNodes.has(id)) {
 				nodes.element.pause();
@@ -157,6 +175,7 @@ export default function VideoPreview({
 		});
 
 		videoElementsRef.current = newVideoElements;
+		imageElementsRef.current = newImageElements;
 		audioElementsRef.current = newAudioElements;
 		audioNodesRef.current = newAudioNodes;
 
@@ -217,14 +236,16 @@ export default function VideoPreview({
 			ctx.fillStyle = "#000000";
 			ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-			const activeVideoClips: { clip: VideoClip; trackIndex: number }[] = [];
+			const activeVideoClips: { clip: VideoClip | ImageClip; trackIndex: number }[] = [];
 			timelineState.tracks.forEach((track, trackIndex) => {
 				if (track.type === "video") {
 					track.clips.forEach((clip) => {
-						const videoClip = clip as VideoClip;
-						const clipEnd = videoClip.startTime + videoClip.duration;
-						if (currentTimeValue >= videoClip.startTime && currentTimeValue < clipEnd) {
-							activeVideoClips.push({ clip: videoClip, trackIndex });
+						if (clip.type === "video" || clip.type === "image") {
+							const visualClip = clip as VideoClip | ImageClip;
+							const clipEnd = visualClip.startTime + visualClip.duration;
+							if (currentTimeValue >= visualClip.startTime && currentTimeValue < clipEnd) {
+								activeVideoClips.push({ clip: visualClip, trackIndex });
+							}
 						}
 					});
 				}
@@ -234,120 +255,188 @@ export default function VideoPreview({
 
 			// Render each active video clip
 			for (const { clip } of activeVideoClips) {
-				const videoEl = videoElementsRef.current.get(clip.id);
-				if (!videoEl) continue;
+				if (clip.type === "image") {
+					const imgEl = imageElementsRef.current.get(clip.id);
+					if (!imgEl || !imgEl.complete || imgEl.naturalWidth === 0) continue;
+					const props = clip.properties;
 
-				const timeInClip = currentTimeValue - clip.startTime;
-				const props = clip.properties;
+					try {
+						const { x, y } = props.position;
+						const { width, height } = props.size;
+						const { zoom, rotation, flip, crop } = props;
 
-				let internalTime: number;
+						ctx.save();
 
-				// speed
-				const videoDuration = isFinite(videoEl.duration) && videoEl.duration > 0 ? videoEl.duration : 0;
-				const clampMax = videoDuration > 0 ? Math.max(clip.duration, videoDuration) : clip.duration;
+						// center point for transformations
+						const centerX = x + width / 2;
+						const centerY = y + height / 2;
 
-				if (props.freezeFrame) {
-					internalTime = clip.sourceIn + props.freezeFrameTime;
-					if (!videoEl.paused) {
-						videoEl.pause();
-					}
-					if (Math.abs(videoEl.currentTime - internalTime) > 0.1) {
-						videoEl.currentTime = Math.max(0, Math.min(internalTime, videoDuration));
+						ctx.translate(centerX, centerY);
+
+						// rotation
+						ctx.rotate((rotation * Math.PI) / 180);
+
+						// flip and zoom
+						const flipX = flip.horizontal ? -1 : 1;
+						const flipY = flip.vertical ? -1 : 1;
+
+						const scaleX = flipX * zoom.x;
+						const scaleY = flipY * zoom.y;
+
+						ctx.scale(scaleX, scaleY);
+
+						// crop
+						const sourceX = crop.left;
+						const sourceY = crop.top;
+
+						const origImgWidth = imgEl.naturalWidth;
+						const origImgHeight = imgEl.naturalHeight;
+
+						const iw = origImgWidth > 0 ? origImgWidth : 1;
+						const ih = origImgHeight > 0 ? origImgHeight : 1;
+
+						const sourceWidth = Math.max(0, iw - crop.left - crop.right);
+						const sourceHeight = Math.max(0, ih - crop.top - crop.bottom);
+
+						const cropWidthRatio = sourceWidth / iw;
+						const cropHeightRatio = sourceHeight / ih;
+
+						const croppedDestWidth = width * cropWidthRatio;
+						const croppedDestHeight = height * cropHeightRatio;
+
+						const finalWidth = croppedDestWidth;
+						const finalHeight = croppedDestHeight;
+
+						const cropOffsetX = (width * (crop.left - crop.right)) / (2 * iw);
+						const cropOffsetY = (height * (crop.top - crop.bottom)) / (2 * ih);
+
+						const drawX = -finalWidth / 2 + cropOffsetX;
+						const drawY = -finalHeight / 2 + cropOffsetY;
+
+						if (sourceWidth > 0 && sourceHeight > 0) {
+							ctx.drawImage(imgEl, sourceX, sourceY, sourceWidth, sourceHeight, drawX, drawY, finalWidth, finalHeight);
+						}
+
+						ctx.restore();
+					} catch (err) {
+						console.error("Error rendering image frame:", err);
 					}
 				} else {
-					internalTime = clip.sourceIn + timeInClip * props.speed;
-				}
+					const videoEl = videoElementsRef.current.get(clip.id);
+					if (!videoEl) continue;
 
-				internalTime = Math.max(0, Math.min(internalTime, clampMax));
+					const timeInClip = currentTimeValue - clip.startTime;
+					const props = clip.properties;
 
-				if (!props.freezeFrame) {
-					videoEl.playbackRate = Math.max(0.25, Math.min(4, props.speed));
+					let internalTime: number;
 
-					if (isPlaying && videoEl.paused) {
-						if (Math.abs(videoEl.currentTime - internalTime) > 0.1) {
-							videoEl.currentTime = Math.max(0, Math.min(internalTime, clampMax));
+					// speed
+					const videoDuration = isFinite(videoEl.duration) && videoEl.duration > 0 ? videoEl.duration : 0;
+					const clampMax = videoDuration > 0 ? Math.max(clip.duration, videoDuration) : clip.duration;
+
+					if (props.freezeFrame) {
+						internalTime = clip.sourceIn + props.freezeFrameTime;
+						if (!videoEl.paused) {
+							videoEl.pause();
 						}
-						videoEl.play().catch((err) => {
-							if (err.name !== "AbortError") {
-								console.error("Error playing video:", err);
+						if (Math.abs(videoEl.currentTime - internalTime) > 0.1) {
+							videoEl.currentTime = Math.max(0, Math.min(internalTime, videoDuration));
+						}
+					} else {
+						internalTime = clip.sourceIn + timeInClip * props.speed;
+					}
+
+					internalTime = Math.max(0, Math.min(internalTime, clampMax));
+
+					if (!props.freezeFrame) {
+						videoEl.playbackRate = Math.max(0.25, Math.min(4, props.speed));
+
+						if (isPlaying && videoEl.paused) {
+							if (Math.abs(videoEl.currentTime - internalTime) > 0.1) {
+								videoEl.currentTime = Math.max(0, Math.min(internalTime, clampMax));
 							}
-						});
-					} else if (!isPlaying && !videoEl.paused) {
-						videoEl.pause();
-					} else if (!isPlaying) {
-						if (Math.abs(videoEl.currentTime - internalTime) > 0.1) {
-							videoEl.currentTime = Math.max(0, Math.min(internalTime, clampMax));
+							videoEl.play().catch((err) => {
+								if (err.name !== "AbortError") {
+									console.error("Error playing video:", err);
+								}
+							});
+						} else if (!isPlaying && !videoEl.paused) {
+							videoEl.pause();
+						} else if (!isPlaying) {
+							if (Math.abs(videoEl.currentTime - internalTime) > 0.1) {
+								videoEl.currentTime = Math.max(0, Math.min(internalTime, clampMax));
+							}
 						}
 					}
-				}
 
-				// transformations & crop
-				try {
-					const { x, y } = props.position;
-					const { width, height } = props.size;
-					const { zoom, rotation, flip, crop } = props;
+					// transformations & crop
+					try {
+						const { x, y } = props.position;
+						const { width, height } = props.size;
+						const { zoom, rotation, flip, crop } = props;
 
-					ctx.save();
+						ctx.save();
 
-					// center point for transformations
-					const centerX = x + width / 2;
-					const centerY = y + height / 2;
+						// center point for transformations
+						const centerX = x + width / 2;
+						const centerY = y + height / 2;
 
-					ctx.translate(centerX, centerY);
+						ctx.translate(centerX, centerY);
 
-					// rotation
-					ctx.rotate((rotation * Math.PI) / 180);
+						// rotation
+						ctx.rotate((rotation * Math.PI) / 180);
 
-					// flip and zoom
-					const flipX = flip.horizontal ? -1 : 1;
-					const flipY = flip.vertical ? -1 : 1;
+						// flip and zoom
+						const flipX = flip.horizontal ? -1 : 1;
+						const flipY = flip.vertical ? -1 : 1;
 
-					const scaleX = flipX * zoom.x;
-					const scaleY = flipY * zoom.y;
-					
-					ctx.scale(scaleX, scaleY);
+						const scaleX = flipX * zoom.x;
+						const scaleY = flipY * zoom.y;
 
-					// crop
-					const sourceX = crop.left;
-					const sourceY = crop.top;
+						ctx.scale(scaleX, scaleY);
 
-					const origVideoWidth = videoEl.videoWidth;
-					const origVideoHeight = videoEl.videoHeight;
+						// crop
+						const sourceX = crop.left;
+						const sourceY = crop.top;
 
-					const vw = origVideoWidth > 0 ? origVideoWidth : 1;
-					const vh = origVideoHeight > 0 ? origVideoHeight : 1;
+						const origVideoWidth = videoEl.videoWidth;
+						const origVideoHeight = videoEl.videoHeight;
 
-					const sourceWidth = Math.max(0, vw - crop.left - crop.right);
-					const sourceHeight = Math.max(0, vh - crop.top - crop.bottom);
+						const vw = origVideoWidth > 0 ? origVideoWidth : 1;
+						const vh = origVideoHeight > 0 ? origVideoHeight : 1;
 
-					const cropWidthRatio = sourceWidth / vw;
-					const cropHeightRatio = sourceHeight / vh;
+						const sourceWidth = Math.max(0, vw - crop.left - crop.right);
+						const sourceHeight = Math.max(0, vh - crop.top - crop.bottom);
 
-					const croppedDestWidth = width * cropWidthRatio;
-					const croppedDestHeight = height * cropHeightRatio;
+						const cropWidthRatio = sourceWidth / vw;
+						const cropHeightRatio = sourceHeight / vh;
 
-					const finalWidth = croppedDestWidth;
-					const finalHeight = croppedDestHeight;
+						const croppedDestWidth = width * cropWidthRatio;
+						const croppedDestHeight = height * cropHeightRatio;
 
-					const cropOffsetX = (width * (crop.left - crop.right)) / (2 * vw);
-					const cropOffsetY = (height * (crop.top - crop.bottom)) / (2 * vh);
+						const finalWidth = croppedDestWidth;
+						const finalHeight = croppedDestHeight;
 
-					const drawX = -finalWidth / 2 + cropOffsetX;
-					const drawY = -finalHeight / 2 + cropOffsetY;
+						const cropOffsetX = (width * (crop.left - crop.right)) / (2 * vw);
+						const cropOffsetY = (height * (crop.top - crop.bottom)) / (2 * vh);
 
-					// original video dimensions are not available yet, skip drawing
-					if (origVideoWidth <= 0 || origVideoHeight <= 0) {
+						const drawX = -finalWidth / 2 + cropOffsetX;
+						const drawY = -finalHeight / 2 + cropOffsetY;
+
+						// original video dimensions are not available yet, skip drawing
+						if (origVideoWidth <= 0 || origVideoHeight <= 0) {
+							ctx.restore();
+							continue;
+						}
+
+						if (sourceWidth > 0 && sourceHeight > 0) {
+							ctx.drawImage(videoEl, sourceX, sourceY, sourceWidth, sourceHeight, drawX, drawY, finalWidth, finalHeight);
+						}
+
 						ctx.restore();
-						continue;
+					} catch (err) {
+						console.error("Error rendering video frame:", err);
 					}
-
-					if (sourceWidth > 0 && sourceHeight > 0) {
-						ctx.drawImage(videoEl, sourceX, sourceY, sourceWidth, sourceHeight, drawX, drawY, finalWidth, finalHeight);
-					}
-
-					ctx.restore();
-				} catch (err) {
-					console.error("Error rendering video frame:", err);
 				}
 			}
 
@@ -419,7 +508,7 @@ export default function VideoPreview({
 				}
 			});
 
-			const activeVideoIds = new Set(activeVideoClips.map(({ clip }) => clip.id));
+			const activeVideoIds = new Set(activeVideoClips.filter(({ clip }) => clip.type === "video").map(({ clip }) => clip.id));
 			videoElementsRef.current.forEach((video, id) => {
 				if (!activeVideoIds.has(id) && !video.paused) {
 					video.pause();
@@ -447,11 +536,11 @@ export default function VideoPreview({
 	}, [timelineState, isPlaying, currentTimeRef]);
 
 	const selectedVideoClip =
-		selectedClips && selectedClips.length === 1 && selectedClips[0].clip.type === "video"
-			? (selectedClips[0] as { clip: VideoClip; trackId: string })
+		selectedClips && selectedClips.length === 1 && (selectedClips[0].clip.type === "video" || selectedClips[0].clip.type === "image")
+			? (selectedClips[0] as { clip: VideoClip | ImageClip; trackId: string })
 			: null;
 
-	const getDisplayRect = (clip: VideoClip) => {
+	const getDisplayRect = (clip: VideoClip | ImageClip) => {
 		if (!canvasRef.current || !containerRef.current) return null;
 
 		const canvas = canvasRef.current;
@@ -468,15 +557,24 @@ export default function VideoPreview({
 		let canvasX, canvasY, canvasWidth, canvasHeight;
 
 		if (transformMode === "crop") {
-			const videoEl = videoElementsRef.current.get(clip.id);
-			const videoWidth = videoEl?.videoWidth || 1920;
-			const videoHeight = videoEl?.videoHeight || 1080;
+			let sourceMediaWidth = 1920;
+			let sourceMediaHeight = 1080;
 
-			const sourceWidth = videoWidth - crop.left - crop.right;
-			const sourceHeight = videoHeight - crop.top - crop.bottom;
+			if (clip.type === "video") {
+				const videoEl = videoElementsRef.current.get(clip.id);
+				sourceMediaWidth = videoEl?.videoWidth || 1920;
+				sourceMediaHeight = videoEl?.videoHeight || 1080;
+			} else {
+				const imgEl = imageElementsRef.current.get(clip.id);
+				sourceMediaWidth = imgEl?.naturalWidth || 1920;
+				sourceMediaHeight = imgEl?.naturalHeight || 1080;
+			}
 
-			const cropWidthRatio = sourceWidth / videoWidth;
-			const cropHeightRatio = sourceHeight / videoHeight;
+			const sourceWidth = sourceMediaWidth - crop.left - crop.right;
+			const sourceHeight = sourceMediaHeight - crop.top - crop.bottom;
+
+			const cropWidthRatio = sourceWidth / sourceMediaWidth;
+			const cropHeightRatio = sourceHeight / sourceMediaHeight;
 
 			const visibleBaseWidth = baseWidth * cropWidthRatio;
 			const visibleBaseHeight = baseHeight * cropHeightRatio;
@@ -487,8 +585,8 @@ export default function VideoPreview({
 			const centerX = position.x + baseWidth / 2;
 			const centerY = position.y + baseHeight / 2;
 
-			const cropOffsetX = (baseWidth * (crop.left - crop.right)) / (2 * videoWidth);
-			const cropOffsetY = (baseHeight * (crop.top - crop.bottom)) / (2 * videoHeight);
+			const cropOffsetX = (baseWidth * (crop.left - crop.right)) / (2 * sourceMediaWidth);
+			const cropOffsetY = (baseHeight * (crop.top - crop.bottom)) / (2 * sourceMediaHeight);
 
 			canvasX = centerX - canvasWidth / 2 + cropOffsetX * zoom.x;
 			canvasY = centerY - canvasHeight / 2 + cropOffsetY * zoom.y;
@@ -606,23 +704,32 @@ export default function VideoPreview({
 					},
 				});
 			} else if (type === "crop" && handle) {
-				const videoEl = videoElementsRef.current.get(selectedVideoClip.clip.id);
-				const videoWidth = videoEl?.videoWidth || 1920;
-				const videoHeight = videoEl?.videoHeight || 1080;
+				let mediaWidth = 1920;
+				let mediaHeight = 1080;
+
+				if (selectedVideoClip.clip.type === "video") {
+					const videoEl = videoElementsRef.current.get(selectedVideoClip.clip.id);
+					mediaWidth = videoEl?.videoWidth || 1920;
+					mediaHeight = videoEl?.videoHeight || 1080;
+				} else if (selectedVideoClip.clip.type === "image") {
+					const imgEl = imageElementsRef.current.get(selectedVideoClip.clip.id);
+					mediaWidth = imgEl?.naturalWidth || 1920;
+					mediaHeight = imgEl?.naturalHeight || 1080;
+				}
 
 				let newCrop = { ...currentProps.crop };
 
 				if (handle.includes("w")) {
-					newCrop.left = Math.min(videoWidth - startProps.crop.right, Math.max(0, startProps.crop.left + deltaX));
+					newCrop.left = Math.min(mediaWidth - startProps.crop.right, Math.max(0, startProps.crop.left + deltaX));
 				}
 				if (handle.includes("e")) {
-					newCrop.right = Math.min(videoWidth - startProps.crop.left, Math.max(0, startProps.crop.right - deltaX));
+					newCrop.right = Math.min(mediaWidth - startProps.crop.left, Math.max(0, startProps.crop.right - deltaX));
 				}
 				if (handle.includes("n")) {
-					newCrop.top = Math.min(videoHeight - startProps.crop.bottom, Math.max(0, startProps.crop.top + deltaY));
+					newCrop.top = Math.min(mediaHeight - startProps.crop.bottom, Math.max(0, startProps.crop.top + deltaY));
 				}
 				if (handle.includes("s")) {
-					newCrop.bottom = Math.min(videoHeight - startProps.crop.top, Math.max(0, startProps.crop.bottom - deltaY));
+					newCrop.bottom = Math.min(mediaHeight - startProps.crop.top, Math.max(0, startProps.crop.bottom - deltaY));
 				}
 
 				onClipUpdate(selectedVideoClip.trackId, clip.id, {

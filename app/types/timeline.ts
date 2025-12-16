@@ -33,12 +33,17 @@ export interface VideoClip extends BaseClip {
 	properties: VideoClipProperties;
 }
 
+export interface ImageClip extends BaseClip {
+	type: "image";
+	properties: VideoClipProperties;
+}
+
 export interface AudioClip extends BaseClip {
 	type: "audio";
 	properties: AudioClipProperties;
 }
 
-export type Clip = VideoClip | AudioClip;
+export type Clip = VideoClip | ImageClip | AudioClip;
 
 export interface Track {
 	id: string;

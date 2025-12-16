@@ -93,7 +93,6 @@ function TimelineTrack({
 					trackId={track.id}
 					pixelsPerSecond={pixelsPerSecond}
 					isSelected={selectedClips.some((c) => c.clipId === clip.id && c.trackId === track.id)}
-					isDragging={draggedClipId === clip.id}
 					onSelect={onClipSelect}
 					onDragStart={onClipDragStart}
 					toolMode={toolMode}
