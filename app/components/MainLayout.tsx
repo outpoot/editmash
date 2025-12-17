@@ -63,7 +63,7 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(({ showMedia, show
 	);
 
 	return (
-		<div className="h-screen pt-8 bg-background">
+		<div className="flex-1 h-full pt-8 bg-background">
 			<ResizablePanelGroup direction="horizontal" className="h-full">
 				{!noneVisible && (
 					<>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Check, Video, Download, Upload } from "lucide-react";
+import { Check, Video, Download, Upload, Users } from "lucide-react";
 
 interface TopBarProps {
 	showMedia: boolean;
@@ -11,9 +11,21 @@ interface TopBarProps {
 	onRender?: () => void;
 	onSaveTimeline?: () => void;
 	onImportTimeline?: (file: File) => void;
+	timeRemaining?: number | null;
+	matchInfo?: { playerCount: number };
 }
 
-export default function TopBar({ showMedia, showEffects, onToggleMedia, onToggleEffects, onRender, onSaveTimeline, onImportTimeline }: TopBarProps) {
+export default function TopBar({
+	showMedia,
+	showEffects,
+	onToggleMedia,
+	onToggleEffects,
+	onRender,
+	onSaveTimeline,
+	onImportTimeline,
+	timeRemaining,
+	matchInfo,
+}: TopBarProps) {
 	const [activeMenu, setActiveMenu] = useState<string | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const isDev = process.env.NODE_ENV === "development";
@@ -161,6 +173,26 @@ export default function TopBar({ showMedia, showEffects, onToggleMedia, onToggle
 					</>
 				)}
 			</div>
+
+			<div className="flex items-center gap-2">
+				{matchInfo && (
+					<div className="flex items-center gap-1.5 px-2 py-1 bg-muted rounded text-xs text-muted-foreground">
+						<Users size={12} />
+						{matchInfo.playerCount}
+					</div>
+				)}
+
+				{timeRemaining !== null && timeRemaining !== undefined && (
+					<div
+						className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-mono font-bold ${
+							timeRemaining <= 10 ? "bg-red-600 text-white" : "bg-red-600/80 text-white"
+						}`}
+					>
+						{Math.floor(timeRemaining / 60)}:{String(Math.floor(timeRemaining % 60)).padStart(2, "0")}
+					</div>
+				)}
+			</div>
+
 			{/* rightside window controls but idk if i wanna keep them so commented for now */}
 
 			{/* <div className="flex items-center">

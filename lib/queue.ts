@@ -1,10 +1,10 @@
 import { RenderJob } from "../app/types/render";
 import { renderTimeline, downloadMediaFiles, cleanupTempFiles } from "./ffmpeg";
 import { uploadToB2, deleteMultipleFromB2 } from "./b2";
+import { getRedis, closeRedisConnection } from "./redis";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import Redis from "ioredis";
 
 const JOBS_KEY = "render:jobs";
 const QUEUE_KEY = "render:queue";
@@ -13,47 +13,9 @@ const PROCESSING_LOCK_TTL = 60;
 const HEARTBEAT_INTERVAL = 15000;
 
 const global = globalThis as unknown as {
-	redisClient: Redis | undefined;
-	redisConnectionLogged: boolean;
 	heartbeatInterval: NodeJS.Timeout | undefined;
 	currentLockToken: string | null;
 };
-
-function getRedis(): Redis {
-	if (!global.redisClient) {
-		const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-
-		global.redisClient = new Redis(redisUrl, {
-			maxRetriesPerRequest: 3,
-			retryStrategy: (times) => {
-				if (times > 10) {
-					return null;
-				}
-				return Math.min(times * 100, 3000);
-			},
-			lazyConnect: false,
-			enableOfflineQueue: true,
-		});
-
-		global.redisClient.on("error", (err) => {
-			if (!global.redisConnectionLogged) {
-				console.error("Redis connection error:", err.message);
-			}
-		});
-
-		global.redisClient.on("connect", () => {
-			if (!global.redisConnectionLogged) {
-				console.log("Connected to Redis");
-				global.redisConnectionLogged = true;
-			}
-		});
-
-		global.redisClient.on("ready", () => {
-			console.log("Redis ready");
-		});
-	}
-	return global.redisClient;
-}
 
 async function getJob(jobId: string): Promise<RenderJob | null> {
 	const jobData = await getRedis().hget(JOBS_KEY, jobId);
@@ -350,7 +312,7 @@ export async function deleteJob(jobId: string): Promise<boolean> {
 	return true;
 }
 
-export async function closeRedisConnection(): Promise<void> {
+export async function gracefulShutdown(): Promise<void> {
 	stopHeartbeat();
 
 	if (global.currentLockToken) {
@@ -361,10 +323,7 @@ export async function closeRedisConnection(): Promise<void> {
 		}
 	}
 
-	if (global.redisClient) {
-		await global.redisClient.quit();
-		global.redisClient = undefined;
-	}
+	await closeRedisConnection();
 
 	console.log("Graceful shutdown completed");
 }

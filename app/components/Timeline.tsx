@@ -61,6 +61,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 
 		const timelineRef = useRef<HTMLDivElement>(null);
 		const scrollContainerRef = useRef<HTMLDivElement>(null);
+		const trackNamesRef = useRef<HTMLDivElement>(null);
 		const trackRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
 		const animationFrameRef = useRef<number | null>(null);
 		const playbackStartTimeRef = useRef<number>(0);
@@ -1460,8 +1461,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 
 				<div className="flex-1 flex overflow-hidden relative">
 					<div className="w-32 flex-shrink-0 bg-card border-r border-border flex flex-col relative z-[70]">
-						<div className="absolute left-0 top-0 bottom-0 bg-card pointer-events-none" style={{ width: "calc(100% - 4px)" }} />
-						<div className="h-8 border-b border-border flex items-center justify-center relative">
+						<div className="h-8 border-b border-border flex items-center justify-center relative flex-shrink-0 bg-card z-10">
 							<span className="text-sm text-foreground font-mono tabular-nums">
 								{Math.floor(currentTime / 60)
 									.toString()
@@ -1476,16 +1476,23 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 									.padStart(2, "0")}
 							</span>
 						</div>
-						{timelineState.tracks.map((track) => (
-							<div key={track.id} className="h-[2.5rem] border-b border-border flex items-center px-3 relative">
-								<div className="flex items-center gap-2">
-									<div className={`w-2 h-2 rounded-full ${track.type === "video" ? "bg-purple-500" : "bg-green-500"}`} />
-									<span className="text-sm text-foreground font-medium">
-										{track.type === "video" ? "Video" : "Audio"} {track.id.split("-")[1]}
-									</span>
-								</div>
+						<div className="flex-1 overflow-hidden relative">
+							<div
+								ref={trackNamesRef}
+								className="absolute left-0 right-0"
+							>
+								{timelineState.tracks.map((track, index) => (
+									<div key={track.id} className={`h-10 flex items-center px-3 bg-card ${index !== timelineState.tracks.length - 1 ? "border-b border-border" : ""}`}>
+										<div className="flex items-center gap-2">
+											<div className={`w-2 h-2 rounded-full ${track.type === "video" ? "bg-purple-500" : "bg-green-500"}`} />
+											<span className="text-sm text-foreground font-medium">
+												{track.type === "video" ? "V" : "A"}{parseInt(track.id.split("-")[1]) + 1}
+											</span>
+										</div>
+									</div>
+								))}
 							</div>
-						))}
+						</div>
 					</div>
 
 					<div
@@ -1498,14 +1505,20 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 									: "default",
 						}}
 						onClick={handleTimelineClick}
+						onScroll={(e) => {
+							const container = e.currentTarget;
+							if (trackNamesRef.current) {
+								trackNamesRef.current.style.transform = `translateY(${-container.scrollTop}px)`;
+							}
+						}}
 					>
 						<div className="min-w-full inline-block" style={{ width: `${timelineWidth + 200}px` }}>
-							<div ref={timelineRef}>
+							<div ref={timelineRef} className="sticky top-0 z-20 bg-card">
 								<TimeRuler duration={timelineState.duration} pixelsPerSecond={pixelsPerSecond} onSeek={handleSeek} />
 							</div>
 
 							<div className="relative">
-								{timelineState.tracks.map((track) => (
+								{timelineState.tracks.map((track, index) => (
 									<div
 										key={track.id}
 										ref={(el) => {
@@ -1528,6 +1541,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 											onTrackMouseEnter={() => setHoveredTrackId(track.id)}
 											toolMode={toolMode}
 											onBladeClick={handleBladeClick}
+											isLastTrack={index === timelineState.tracks.length - 1}
 											onTrackMouseMove={handleTrackMouseMove}
 											bladeCursorPosition={bladeCursorPosition?.trackId === track.id ? bladeCursorPosition.x : null}
 											onMediaDrop={handleMediaDrop}

@@ -20,6 +20,7 @@ interface TimelineTrackProps {
 	onMediaDragOver: (e: React.DragEvent, trackId: string) => void;
 	onMediaDragLeave: () => void;
 	dragPreview: { trackId: string; startTime: number; duration: number; type: "video" | "audio" } | null;
+	isLastTrack?: boolean;
 }
 
 function TimelineTrack({
@@ -40,6 +41,7 @@ function TimelineTrack({
 	onMediaDragOver,
 	onMediaDragLeave,
 	dragPreview,
+	isLastTrack,
 }: TimelineTrackProps) {
 	const handleDragOver = (e: React.DragEvent) => {
 		onMediaDragOver(e, track.id);
@@ -51,7 +53,7 @@ function TimelineTrack({
 	};
 	return (
 		<div
-			className={`h-[2.5rem] relative cursor-crosshair transition-colors border-b border-border ${
+			className={`h-10 relative cursor-crosshair transition-colors ${!isLastTrack ? "border-b border-border" : ""} ${
 				isHovered && draggedClipId ? "bg-accent" : "bg-background"
 			}`}
 			onClick={(e) => {

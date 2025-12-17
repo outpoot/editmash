@@ -1,275 +1,489 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import TopBar from "./components/TopBar";
-import MainLayout, { MainLayoutRef } from "./components/MainLayout";
-import { TimelineState } from "./types/timeline";
-import { mediaStore, MediaItem } from "./store/mediaStore";
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { usePlayerId, useUsername } from "./hooks/usePlayer";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Separator } from "@/components/ui/separator";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import { Users, Plus, Copy, Check, Video, ScanBarcode } from "lucide-react";
+import { LobbyListItem, LobbyListResponse, LobbyListItemWithConfig } from "./types/lobby";
+import { MatchConfig, DEFAULT_MATCH_CONFIG } from "./types/match";
+import { MatchModifierBadges } from "./components/MatchModifierBadges";
 
-interface SavedTimelineData {
-	version: 1;
-	savedAt: string;
-	timelineState: TimelineState;
-	mediaItems: MediaItem[];
-	mediaBlobs: Record<string, string>;
-}
+export default function MatchmakingPage() {
+	const router = useRouter();
+	const { playerId, isLoading: playerLoading } = usePlayerId();
+	const { username, setUsername, isLoading: usernameLoading } = useUsername();
 
-// note: there's a memory leak here, since polling interval is not cleared on unmount, but this has to be replaced soon anyway
-export default function Home() {
-	const [showMedia, setShowMedia] = useState(true);
-	const [showEffects, setShowEffects] = useState(false);
-	const [isRendering, setIsRendering] = useState(false);
-	const [renderJobId, setRenderJobId] = useState<string | null>(null);
-	const [currentTimelineState, setCurrentTimelineState] = useState<TimelineState | null>(null);
-	const [isImporting, setIsImporting] = useState(false);
+	const [lobbies, setLobbies] = useState<LobbyListItemWithConfig[]>([]);
 
-	const mainLayoutRef = useRef<MainLayoutRef>(null);
+	const [showUsernameDialog, setShowUsernameDialog] = useState(false);
+	const [usernameInput, setUsernameInput] = useState("");
 
-	useEffect(() => {
-		const savedTimeline = sessionStorage.getItem("importedTimeline");
-		const savedMediaItems = sessionStorage.getItem("importedMediaItems");
+	const [showCreateDialog, setShowCreateDialog] = useState(false);
+	const [lobbyName, setLobbyName] = useState("");
+	const [matchConfig, setMatchConfig] = useState<MatchConfig>(DEFAULT_MATCH_CONFIG);
+	const [isCreating, setIsCreating] = useState(false);
 
-		if (savedTimeline && savedMediaItems) {
-			try {
-				const timelineState: TimelineState = JSON.parse(savedTimeline);
-				const mediaItems: MediaItem[] = JSON.parse(savedMediaItems);
+	const [lobbyPlaceholder] = useState(() => {
+		const placeholders = [
+			"iShowSprint edit",
+			"MrBeat edit",
+			"CarpetScam ad",
+			"Ohnedot edit",
+			"CaseWoah edit",
+			"Jnyxzy edit",
+			"thugger type beat",
+			"Nitefort montage",
+			"TokTik compilation",
+			"MePresent video",
+			"facial development tips",
+			"ken carson i love you",
+		];
+		return placeholders[Math.floor(Math.random() * placeholders.length)];
+	});
 
-				sessionStorage.removeItem("importedTimeline");
-				sessionStorage.removeItem("importedMediaItems");
+	const [showJoinDialog, setShowJoinDialog] = useState(false);
+	const [joinCode, setJoinCode] = useState("");
+	const [isJoining, setIsJoining] = useState(false);
 
-				mediaItems.forEach((item) => {
-					mediaStore.addItem(item);
-				});
-
-				setTimeout(() => {
-					mainLayoutRef.current?.loadTimeline(timelineState);
-				}, 100);
-			} catch (e) {
-				console.error("Failed to restore timeline from sessionStorage:", e);
-			}
+	const fetchLobbies = useCallback(async () => {
+		try {
+			const response = await fetch("/api/lobbies?status=waiting");
+			if (!response.ok) throw new Error("Failed to fetch lobbies");
+			const data: LobbyListResponse = await response.json();
+			setLobbies(data.lobbies);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Failed to load lobbies");
 		}
 	}, []);
 
-	const handleRender = async (timelineState: TimelineState) => {
-		try {
-			setIsRendering(true);
+	useEffect(() => {
+		fetchLobbies();
+		const interval = setInterval(fetchLobbies, 5000);
+		return () => clearInterval(interval);
+	}, [fetchLobbies]);
 
-			const response = await fetch("/api/render", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ timelineState }),
-			});
+	useEffect(() => {
+		if (!usernameLoading && !username) {
+			setShowUsernameDialog(true);
+		}
+	}, [usernameLoading, username]);
 
-			if (!response.ok) {
-				throw new Error(`Failed to submit render job: ${response.status}`);
-			}
-
-			const data = await response.json();
-			setRenderJobId(data.jobId);
-
-			const pollInterval = setInterval(async () => {
-				const statusResponse = await fetch(`/api/render/${data.jobId}`);
-
-				if (statusResponse.ok) {
-					const statusData = await statusResponse.json();
-
-					if (statusData.job.status === "completed") {
-						clearInterval(pollInterval);
-						setIsRendering(false);
-						alert(`Render complete! Download: ${statusData.job.outputUrl}`);
-					} else if (statusData.job.status === "failed") {
-						clearInterval(pollInterval);
-						setIsRendering(false);
-						alert(`Render failed: ${statusData.job.error}`);
-					}
-				}
-			}, 2000);
-		} catch (error) {
-			console.error("Render error:", error);
-			setIsRendering(false);
-			alert(`Failed to start render: ${error instanceof Error ? error.message : String(error)}`);
+	const handleSetUsername = () => {
+		if (usernameInput.trim()) {
+			setUsername(usernameInput.trim());
+			setShowUsernameDialog(false);
 		}
 	};
 
-	const handleSaveTimeline = async () => {
-		if (!currentTimelineState) {
-			alert("No timeline to save");
+	const handleCreateLobby = async () => {
+		if (!playerId || !username || !lobbyName.trim()) return;
+
+		try {
+			setIsCreating(true);
+			const response = await fetch("/api/lobbies", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					name: lobbyName.trim(),
+					hostPlayerId: playerId,
+					hostUsername: username,
+					matchConfig,
+				}),
+			});
+
+			if (!response.ok) {
+				const data = await response.json();
+				throw new Error(data.error || "Failed to create lobby");
+			}
+
+			const data = await response.json();
+			router.push(`/lobby/${data.lobbyId}`);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Failed to create lobby");
+		} finally {
+			setIsCreating(false);
+		}
+	};
+
+	const handleJoinLobby = async (lobbyId: string) => {
+		if (!playerId || !username) {
+			setShowUsernameDialog(true);
 			return;
 		}
 
 		try {
-			const mediaItems = mediaStore.getItems();
-			const mediaBlobs: Record<string, string> = {};
+			setIsJoining(true);
+			const response = await fetch(`/api/lobbies/${lobbyId}/join`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					playerId,
+					username,
+				}),
+			});
 
-			for (const item of mediaItems) {
-				if (item.url && !item.url.startsWith("blob:")) {
-					try {
-						const response = await fetch(item.url);
-						const blob = await response.blob();
-						const base64 = await new Promise<string>((resolve) => {
-							const reader = new FileReader();
-							reader.onloadend = () => resolve(reader.result as string);
-							reader.readAsDataURL(blob);
-						});
-						mediaBlobs[item.url] = base64;
-					} catch (e) {
-						console.warn(`Failed to fetch media for ${item.url}:`, e);
-					}
+			if (!response.ok) {
+				const data = await response.json();
+				const errorMessage = data.message || data.error || "Failed to join lobby";
+				
+				// If already in lobby, just redirect instead of showing error
+				if (errorMessage === "Player already in lobby") {
+					router.push(`/lobby/${lobbyId}`);
+					return;
 				}
+				
+				throw new Error(errorMessage);
 			}
 
-			const saveData: SavedTimelineData = {
-				version: 1,
-				savedAt: new Date().toISOString(),
-				timelineState: currentTimelineState,
-				mediaItems: mediaItems.map((item) => ({
-					...item,
-					thumbnail: item.thumbnail?.startsWith("data:") ? item.thumbnail : undefined,
-				})),
-				mediaBlobs,
-			};
-
-			const json = JSON.stringify(saveData, null, 2);
-			const blob = new Blob([json], { type: "application/json" });
-			const url = URL.createObjectURL(blob);
-
-			const a = document.createElement("a");
-			a.href = url;
-			a.download = `timeline-${new Date().toISOString().slice(0, 19).replace(/[:.]/g, "-")}.json`;
-			document.body.appendChild(a);
-			a.click();
-			document.body.removeChild(a);
-			URL.revokeObjectURL(url);
-		} catch (error) {
-			console.error("Save error:", error);
-			alert(`Failed to save timeline: ${error instanceof Error ? error.message : String(error)}`);
+			router.push(`/lobby/${lobbyId}`);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Failed to join lobby");
+		} finally {
+			setIsJoining(false);
 		}
 	};
 
-	const handleImportTimeline = async (file: File) => {
-		try {
-			setIsImporting(true);
-			const text = await file.text();
-			const saveData: SavedTimelineData = JSON.parse(text);
+	const handleJoinByCode = async () => {
+		if (!joinCode.trim()) return;
+		await handleJoinLobby(joinCode.trim().toUpperCase());
+		setShowJoinDialog(false);
+	};
 
-			if (saveData.version !== 1) {
-				throw new Error(`Unsupported timeline version: ${saveData.version}`);
-			}
+	if (playerLoading || usernameLoading) {
+		return (
+			<div className="min-h-screen bg-background flex items-center justify-center">
+				<div className="animate-pulse text-muted-foreground">Loading...</div>
+			</div>
+		);
+	}
 
-			mediaStore.cleanup();
+	return (
+		<div className="min-h-screen bg-background">
+			<header className="border-b bg-card">
+				<div className="container mx-auto px-4 py-4 flex items-center justify-between">
+					<div className="flex items-center gap-3">
+						<Video className="w-6 h-6 text-primary" />
+						<h1 className="text-xl font-bold">EditMash</h1>
+					</div>
 
-			const urlMap: Record<string, string> = {};
+					<div className="flex items-center gap-4">
+						{username && (
+							<div className="flex items-center gap-2">
+								<Avatar className="h-8 w-8">
+									<AvatarFallback className="text-xs">{username.slice(0, 2).toUpperCase()}</AvatarFallback>
+								</Avatar>
+								<span className="text-sm font-medium">{username}</span>
+							</div>
+						)}
+					</div>
+				</div>
+			</header>
 
-			for (const item of saveData.mediaItems) {
-				const base64Data = saveData.mediaBlobs[item.url];
-				if (!base64Data) {
-					console.warn(`No blob data for ${item.url}, skipping`);
-					continue;
-				}
+			<main className="container mx-auto px-4 py-8">
+				<div className="flex flex-wrap gap-4 mb-8">
+					<Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+						<DialogTrigger asChild>
+							<Button size="lg" className="gap-2">
+								<Plus className="w-5 h-5" />
+								Create
+							</Button>
+						</DialogTrigger>
+						<DialogContent className="max-w-md">
+							<DialogHeader>
+								<DialogTitle>Create Lobby</DialogTitle>
+								<DialogDescription>Set up a new match with your modifiers.</DialogDescription>
+							</DialogHeader>
 
-				const response = await fetch(base64Data);
-				const blob = await response.blob();
+							<div className="space-y-4 py-4">
+								<div className="space-y-2">
+									<Label htmlFor="lobby-name">Name</Label>
+									<Input id="lobby-name" placeholder={lobbyPlaceholder} value={lobbyName} onChange={(e) => setLobbyName(e.target.value)} />
+								</div>
 
-				const mediaFile = new File([blob], item.name, { type: blob.type });
+								<Separator />
 
-				const formData = new FormData();
-				formData.append("file", mediaFile);
+								<div className="space-y-4">
+									<div className="space-y-2">
+										<Label>Timeline</Label>
+										<div className="flex gap-2">
+											{[5, 15, 30, 60].map((sec) => (
+												<Button
+													key={sec}
+													type="button"
+													variant={matchConfig.timelineDuration === sec ? "default" : "outline"}
+													size="sm"
+													className="flex-1"
+													onClick={() => setMatchConfig({ ...matchConfig, timelineDuration: sec })}
+												>
+													{sec}s
+												</Button>
+											))}
+										</div>
+									</div>
 
-				const uploadResponse = await fetch("/api/upload", {
-					method: "POST",
-					body: formData,
-				});
+									<div className="space-y-2">
+										<div className="flex justify-between">
+											<Label>Duration</Label>
+											<span className="text-sm text-muted-foreground">{matchConfig.matchDuration} min</span>
+										</div>
+										<Slider
+											value={[matchConfig.matchDuration]}
+											onValueChange={([v]) => setMatchConfig({ ...matchConfig, matchDuration: v })}
+											min={1}
+											max={10}
+											step={1}
+										/>
+									</div>
 
-				if (!uploadResponse.ok) {
-					throw new Error(`Failed to upload ${item.name}: ${uploadResponse.status}`);
-				}
+									<div className="space-y-2">
+										<div className="flex justify-between">
+											<Label>Capacity</Label>
+											<span className="text-sm text-muted-foreground">{matchConfig.maxPlayers} players</span>
+										</div>
+										<Slider
+											value={[matchConfig.maxPlayers]}
+											onValueChange={([v]) => setMatchConfig({ ...matchConfig, maxPlayers: v })}
+											min={2}
+											max={500}
+											step={1}
+										/>
+									</div>
 
-				const uploadData = await uploadResponse.json();
-				urlMap[item.url] = uploadData.url;
+									<div className="space-y-2">
+										<div className="flex justify-between">
+											<Label>Max Volume</Label>
+											<span className="text-sm text-muted-foreground">{(matchConfig.audioMaxVolume * 100).toFixed(0)}%</span>
+										</div>
+										<Slider
+											value={[matchConfig.audioMaxVolume * 100]}
+											onValueChange={([v]) => setMatchConfig({ ...matchConfig, audioMaxVolume: v / 100 })}
+											min={50}
+											max={200}
+											step={10}
+										/>
+									</div>
 
-				mediaStore.addItem({
-					...item,
-					url: uploadData.url,
-					fileId: uploadData.fileId,
-					isUploading: false,
-					uploadProgress: 100,
-					uploadError: undefined,
-				});
-			}
+									<div className="grid grid-cols-2 gap-4">
+										<div className="space-y-2">
+											<Label>Min Clip Duration</Label>
+											<div className="flex items-center gap-2">
+												<Slider
+													value={[matchConfig.clipSizeMin]}
+													onValueChange={([v]) => setMatchConfig({ ...matchConfig, clipSizeMin: v })}
+													min={0.1}
+													max={5}
+													step={0.1}
+													className="flex-1"
+												/>
+												<span className="text-xs text-muted-foreground w-8">{matchConfig.clipSizeMin}s</span>
+											</div>
+										</div>
+										<div className="space-y-2">
+											<Label>Max Clip Duration</Label>
+											<div className="flex items-center gap-2">
+												<Slider
+													value={[matchConfig.clipSizeMax]}
+													onValueChange={([v]) => setMatchConfig({ ...matchConfig, clipSizeMax: v })}
+													min={1}
+													max={60}
+													step={1}
+													className="flex-1"
+												/>
+												<span className="text-xs text-muted-foreground w-8">{matchConfig.clipSizeMax}s</span>
+											</div>
+										</div>
+									</div>
 
-			const updatedTimelineState: TimelineState = {
-				...saveData.timelineState,
-				tracks: saveData.timelineState.tracks.map((track) => ({
-					...track,
-					clips: track.clips.map((clip) => {
-						const newUrl = urlMap[clip.src] || clip.src;
-						return {
-							...clip,
-							src: newUrl,
-						};
-					}),
-				})),
-			};
+									<div className="grid grid-cols-2 gap-4">
+										<div className="space-y-2">
+											<Label>Video</Label>
+											<Input
+												type="number"
+												min={1}
+												max={100}
+												value={matchConfig.maxVideoTracks}
+												onChange={(e) => setMatchConfig({ ...matchConfig, maxVideoTracks: parseInt(e.target.value) || 1 })}
+											/>
+										</div>
+										<div className="space-y-2">
+											<Label>Audio</Label>
+											<Input
+												type="number"
+												min={0}
+												max={100}
+												value={matchConfig.maxAudioTracks}
+												onChange={(e) => setMatchConfig({ ...matchConfig, maxAudioTracks: parseInt(e.target.value) || 0 })}
+											/>
+										</div>
+									</div>
 
-			setCurrentTimelineState(updatedTimelineState);
+									<div className="space-y-2">
+										<div className="flex justify-between">
+											<Label>Max Clips per Player</Label>
+											<span className="text-sm text-muted-foreground">
+												{matchConfig.maxClipsPerUser === 0 ? "Unlimited" : matchConfig.maxClipsPerUser}
+											</span>
+										</div>
+										<Slider
+											value={[matchConfig.maxClipsPerUser]}
+											onValueChange={([v]) => setMatchConfig({ ...matchConfig, maxClipsPerUser: v })}
+											min={0}
+											max={50}
+											step={1}
+										/>
+										<p className="text-xs text-muted-foreground">Set to 0 for unlimited clips per player</p>
+									</div>
+								</div>
+							</div>
 
-			alert("Timeline imported successfully! The page will reload to apply changes.");
+							<DialogFooter>
+								<Button variant="ghost" onClick={() => setShowCreateDialog(false)}>
+									Cancel
+								</Button>
+								<Button onClick={handleCreateLobby} disabled={!lobbyName.trim() || isCreating}>
+									{isCreating ? "..." : "Go"}
+								</Button>
+							</DialogFooter>
+						</DialogContent>
+					</Dialog>
 
-			sessionStorage.setItem("importedTimeline", JSON.stringify(updatedTimelineState));
-			sessionStorage.setItem("importedMediaItems", JSON.stringify(mediaStore.getItems()));
+					<Dialog open={showJoinDialog} onOpenChange={setShowJoinDialog}>
+						<DialogTrigger asChild>
+							<Button variant="outline" size="lg" className="gap-2">
+								<ScanBarcode className="w-5 h-5" />
+								Join
+							</Button>
+						</DialogTrigger>
+						<DialogContent className="max-w-sm">
+							<DialogHeader>
+								<DialogTitle>Join</DialogTitle>
+								<DialogDescription>Enter the 6-character lobby code to join.</DialogDescription>
+							</DialogHeader>
 
-			window.location.reload();
-		} catch (error) {
-			console.error("Import error:", error);
-			alert(`Failed to import timeline: ${error instanceof Error ? error.message : String(error)}`);
-		} finally {
-			setIsImporting(false);
-		}
+							<div className="py-4">
+								<Input
+									placeholder="ABC123"
+									value={joinCode}
+									onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+									maxLength={6}
+									className="text-center text-2xl tracking-widest font-mono"
+								/>
+							</div>
+
+							<DialogFooter>
+								<Button variant="outline" onClick={() => setShowJoinDialog(false)}>
+									Cancel
+								</Button>
+								<Button onClick={handleJoinByCode} disabled={joinCode.length !== 6 || isJoining}>
+									{isJoining ? "..." : "Go"}
+								</Button>
+							</DialogFooter>
+						</DialogContent>
+					</Dialog>
+				</div>
+
+				<div className="space-y-4">
+					<h2 className="text-lg font-semibold">Lobbies ({lobbies.length == 0 ? "" : lobbies.length})</h2>
+
+					{lobbies.length === 0 ? (
+						<Card className="p-12 text-center">
+							<div className="flex flex-col items-center gap-4">
+								<Users className="w-12 h-12 text-muted-foreground/50" />
+								<div>
+									<p className="text-muted-foreground">No open lobbies right now</p>
+									<p className="text-sm text-muted-foreground/70">Create one or wait!</p>
+								</div>
+							</div>
+						</Card>
+					) : (
+						<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+							{lobbies.map((lobby) => (
+								<LobbyCard key={lobby.id} lobby={lobby} onJoin={() => handleJoinLobby(lobby.id)} isJoining={isJoining} />
+							))}
+						</div>
+					)}
+				</div>
+			</main>
+
+			{/* USERNAME DIALOG - TODO : REMOVE WHEN ADDING AUTH */}
+			<Dialog open={showUsernameDialog} onOpenChange={setShowUsernameDialog}>
+				<DialogContent className="max-w-sm" onPointerDownOutside={(e) => e.preventDefault()}>
+					<DialogHeader>
+						<DialogTitle>Welcome to EditMash!</DialogTitle>
+						<DialogDescription>Choose a username to get started.</DialogDescription>
+					</DialogHeader>
+
+					<div className="py-4">
+						<Input
+							placeholder="Enter your username"
+							value={usernameInput}
+							onChange={(e) => setUsernameInput(e.target.value)}
+							onKeyDown={(e) => e.key === "Enter" && handleSetUsername()}
+							maxLength={20}
+						/>
+					</div>
+
+					<DialogFooter>
+						<Button onClick={handleSetUsername} disabled={!usernameInput.trim()} className="w-full">
+							Let&apos;s Go!
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+		</div>
+	);
+}
+
+function LobbyCard({ lobby, onJoin, isJoining }: { lobby: LobbyListItemWithConfig; onJoin: () => void; isJoining: boolean }) {
+	const [copied, setCopied] = useState(false);
+
+	const copyCode = (e: React.MouseEvent) => {
+		e.stopPropagation();
+		navigator.clipboard.writeText(lobby.joinCode);
+		setCopied(true);
+		setTimeout(() => setCopied(false), 2000);
 	};
 
 	return (
-		<>
-			<script crossOrigin="anonymous" src="//unpkg.com/react-scan/dist/auto.global.js"></script>
-			<TopBar
-				showMedia={showMedia}
-				showEffects={showEffects}
-				onToggleMedia={() => setShowMedia(!showMedia)}
-				onToggleEffects={() => setShowEffects(!showEffects)}
-				onRender={() => {
-					if (currentTimelineState) {
-						handleRender(currentTimelineState);
-					} else {
-						alert("No timeline to render");
-					}
-				}}
-				onSaveTimeline={handleSaveTimeline}
-				onImportTimeline={handleImportTimeline}
-			/>
-			<MainLayout ref={mainLayoutRef} showMedia={showMedia} showEffects={showEffects} onTimelineStateChange={setCurrentTimelineState} />
-
-			{isRendering && (
-				<div className="fixed inset-0 bg-background/50 flex items-center justify-center z-[100]">
-					<div className="bg-card border border-border rounded-lg p-6 min-w-[300px]">
-						<h3 className="text-foreground text-lg mb-4">Rendering Video...</h3>
-						<div className="w-full h-2 bg-muted rounded overflow-hidden">
-							<div className="h-full bg-primary animate-pulse" style={{ width: "100%" }} />
-						</div>
-						<p className="text-muted-foreground text-sm mt-2">Job ID: {renderJobId}</p>
+		<Card className="hover:border-primary/20 transition-colors">
+			<CardHeader className="pb-3">
+				<div className="flex items-start justify-between">
+					<div>
+						<CardTitle className="text-base">{lobby.name}</CardTitle>
+						<CardDescription>Hosted by @{lobby.hostUsername}</CardDescription>
 					</div>
+					<Badge variant="outline" className="font-mono cursor-pointer" onClick={copyCode}>
+						{copied ? <Check className="w-3 h-3 mr-1" /> : <Copy className="w-3 h-3 mr-1" />}
+						{lobby.joinCode}
+					</Badge>
 				</div>
-			)}
-
-			{isImporting && (
-				<div className="fixed inset-0 bg-background/50 flex items-center justify-center z-[100]">
-					<div className="bg-card border border-border rounded-lg p-6 min-w-[300px]">
-						<h3 className="text-foreground text-lg mb-4">Importing Timeline...</h3>
-						<div className="w-full h-2 bg-muted rounded overflow-hidden">
-							<div className="h-full bg-chart-5 animate-pulse" style={{ width: "100%" }} />
-						</div>
-						<p className="text-muted-foreground text-sm mt-2">Re-uploading media files to B2...</p>
+			</CardHeader>
+			<CardContent className="pb-3">
+				<div className="flex items-center gap-4">
+					<div className="flex items-center gap-1 text-sm text-muted-foreground">
+						<Users className="w-4 h-4" />
+						<span>
+							{lobby.playerCount}/{lobby.maxPlayers}
+						</span>
 					</div>
+					{lobby.matchConfig && <MatchModifierBadges matchConfig={lobby.matchConfig} />}
 				</div>
-			)}
-		</>
+			</CardContent>
+			<CardFooter>
+				<Button className="w-full" onClick={onJoin} disabled={isJoining || lobby.playerCount >= lobby.maxPlayers}>
+					{lobby.playerCount >= lobby.maxPlayers ? "Full" : isJoining ? "Joining..." : "Join"}
+				</Button>
+			</CardFooter>
+		</Card>
 	);
 }
