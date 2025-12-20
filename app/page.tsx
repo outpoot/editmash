@@ -152,7 +152,7 @@ export default function MatchmakingPage() {
 				<div className="container mx-auto px-4 py-4 flex items-center justify-between">
 					<div className="flex items-center gap-2">
 						<img src="/editmash.svg" alt="EditMash Logo" className="w-6 h-6" />
-						<h1 className="text-xl font-bold">EditMash</h1>
+						<h1 className="text-xl font-extrabold">EditMash</h1>
 					</div>
 
 					<UserMenu />
@@ -320,7 +320,6 @@ export default function MatchmakingPage() {
 											max={50}
 											step={1}
 										/>
-										<p className="text-xs text-muted-foreground">Set to 0 for unlimited clips per player</p>
 									</div>
 								</div>
 							</div>

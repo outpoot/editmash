@@ -269,8 +269,8 @@ export default function AccountPage() {
 						<Button variant="ghost" size="icon" onClick={() => router.push("/")}>
 							<HugeiconsIcon icon={ArrowLeft01Icon} className="w-5 h-5" />
 						</Button>
-						<div className="flex items-center gap-3">
-							<HugeiconsIcon icon={Video01Icon} className="w-6 h-6 text-primary" />
+						<div className="flex items-center gap-2">
+							<img src="/editmash.svg" alt="EditMash Logo" className="w-6 h-6" />
 							<h1 className="text-xl font-bold">Account</h1>
 						</div>
 					</div>
