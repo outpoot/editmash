@@ -10,7 +10,7 @@ import { uploadToB2 } from "./b2";
 async function uploadAvatarToB2(googleImageUrl: string, userId: string): Promise<string | null> {
 	try {
 		const highResUrl = googleImageUrl.replace(/=s\d+-c$/, "=s256-c");
-		
+
 		const response = await fetch(highResUrl);
 		if (!response.ok) {
 			console.error("Failed to fetch Google avatar:", response.statusText);
@@ -22,8 +22,14 @@ async function uploadAvatarToB2(googleImageUrl: string, userId: string): Promise
 		const extension = contentType.includes("png") ? "png" : "jpg";
 		const fileName = `avatars/${userId}.${extension}`;
 
-		const result = await uploadToB2(buffer, fileName, contentType);
-		return result.url;
+		const uploadResult = await uploadToB2(buffer, fileName, contentType);
+
+		if (!uploadResult || !uploadResult.fileId || !uploadResult.fileName) {
+			console.error("Upload to B2 failed: invalid upload result");
+			return null;
+		}
+
+		return `/api/media/${fileName}`;
 	} catch (error) {
 		console.error("Failed to upload avatar to B2:", error);
 		return null;
@@ -67,10 +73,7 @@ export const auth = betterAuth({
 						const b2Url = await uploadAvatarToB2(user.image, user.id);
 						if (b2Url) {
 							const database = getDb();
-							await database
-								.update(userTable)
-								.set({ image: b2Url })
-								.where(eq(userTable.id, user.id));
+							await database.update(userTable).set({ image: b2Url }).where(eq(userTable.id, user.id));
 						}
 					}
 				},
@@ -83,9 +86,7 @@ export const auth = betterAuth({
 		max: 100,
 	},
 
-	plugins: [
-		nextCookies(),
-	],
+	plugins: [nextCookies()],
 
 	trustedOrigins: process.env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",") || [],
 });

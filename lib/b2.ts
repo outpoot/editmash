@@ -222,3 +222,40 @@ export async function getB2DownloadUrl(fileName: string): Promise<string> {
 	const { auth } = await getB2Client();
 	return `${auth.downloadUrl}/file/${B2_BUCKET_NAME}/${encodeURIComponent(fileName)}`;
 }
+
+export async function listFileVersions(fileNamePrefix: string): Promise<Array<{ fileId: string; fileName: string }>> {
+	const { b2 } = await getB2Client();
+	const currentBucketId = await getBucketId();
+
+	try {
+		const response = await b2.listFileVersions({
+			bucketId: currentBucketId,
+			startFileName: fileNamePrefix,
+			startFileId: "",
+			maxFileCount: 100,
+		});
+
+		return response.data.files
+			.filter((file: { fileName: string }) => file.fileName.startsWith(fileNamePrefix))
+			.map((file: { fileId: string; fileName: string }) => ({
+				fileId: file.fileId,
+				fileName: file.fileName,
+			}));
+	} catch (error) {
+		console.error("Error listing file versions:", error);
+		return [];
+	}
+}
+
+export async function deleteFileByName(fileName: string): Promise<{ deletedCount: number; results: DeleteResult[] }> {
+	try {
+		const files = await listFileVersions(fileName);
+		const filesToDelete = files.filter((file) => file.fileName === fileName);
+		const results = await deleteMultipleFromB2(filesToDelete);
+		const deletedCount = results.filter((r) => r.success).length;
+		return { deletedCount, results };
+	} catch (error) {
+		console.error("Error deleting file by name:", error);
+		throw error;
+	}
+}

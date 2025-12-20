@@ -150,8 +150,8 @@ export default function MatchmakingPage() {
 		<div className="min-h-screen bg-background">
 			<header className="border-b bg-card">
 				<div className="container mx-auto px-4 py-4 flex items-center justify-between">
-					<div className="flex items-center gap-3">
-						<HugeiconsIcon icon={Video01Icon} className="w-6 h-6 text-primary" />
+					<div className="flex items-center gap-2">
+						<img src="/editmash.svg" alt="EditMash Logo" className="w-6 h-6" />
 						<h1 className="text-xl font-bold">EditMash</h1>
 					</div>
 
@@ -360,7 +360,7 @@ export default function MatchmakingPage() {
 							</div>
 
 							<DialogFooter>
-								<Button variant="outline" onClick={() => setShowJoinDialog(false)}>
+								<Button variant="ghost" onClick={() => setShowJoinDialog(false)}>
 									Cancel
 								</Button>
 								<Button onClick={handleJoinByCode} disabled={joinCode.length !== 6 || isJoining}>

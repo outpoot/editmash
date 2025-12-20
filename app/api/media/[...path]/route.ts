@@ -3,7 +3,7 @@ import { downloadFromB2 } from "@/lib/b2";
 import { ALL_ALLOWED_MIME_TYPES, getMimeTypeFromExtension } from "@/lib/validation";
 
 const CACHE_MAX_AGE = 3600; // 1 hour
-const ALLOWED_PREFIXES = ["media/", "renders/"];
+const ALLOWED_PREFIXES = ["media/", "renders/", "avatars/"];
 
 function validatePath(fileName: string): { valid: boolean; error?: string } {
 	if (!ALLOWED_PREFIXES.some((prefix) => fileName.startsWith(prefix))) {
