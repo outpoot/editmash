@@ -23,7 +23,10 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
 			return NextResponse.json({ error: "Match not found" }, { status: 404 });
 		}
 
-		if (match.status === "completed" || match.status === "rendering" || match.status === "failed") {
+		const url = new URL(request.url);
+		const isResultsRequest = url.searchParams.get("results") === "true" || request.headers.get("referer")?.includes("/results/");
+
+		if (!isResultsRequest && (match.status === "completed" || match.status === "rendering" || match.status === "failed")) {
 			return NextResponse.json({ redirect: `/results/${matchId}` });
 		}
 

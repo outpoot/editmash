@@ -1,10 +1,89 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { db, lobbies, lobbyPlayers, matches, matchPlayers, clipEditOperations, user, matchMedia } from "./db";
 import type { Lobby, LobbyPlayer, LobbyStatus, LobbyListItemWithConfig } from "../app/types/lobby";
 import type { Match, MatchStatus, MatchConfig, ClipEditOperation } from "../app/types/match";
 import type { TimelineState, Clip, Track } from "../app/types/timeline";
+import { DEFAULT_MATCH_CONFIG } from "../app/types/match";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const SYSTEM_LOBBY_PRESETS: { name: string; config: MatchConfig }[] = [
+	{
+		name: "Quick Chaos",
+		config: {
+			timelineDuration: 15,
+			matchDuration: 2,
+			maxPlayers: 100,
+			clipSizeMin: 0.1,
+			clipSizeMax: 15,
+			audioMaxVolume: 2,
+			maxVideoTracks: 30,
+			maxAudioTracks: 30,
+			maxClipsPerUser: 0, // unlimited
+			constraints: [],
+		},
+	},
+	{
+		name: "Precision Cut",
+		config: {
+			timelineDuration: 30,
+			matchDuration: 5,
+			maxPlayers: 50,
+			clipSizeMin: 1,
+			clipSizeMax: 5,
+			audioMaxVolume: 1,
+			maxVideoTracks: 10,
+			maxAudioTracks: 10,
+			maxClipsPerUser: 5,
+			constraints: [],
+		},
+	},
+	{
+		name: "Epic Collab",
+		config: {
+			timelineDuration: 60,
+			matchDuration: 10,
+			maxPlayers: 200,
+			clipSizeMin: 0.5,
+			clipSizeMax: 10,
+			audioMaxVolume: 1.5,
+			maxVideoTracks: 50,
+			maxAudioTracks: 50,
+			maxClipsPerUser: 10,
+			constraints: [],
+		},
+	},
+	{
+		name: "Speed Run",
+		config: {
+			timelineDuration: 5,
+			matchDuration: 1,
+			maxPlayers: 75,
+			clipSizeMin: 0.1,
+			clipSizeMax: 2,
+			audioMaxVolume: 1.5,
+			maxVideoTracks: 20,
+			maxAudioTracks: 20,
+			maxClipsPerUser: 3,
+			constraints: [],
+		},
+	},
+	{
+		name: "Layer Madness",
+		config: {
+			timelineDuration: 30,
+			matchDuration: 3,
+			maxPlayers: 150,
+			clipSizeMin: 0.5,
+			clipSizeMax: 30,
+			audioMaxVolume: 2,
+			maxVideoTracks: 100,
+			maxAudioTracks: 100,
+			maxClipsPerUser: 0, // unlimited
+			constraints: [],
+		},
+	},
+];
 
 function isValidUUID(str: string): boolean {
 	return UUID_REGEX.test(str);
@@ -19,10 +98,15 @@ function generateJoinCode(): string {
 	return code;
 }
 
+function getRandomSystemLobbyPreset(): { name: string; config: MatchConfig } {
+	return SYSTEM_LOBBY_PRESETS[Math.floor(Math.random() * SYSTEM_LOBBY_PRESETS.length)];
+}
+
 export async function createLobby(
 	name: string,
 	matchConfig: MatchConfig,
-	hostUserId: string
+	hostUserId: string,
+	isSystemLobby: boolean = false
 ): Promise<{ lobbyId: string; joinCode: string }> {
 	const database = db();
 	const joinCode = generateJoinCode();
@@ -35,15 +119,18 @@ export async function createLobby(
 			status: "waiting",
 			hostPlayerId: hostUserId,
 			matchConfigJson: matchConfig,
+			isSystemLobby,
 		})
 		.returning({ id: lobbies.id, joinCode: lobbies.joinCode });
 
-	await database.insert(lobbyPlayers).values({
-		lobbyId: lobby.id,
-		userId: hostUserId,
-		isHost: true,
-		isReady: true,
-	});
+	if (!isSystemLobby) {
+		await database.insert(lobbyPlayers).values({
+			lobbyId: lobby.id,
+			userId: hostUserId,
+			isHost: true,
+			isReady: true,
+		});
+	}
 
 	return { lobbyId: lobby.id, joinCode: lobby.joinCode };
 }
@@ -144,9 +231,15 @@ export async function listLobbies(status?: LobbyStatus): Promise<LobbyListItemWi
 			status: record.status,
 			playerCount: playersWithUsers.length,
 			maxPlayers: record.matchConfigJson.maxPlayers,
-			hostUsername: host?.userName || "Unknown",
+			hostUsername: host?.userName || (record.isSystemLobby ? "System" : "Unknown"),
+			isSystemLobby: record.isSystemLobby,
 			createdAt: record.createdAt,
 			matchConfig: record.matchConfigJson as MatchConfig,
+			players: playersWithUsers.map((p) => ({
+				id: p.userId,
+				username: p.userName || "Unknown",
+				image: p.userImage,
+			})),
 		});
 	}
 
@@ -161,8 +254,8 @@ export async function addPlayerToLobby(lobbyId: string, userId: string): Promise
 		return { success: false, message: "Lobby not found" };
 	}
 
-	if (lobby.status !== "waiting") {
-		return { success: false, message: "Lobby is no longer accepting players" };
+	if (lobby.status === "closed") {
+		return { success: false, message: "Lobby is closed" };
 	}
 
 	if (lobby.players.length >= lobby.matchConfig.maxPlayers) {
@@ -174,14 +267,67 @@ export async function addPlayerToLobby(lobbyId: string, userId: string): Promise
 		return { success: false, message: "Player already in lobby" };
 	}
 
+	const isFirstPlayerInSystemLobby = await isSystemLobbyEmpty(lobbyId);
+	
 	await database.insert(lobbyPlayers).values({
 		lobbyId,
 		userId,
-		isHost: false,
-		isReady: false,
+		isHost: isFirstPlayerInSystemLobby,
+		isReady: isFirstPlayerInSystemLobby,
 	});
 
+	if (isFirstPlayerInSystemLobby) {
+		await database
+			.update(lobbies)
+			.set({ hostPlayerId: userId, updatedAt: new Date() })
+			.where(eq(lobbies.id, lobbyId));
+	}
+
 	return { success: true, message: "Successfully joined lobby" };
+}
+
+async function isSystemLobbyEmpty(lobbyId: string): Promise<boolean> {
+	const database = db();
+	
+	const [lobbyRecord] = await database
+		.select({ isSystemLobby: lobbies.isSystemLobby })
+		.from(lobbies)
+		.where(eq(lobbies.id, lobbyId))
+		.limit(1);
+	
+	if (!lobbyRecord?.isSystemLobby) {
+		return false;
+	}
+	
+	const players = await database
+		.select({ id: lobbyPlayers.id })
+		.from(lobbyPlayers)
+		.where(eq(lobbyPlayers.lobbyId, lobbyId))
+		.limit(1);
+	
+	return players.length === 0;
+}
+
+export async function ensureSystemLobbiesExist(): Promise<void> {
+	const database = db();
+	const SYSTEM_USER_ID = "system";
+	const TARGET_COUNT = 3;
+
+	const existingSystemLobbies = await database
+		.select()
+		.from(lobbies)
+		.where(and(eq(lobbies.isSystemLobby, true), eq(lobbies.status, "waiting")));
+
+	const needed = TARGET_COUNT - existingSystemLobbies.length;
+
+	for (let i = 0; i < needed; i++) {
+		const preset = getRandomSystemLobbyPreset();
+		await createLobby(preset.name, preset.config, SYSTEM_USER_ID, true);
+	}
+
+	if (needed > 0) {
+		console.log(`[System] Created ${needed} system lobbies`);
+	}
 }
 
 export async function removePlayerFromLobby(lobbyId: string, userId: string): Promise<{ success: boolean; message: string }> {
@@ -226,6 +372,62 @@ export async function updateLobbyStatus(lobbyId: string, status: LobbyStatus, ma
 			updatedAt: new Date(),
 		})
 		.where(eq(lobbies.id, lobbyId));
+}
+
+export async function clearSystemLobbyFlag(lobbyId: string): Promise<void> {
+	const database = db();
+
+	await database
+		.update(lobbies)
+		.set({
+			isSystemLobby: false,
+			updatedAt: new Date(),
+		})
+		.where(eq(lobbies.id, lobbyId));
+}
+
+export async function cleanupStaleMatches(): Promise<number> {
+	const database = db();
+
+	const staleLobbies = await database
+		.select({ id: lobbies.id, matchId: lobbies.matchId })
+		.from(lobbies)
+		.where(eq(lobbies.status, "in_match"));
+
+	let cleanedCount = 0;
+	for (const lobby of staleLobbies) {
+		if (lobby.matchId) {
+			const [match] = await database
+				.select({ status: matches.status, endsAt: matches.endsAt })
+				.from(matches)
+				.where(eq(matches.id, lobby.matchId));
+
+			if (match) {
+				const now = new Date();
+				const shouldClose = 
+					match.status === "completed" || 
+					match.status === "rendering" ||
+					match.status === "failed" ||
+					(match.endsAt && now > match.endsAt);
+
+				if (shouldClose) {
+					await database
+						.update(lobbies)
+						.set({ status: "closed", updatedAt: new Date() })
+						.where(eq(lobbies.id, lobby.id));
+					cleanedCount++;
+				}
+			}
+		} else {
+			await database
+				.update(lobbies)
+				.set({ status: "closed", updatedAt: new Date() })
+				.where(eq(lobbies.id, lobby.id));
+			cleanedCount++;
+		}
+	}
+
+	return cleanedCount;
 }
 
 export async function setPlayerReady(lobbyId: string, userId: string, ready: boolean): Promise<void> {
@@ -395,6 +597,38 @@ export async function markPlayerDisconnected(matchId: string, userId: string): P
 		.where(and(eq(matchPlayers.matchId, matchId), eq(matchPlayers.userId, userId)));
 }
 
+export async function getPlayerActiveMatch(userId: string): Promise<{ matchId: string; lobbyName: string } | null> {
+	const database = db();
+
+	const result = await database
+		.select({
+			matchId: matchPlayers.matchId,
+			lobbyName: matches.lobbyName,
+			matchStatus: matches.status,
+		})
+		.from(matchPlayers)
+		.innerJoin(matches, eq(matchPlayers.matchId, matches.id))
+		.where(
+			and(
+				eq(matchPlayers.userId, userId),
+				// Player hasn't left the match
+				sql`${matchPlayers.disconnectedAt} IS NULL`,
+				// Match is still active (not completed/failed)
+				sql`${matches.status} IN ('preparing', 'active')`
+			)
+		)
+		.limit(1);
+
+	if (result.length === 0) {
+		return null;
+	}
+
+	return {
+		matchId: result[0].matchId,
+		lobbyName: result[0].lobbyName,
+	};
+}
+
 export async function incrementPlayerClipCount(matchId: string, userId: string, delta: number = 1): Promise<void> {
 	const database = db();
 
@@ -479,6 +713,7 @@ function mapLobbyRecordToLobby(
 		hostPlayerId: string;
 		matchConfigJson: MatchConfig;
 		matchId: string | null;
+		isSystemLobby: boolean;
 		createdAt: Date;
 		updatedAt: Date;
 	},

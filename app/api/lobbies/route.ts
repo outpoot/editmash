@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createLobby, listLobbies } from "@/lib/storage";
+import { createLobby, listLobbies, ensureSystemLobbiesExist, cleanupStaleMatches } from "@/lib/storage";
 import { validateMatchConfig } from "@/lib/constraints";
 import { DEFAULT_MATCH_CONFIG, MatchConfig } from "@/app/types/match";
 import { CreateLobbyRequest, CreateLobbyResponse, LobbyListResponse, LobbyStatus } from "@/app/types/lobby";
 import { getServerSession } from "@/lib/auth";
-import { notifyLobbyChange } from "@/lib/wsNotify";
+import { notifyWsServer } from "@/lib/wsNotify";
 
 export async function POST(request: NextRequest): Promise<NextResponse<CreateLobbyResponse | { error: string }>> {
 	try {
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<CreateLob
 
 		const result = await createLobby(body.name, matchConfig, userId);
 
-		notifyLobbyChange({ lobbyId: result.lobbyId, userId, action: "lobby_created" });
+		notifyWsServer("/notify/lobbies", { lobbyId: result.lobbyId, userId, action: "lobby_created" });
 
 		return NextResponse.json({
 			lobbyId: result.lobbyId,
@@ -53,6 +53,11 @@ export async function GET(request: NextRequest): Promise<NextResponse<LobbyListR
 
 		if (status && !["waiting", "starting", "in_match", "closed"].includes(status)) {
 			return NextResponse.json({ error: "Invalid status filter" }, { status: 400 });
+		}
+
+		if (!status || status === "waiting") {
+			await cleanupStaleMatches();
+			await ensureSystemLobbiesExist();
 		}
 
 		const lobbies = await listLobbies(status || undefined);

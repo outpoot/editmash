@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, use } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -35,7 +35,7 @@ export default function ResultsPage({ params }: { params: Promise<{ matchId: str
 
 	const fetchMatch = useCallback(async () => {
 		try {
-			const response = await fetch(`/api/matches/${matchId}`);
+			const response = await fetch(`/api/matches/${matchId}?results=true`);
 			if (!response.ok) {
 				if (response.status === 404) {
 					setError("Match not found");
@@ -158,6 +158,7 @@ export default function ResultsPage({ params }: { params: Promise<{ matchId: str
 										{match.players.map((player) => (
 											<div key={player.id} className="flex flex-col items-center gap-1.5 p-2 rounded-lg bg-muted/50">
 												<Avatar className="w-8 h-8">
+													<AvatarImage src={player.image || undefined} />
 													<AvatarFallback className="text-xs">{player.username.slice(0, 2).toUpperCase()}</AvatarFallback>
 												</Avatar>
 												<span className="text-xs text-center truncate w-full">{player.username}</span>

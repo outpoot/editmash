@@ -6,14 +6,15 @@ import { toast } from "sonner";
 import { usePlayer } from "./hooks/usePlayer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { UserGroupIcon, Add01Icon, Copy01Icon, Tick01Icon, QrCode01Icon } from "@hugeicons/core-free-icons";
+import { UserGroupIcon, Add01Icon, Copy01Icon, Tick01Icon, QrCode01Icon, LinkSquare01Icon } from "@hugeicons/core-free-icons";
 import { LobbyListItemWithConfig, LobbyStatus } from "./types/lobby";
 import { MatchConfig, DEFAULT_MATCH_CONFIG } from "./types/match";
 import { MatchModifierBadges } from "./components/MatchModifierBadges";
@@ -23,7 +24,7 @@ import { createMessage } from "@/websocket/types";
 
 export default function MatchmakingPage() {
 	const router = useRouter();
-	const { playerId, username, isLoading: playerLoading, isAuthenticated } = usePlayer();
+	const { playerId, username, isLoading: playerLoading, isAuthenticated, activeMatch } = usePlayer();
 
 	const [lobbies, setLobbies] = useState<LobbyListItemWithConfig[]>([]);
 
@@ -52,7 +53,8 @@ export default function MatchmakingPage() {
 
 	const [showJoinDialog, setShowJoinDialog] = useState(false);
 	const [joinCode, setJoinCode] = useState("");
-	const [isJoining, setIsJoining] = useState(false);
+	const [joiningLobbyId, setJoiningLobbyId] = useState<string | null>(null);
+	const [showActiveMatchDialog, setShowActiveMatchDialog] = useState(false);
 
 	const wsRef = useRef<WebSocket | null>(null);
 	const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -91,8 +93,10 @@ export default function MatchmakingPage() {
 							playerCount: l.playerCount,
 							maxPlayers: l.maxPlayers,
 							status: l.status as LobbyStatus,
+							isSystemLobby: l.isSystemLobby ?? false,
 							createdAt: new Date(l.createdAt),
 							matchConfig: l.matchConfig,
+							players: l.players ?? [],
 						}))
 					);
 				}
@@ -166,8 +170,13 @@ export default function MatchmakingPage() {
 			return;
 		}
 
+		if (activeMatch) {
+			setShowActiveMatchDialog(true);
+			return;
+		}
+
 		try {
-			setIsJoining(true);
+			setJoiningLobbyId(lobbyId);
 			const response = await fetch(`/api/lobbies/${lobbyId}/join`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -191,7 +200,7 @@ export default function MatchmakingPage() {
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : "Failed to join lobby");
 		} finally {
-			setIsJoining(false);
+			setJoiningLobbyId(null);
 		}
 	};
 
@@ -425,8 +434,50 @@ export default function MatchmakingPage() {
 								<Button variant="ghost" onClick={() => setShowJoinDialog(false)}>
 									Cancel
 								</Button>
-								<Button onClick={handleJoinByCode} disabled={joinCode.length !== 6 || isJoining}>
-									{isJoining ? "..." : "Go"}
+								<Button onClick={handleJoinByCode} disabled={joinCode.length !== 6 || joiningLobbyId !== null}>
+									{joiningLobbyId !== null ? "..." : "Go"}
+								</Button>
+							</DialogFooter>
+						</DialogContent>
+					</Dialog>
+
+					<Dialog open={showActiveMatchDialog} onOpenChange={setShowActiveMatchDialog}>
+						<DialogContent className="max-w-sm">
+							<DialogHeader>
+								<DialogTitle>Wait!</DialogTitle>
+								<DialogDescription>
+									You&apos;re currently in <span className="font-semibold">{activeMatch?.lobbyName}</span>. You need to finish or leave that
+									match before joining another lobby.
+								</DialogDescription>
+							</DialogHeader>
+							<DialogFooter className="flex w-full justify-between">
+								<Button className="w-full" variant="ghost" onClick={() => setShowActiveMatchDialog(false)}>
+									Cancel
+								</Button>
+								<Button
+									className="w-full"
+									variant="destructive"
+									onClick={async () => {
+										try {
+											const response = await fetch(`/api/matches/${activeMatch?.matchId}/leave`, {
+												method: "POST",
+											});
+											if (!response.ok) {
+												const data = await response.json();
+												throw new Error(data.error || "Failed to leave match");
+											}
+											setShowActiveMatchDialog(false);
+											window.location.reload();
+										} catch (err) {
+											toast.error(err instanceof Error ? err.message : "Failed to leave match");
+										}
+									}}
+								>
+									Leave
+								</Button>
+								<Button className="w-full" onClick={() => router.push(`/match/${activeMatch?.matchId}`)}>
+									<HugeiconsIcon icon={LinkSquare01Icon} className="w-4 h-4" />
+									Continue
 								</Button>
 							</DialogFooter>
 						</DialogContent>
@@ -448,9 +499,20 @@ export default function MatchmakingPage() {
 						</Card>
 					) : (
 						<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-							{lobbies.map((lobby) => (
-								<LobbyCard key={lobby.id} lobby={lobby} onJoin={() => handleJoinLobby(lobby.id)} isJoining={isJoining} />
-							))}
+							{[...lobbies]
+								.sort((a, b) => {
+									if (a.isSystemLobby && !b.isSystemLobby) return -1;
+									if (!a.isSystemLobby && b.isSystemLobby) return 1;
+									return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+								})
+								.map((lobby) => (
+									<LobbyCard
+										key={lobby.id}
+										lobby={lobby}
+										onJoin={() => handleJoinLobby(lobby.id)}
+										isJoining={joiningLobbyId === lobby.id}
+									/>
+								))}
 						</div>
 					)}
 				</div>
@@ -461,6 +523,7 @@ export default function MatchmakingPage() {
 
 function LobbyCard({ lobby, onJoin, isJoining }: { lobby: LobbyListItemWithConfig; onJoin: () => void; isJoining: boolean }) {
 	const [copied, setCopied] = useState(false);
+	const isRunning = lobby.status === "in_match" || lobby.status === "starting";
 
 	const copyCode = (e: React.MouseEvent) => {
 		e.stopPropagation();
@@ -469,40 +532,92 @@ function LobbyCard({ lobby, onJoin, isJoining }: { lobby: LobbyListItemWithConfi
 		setTimeout(() => setCopied(false), 2000);
 	};
 
+	const getCardClassName = () => {
+		let classes = "hover:border-primary/20 transition-colors";
+		if (isRunning) {
+			classes += " bg-yellow-500/10 border-yellow-500/30";
+		} else if (lobby.isSystemLobby) {
+			classes += " bg-primary/5 border-primary/20";
+		}
+		return classes;
+	};
+
+	const MAX_VISIBLE_PLAYERS = 10;
+	const visiblePlayers = lobby.players.slice(0, MAX_VISIBLE_PLAYERS);
+	const extraCount = lobby.playerCount - MAX_VISIBLE_PLAYERS;
+
 	return (
-		<Card className="hover:border-primary/20 transition-colors">
-			<CardHeader className="pb-3">
-				<div className="flex items-start justify-between">
-					<div>
-						<CardTitle className="text-base">{lobby.name}</CardTitle>
-						<CardDescription>Hosted by @{lobby.hostUsername}</CardDescription>
-					</div>
-					<Badge variant="outline" className="font-mono cursor-pointer" onClick={copyCode}>
-						{copied ? (
-							<HugeiconsIcon icon={Tick01Icon} className="w-3 h-3 mr-1" />
-						) : (
-							<HugeiconsIcon icon={Copy01Icon} className="w-3 h-3 mr-1" />
+		<Card className={getCardClassName()}>
+			<CardContent className="p-4">
+				<div className="flex gap-4">
+					<div className="flex flex-col gap-2 shrink-0">
+						<Badge variant="outline" className="font-mono cursor-pointer w-fit" onClick={copyCode}>
+							{copied ? (
+								<HugeiconsIcon icon={Tick01Icon} className="w-3 h-3 mr-1" />
+							) : (
+								<HugeiconsIcon icon={Copy01Icon} className="w-3 h-3 mr-1" />
+							)}
+							{lobby.joinCode}
+						</Badge>
+
+						{lobby.matchConfig && (
+							<div className="flex flex-col gap-1">
+								<MatchModifierBadges matchConfig={lobby.matchConfig} vertical />
+							</div>
 						)}
-						{lobby.joinCode}
-					</Badge>
-				</div>
-			</CardHeader>
-			<CardContent className="pb-3">
-				<div className="flex items-center gap-4">
-					<div className="flex items-center gap-1 text-sm text-muted-foreground">
-						<HugeiconsIcon icon={UserGroupIcon} className="w-4 h-4" />
-						<span>
-							{lobby.playerCount}/{lobby.maxPlayers}
-						</span>
 					</div>
-					{lobby.matchConfig && <MatchModifierBadges matchConfig={lobby.matchConfig} />}
+
+					<div className="flex flex-col flex-1 min-w-0 gap-2">
+						<div className="flex items-center gap-2">
+							<h3 className="text-base font-semibold truncate">{lobby.name}</h3>
+							{isRunning && (
+								<Badge variant="secondary" className="text-xs bg-yellow-500/20 text-yellow-600 border-yellow-500/30 shrink-0">
+									Running
+								</Badge>
+							)}
+						</div>
+
+						<p className="text-xs text-muted-foreground truncate">
+							{lobby.isSystemLobby && lobby.playerCount === 0 ? "Waiting for players..." : `@${lobby.hostUsername}`}
+						</p>
+
+						<div className="flex flex-col gap-1.5">
+							<div className="flex items-center">
+								{visiblePlayers.map((player, index) => (
+									<Avatar key={player.id} className="w-6 h-6 border-2 border-background" style={{ marginLeft: index === 0 ? 0 : -8 }}>
+										<AvatarImage src={player.image || undefined} />
+										<AvatarFallback className="text-[10px]">{player.username.slice(0, 2).toUpperCase()}</AvatarFallback>
+									</Avatar>
+								))}
+								{extraCount > 0 && (
+									<div
+										className="w-6 h-6 rounded-full bg-muted border-2 border-background flex items-center justify-center"
+										style={{ marginLeft: -8 }}
+									>
+										<span className="text-[9px] font-medium text-muted-foreground">+{extraCount}</span>
+									</div>
+								)}
+								{lobby.playerCount === 0 && (
+									<div className="w-6 h-6 rounded-full bg-muted/50 border border-dashed border-border flex items-center justify-center">
+										<HugeiconsIcon icon={UserGroupIcon} className="w-3 h-3 text-muted-foreground/50" />
+									</div>
+								)}
+							</div>
+							<span className="text-xs text-muted-foreground">
+								{lobby.playerCount}/{lobby.maxPlayers} players
+							</span>
+						</div>
+
+						<Button
+							className="mt-auto"
+							onClick={onJoin}
+							disabled={isJoining || lobby.playerCount >= lobby.maxPlayers || lobby.status === "closed"}
+						>
+							{lobby.playerCount >= lobby.maxPlayers ? "Full" : lobby.status === "closed" ? "Closed" : isJoining ? "Joining..." : "Join"}
+						</Button>
+					</div>
 				</div>
 			</CardContent>
-			<CardFooter>
-				<Button className="w-full" onClick={onJoin} disabled={isJoining || lobby.playerCount >= lobby.maxPlayers}>
-					{lobby.playerCount >= lobby.maxPlayers ? "Full" : isJoining ? "Joining..." : "Join"}
-				</Button>
-			</CardFooter>
 		</Card>
 	);
 }

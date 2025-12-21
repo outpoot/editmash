@@ -3,6 +3,7 @@ import { validateMatchConfig } from "./constraints";
 import * as storage from "./storage";
 import { renderTimeline, downloadMediaFiles, cleanupTempFiles } from "./ffmpeg";
 import { getRedis } from "./redis";
+import { notifyWsServer } from "./wsNotify";
 import path from "path";
 import fs from "fs/promises";
 import os from "os";
@@ -85,9 +86,9 @@ export async function startMatchFromLobby(lobbyId: string): Promise<{ success: b
 			return { success: false, message: "Lobby is already being started" };
 		}
 
-		if (lobby.players.length === 0) {
+		if (lobby.players.length < 2) {
 			await clearLobbyStatusTransition(lobbyId);
-			return { success: false, message: "Cannot start match with no players" };
+			return { success: false, message: "Need at least 2 players to start a match" };
 		}
 
 		const configValidation = validateMatchConfig(lobby.matchConfig);
@@ -99,6 +100,8 @@ export async function startMatchFromLobby(lobbyId: string): Promise<{ success: b
 		let createdMatchId: string | undefined;
 		try {
 			await storage.updateLobbyStatus(lobbyId, "starting");
+
+			await storage.clearSystemLobbyFlag(lobbyId);
 
 			createdMatchId = await storage.createMatch(lobbyId, lobby.name, lobby.matchConfig, lobby.players);
 
@@ -180,6 +183,9 @@ export async function completeMatch(matchId: string): Promise<{ success: boolean
 	try {
 		await storage.updateMatchStatus(matchId, "rendering");
 
+		notifyWsServer("/notify/match", { matchId, status: "rendering", timeRemaining: null });
+		notifyWsServer("/notify/lobbies", { lobbyId: match.lobbyId, matchId, action: "match_completing" });
+
 		await triggerRender(matchId);
 
 		return { success: true, message: "Match completing, render started" };
@@ -187,6 +193,7 @@ export async function completeMatch(matchId: string): Promise<{ success: boolean
 		console.error("Error completing match:", error);
 		await storage.updateMatchStatus(matchId, "failed");
 		await storage.updateMatchRender(matchId, undefined, undefined, String(error));
+		notifyWsServer("/notify/match", { matchId, status: "failed", timeRemaining: null });
 		return { success: false, message: "Failed to complete match" };
 	}
 }

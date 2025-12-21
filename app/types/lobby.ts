@@ -55,7 +55,9 @@ export interface LobbyListItem {
 	playerCount: number;
 	maxPlayers: number;
 	hostUsername: string;
+	isSystemLobby: boolean;
 	createdAt: Date;
+	players: { id: string; username: string; image?: string | null }[];
 }
 
 export interface LobbyListItemWithConfig extends LobbyListItem {

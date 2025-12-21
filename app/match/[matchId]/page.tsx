@@ -170,6 +170,13 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 		toast.error("Connection to server failed after multiple attempts");
 	}, []);
 
+	const handleMatchStatusChange = useCallback((status: string) => {
+		console.log(`[Match] Status changed to: ${status}`);
+		if (status === "rendering" || status === "completed" || status === "completing" || status === "failed") {
+			router.push(`/results/${matchId}`);
+		}
+	}, [matchId, router]);
+
 	if (playerLoading || isLoading || !stablePlayerRef.current) {
 		return (
 			<div className="min-h-screen bg-background flex items-center justify-center">
@@ -200,6 +207,7 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 			onPlayerJoined={handlePlayerJoined}
 			onPlayerLeft={handlePlayerLeft}
 			onConnectionFailed={handleConnectionFailed}
+			onMatchStatusChange={handleMatchStatusChange}
 		>
 			<MatchContent
 				showMedia={showMedia}

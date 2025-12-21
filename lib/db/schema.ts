@@ -117,6 +117,7 @@ export const lobbies = pgTable("lobbies", {
 	hostPlayerId: text("host_player_id").notNull(),
 	matchConfigJson: jsonb("match_config").$type<MatchConfig>().notNull(),
 	matchId: uuid("match_id"),
+	isSystemLobby: boolean("is_system_lobby").notNull().default(false),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

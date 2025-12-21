@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { startMatchFromLobby } from "@/lib/matchManager";
 import { StartMatchRequest, StartMatchResponse } from "@/app/types/match";
-import { notifyLobbyChange } from "@/lib/wsNotify";
+import { notifyWsServer } from "@/lib/wsNotify";
 
 export async function POST(request: NextRequest): Promise<NextResponse<StartMatchResponse | { error: string }>> {
 	try {
@@ -17,7 +17,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<StartMatc
 			return NextResponse.json(result, { status: 400 });
 		}
 
-		notifyLobbyChange({ lobbyId: body.lobbyId, matchId: result.matchId, action: "match_started" });
+		notifyWsServer("/notify/lobbies", { lobbyId: body.lobbyId, matchId: result.matchId, action: "match_started" });
 
 		return NextResponse.json(result);
 	} catch (error) {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { removePlayerFromLobby, getLobbyById, getLobbyByJoinCode } from "@/lib/storage";
 import { LeaveLobbyResponse } from "@/app/types/lobby";
 import { getServerSession } from "@/lib/auth";
-import { notifyLobbyChange } from "@/lib/wsNotify";
+import { notifyWsServer } from "@/lib/wsNotify";
 
 interface RouteParams {
 	params: Promise<{
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
 			return NextResponse.json(result, { status: 400 });
 		}
 
-		notifyLobbyChange({ lobbyId: lobby.id, userId, action: "player_left" });
+		notifyWsServer("/notify/lobbies", { lobbyId: lobby.id, userId, action: "player_left" });
 
 		return NextResponse.json({
 			success: true,

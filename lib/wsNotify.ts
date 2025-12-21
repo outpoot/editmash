@@ -56,6 +56,4 @@ export function notifyWsServer(endpoint: string, payload?: WsNotifyPayload): voi
 	})();
 }
 
-export function notifyLobbyChange(payload?: WsNotifyPayload): void {
-	notifyWsServer("/notify/lobbies", payload);
-}
+

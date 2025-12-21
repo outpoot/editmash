@@ -68,20 +68,52 @@ function broadcastToLobbySubscribers(message: WSMessage, excludeConnectionId?: s
 async function fetchLobbies(): Promise<LobbyInfo[]> {
 	try {
 		const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
-		const response = await fetch(`${apiUrl}/api/lobbies?status=waiting`);
-		if (!response.ok) return [];
-		const data = await response.json();
-		return data.lobbies.map((lobby: any) => ({
-			id: lobby.id,
-			name: lobby.name,
-			joinCode: lobby.joinCode,
-			hostUsername: lobby.hostUsername,
-			playerCount: lobby.playerCount,
-			maxPlayers: lobby.maxPlayers,
-			status: lobby.status,
-			createdAt: lobby.createdAt,
-			matchConfig: lobby.matchConfig,
-		}));
+		const [waitingRes, inMatchRes] = await Promise.all([
+			fetch(`${apiUrl}/api/lobbies?status=waiting`),
+			fetch(`${apiUrl}/api/lobbies?status=in_match`),
+		]);
+
+		const lobbies: LobbyInfo[] = [];
+
+		if (waitingRes.ok) {
+			const data = await waitingRes.json();
+			lobbies.push(
+				...data.lobbies.map((lobby: any) => ({
+					id: lobby.id,
+					name: lobby.name,
+					joinCode: lobby.joinCode,
+					hostUsername: lobby.hostUsername,
+					playerCount: lobby.playerCount,
+					maxPlayers: lobby.maxPlayers,
+					status: lobby.status,
+					isSystemLobby: lobby.isSystemLobby ?? false,
+					createdAt: lobby.createdAt,
+					players: lobby.players ?? [],
+					matchConfig: lobby.matchConfig,
+				}))
+			);
+		}
+
+		if (inMatchRes.ok) {
+			const data = await inMatchRes.json();
+			lobbies.push(
+				...data.lobbies.map((lobby: any) => ({
+					id: lobby.id,
+					name: lobby.name,
+					joinCode: lobby.joinCode,
+					hostUsername: lobby.hostUsername,
+					playerCount: lobby.playerCount,
+					maxPlayers: lobby.maxPlayers,
+					status: lobby.status,
+					isSystemLobby: lobby.isSystemLobby ?? false,
+					createdAt: lobby.createdAt,
+					players: lobby.players ?? [],
+					matchConfig: lobby.matchConfig,
+				}))
+			);
+		}
+
+		return lobbies;
 	} catch (error) {
 		console.error("[WS] Failed to fetch lobbies:", error);
 		return [];
@@ -131,10 +163,14 @@ function handleJoinMatch(ws: ServerWebSocket<WebSocketData>, message: JoinMatchM
 	matchPlayers.get(matchId)!.add(ws.data.id);
 
 	const playerCount = matchPlayers.get(matchId)!.size;
-	ws.send(JSON.stringify(createMessage("player_count", {
-		matchId,
-		count: playerCount,
-	})));
+	ws.send(
+		JSON.stringify(
+			createMessage("player_count", {
+				matchId,
+				count: playerCount,
+			})
+		)
+	);
 
 	broadcast(
 		matchId,
@@ -187,7 +223,7 @@ function handleMediaUploaded(ws: ServerWebSocket<WebSocketData>, message: MediaU
 	}
 	const players = matchPlayers.get(matchId);
 	console.log(`[WS] Broadcasting media to ${players?.size ?? 0} players in match ${matchId} (excluding sender)`);
-	
+
 	broadcast(matchId, message, ws.data.id);
 
 	console.log(`[WS] Media uploaded in match ${matchId}: ${media.name} by ${media.uploadedBy.username}`);
@@ -309,7 +345,7 @@ async function notifyLobbyChange() {
 const server = Bun.serve({
 	port: PORT,
 
-	fetch(req, server) {
+	async fetch(req, server) {
 		const url = new URL(req.url);
 
 		if (url.pathname === "/health") {
@@ -346,6 +382,50 @@ const server = Bun.serve({
 			return new Response(JSON.stringify({ ok: true }), {
 				headers: { "Content-Type": "application/json" },
 			});
+		}
+
+		if (url.pathname === "/notify/match" && req.method === "POST") {
+			const authHeader = req.headers.get("Authorization");
+			const providedKey = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+			if (providedKey !== WS_API_KEY) {
+				console.warn("[WS] Unauthorized /notify/match request");
+				return new Response(JSON.stringify({ error: "Unauthorized" }), {
+					status: 401,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
+
+			try {
+				const body = await req.json();
+				const { matchId, status, timeRemaining } = body;
+
+				if (matchId) {
+					const players = matchPlayers.get(matchId);
+					if (players && players.size > 0) {
+						broadcast(
+							matchId,
+							createMessage("match_status", {
+								matchId,
+								status,
+								timeRemaining,
+								playerCount: players.size,
+							})
+						);
+						console.log(`[WS] Broadcast match status to ${players.size} players: ${matchId} -> ${status}`);
+					}
+				}
+
+				return new Response(JSON.stringify({ ok: true }), {
+					headers: { "Content-Type": "application/json" },
+				});
+			} catch (error) {
+				console.error("[WS] Error parsing /notify/match body:", error);
+				return new Response(JSON.stringify({ error: "Invalid request body" }), {
+					status: 400,
+					headers: { "Content-Type": "application/json" },
+				});
+			}
 		}
 
 		if (url.pathname === "/ws") {

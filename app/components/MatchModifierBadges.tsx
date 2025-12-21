@@ -7,15 +7,16 @@ import { MatchConfig } from "../types/match";
 interface MatchModifierBadgesProps {
 	matchConfig: MatchConfig;
 	showMaxPlayers?: boolean;
+	vertical?: boolean;
 }
 
-export function MatchModifierBadges({ matchConfig, showMaxPlayers = false }: MatchModifierBadgesProps) {
+export function MatchModifierBadges({ matchConfig, showMaxPlayers = false, vertical = false }: MatchModifierBadgesProps) {
 	return (
 		<TooltipProvider delayDuration={100}>
-			<div className="flex flex-wrap gap-1.5">
+			<div className={vertical ? "flex flex-col gap-1" : "flex flex-wrap gap-1.5"}>
 				<Tooltip>
 					<TooltipTrigger asChild>
-						<Badge variant="secondary" className="gap-1 text-xs cursor-default">
+						<Badge variant="secondary" className="gap-1 text-xs cursor-default w-fit">
 							<HugeiconsIcon icon={FirstBracketIcon} className="w-3 h-3" />
 							{matchConfig.timelineDuration}s
 						</Badge>
@@ -27,7 +28,7 @@ export function MatchModifierBadges({ matchConfig, showMaxPlayers = false }: Mat
 
 				<Tooltip>
 					<TooltipTrigger asChild>
-						<Badge variant="secondary" className="gap-1 text-xs cursor-default">
+						<Badge variant="secondary" className="gap-1 text-xs cursor-default w-fit">
 							<HugeiconsIcon icon={Clock01Icon} className="w-3 h-3" />
 							{matchConfig.matchDuration}m
 						</Badge>
@@ -40,7 +41,7 @@ export function MatchModifierBadges({ matchConfig, showMaxPlayers = false }: Mat
 				{showMaxPlayers && (
 					<Tooltip>
 						<TooltipTrigger asChild>
-							<Badge variant="secondary" className="gap-1 text-xs cursor-default">
+							<Badge variant="secondary" className="gap-1 text-xs cursor-default w-fit">
 								<HugeiconsIcon icon={UserGroupIcon} className="w-3 h-3" />
 								{matchConfig.maxPlayers}
 							</Badge>
@@ -53,7 +54,7 @@ export function MatchModifierBadges({ matchConfig, showMaxPlayers = false }: Mat
 
 				<Tooltip>
 					<TooltipTrigger asChild>
-						<Badge variant="secondary" className="gap-1 text-xs cursor-default">
+						<Badge variant="secondary" className="gap-1 text-xs cursor-default w-fit">
 							<HugeiconsIcon icon={ScissorIcon} className="w-3 h-3" />
 							{matchConfig.clipSizeMin}-{matchConfig.clipSizeMax}s
 						</Badge>
@@ -67,7 +68,7 @@ export function MatchModifierBadges({ matchConfig, showMaxPlayers = false }: Mat
 
 				<Tooltip>
 					<TooltipTrigger asChild>
-						<Badge variant="secondary" className="gap-1 text-xs cursor-default">
+						<Badge variant="secondary" className="gap-1 text-xs cursor-default w-fit">
 							<HugeiconsIcon icon={VolumeHighIcon} className="w-3 h-3" />
 							{(matchConfig.audioMaxVolume * 100).toFixed(0)}%
 						</Badge>
@@ -79,7 +80,7 @@ export function MatchModifierBadges({ matchConfig, showMaxPlayers = false }: Mat
 
 				<Tooltip>
 					<TooltipTrigger asChild>
-						<Badge variant="secondary" className="gap-1 text-xs cursor-default">
+						<Badge variant="secondary" className="gap-1 text-xs cursor-default w-fit">
 							<HugeiconsIcon icon={Layers01Icon} className="w-3 h-3" />
 							{matchConfig.maxVideoTracks}V/{matchConfig.maxAudioTracks}A
 						</Badge>

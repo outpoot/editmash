@@ -29,6 +29,20 @@
       "when": 1766059806035,
       "tag": "0003_burly_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1766136000000,
+      "tag": "0004_system_lobbies",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1766339570850,
+      "tag": "0005_busy_penance",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	UserGroupIcon,
@@ -35,6 +36,8 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 	const [copied, setCopied] = useState(false);
 	const [isStarting, setIsStarting] = useState(false);
 	const [isLeaving, setIsLeaving] = useState(false);
+	const [showLeaveDialog, setShowLeaveDialog] = useState(false);
+	const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
 
 	const fetchLobby = useCallback(async () => {
 		try {
@@ -131,19 +134,32 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 
 		try {
 			setIsLeaving(true);
+			setShowLeaveDialog(false);
 			await fetch(`/api/lobbies/${lobbyId}/leave`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({}),
 			});
-			router.push("/");
+			router.push(pendingNavigation || "/");
 		} catch {
-			router.push("/");
+			router.push(pendingNavigation || "/");
+		} finally {
+			setPendingNavigation(null);
 		}
 	};
 
+	const handleBackClick = () => {
+		setPendingNavigation("/");
+		setShowLeaveDialog(true);
+	};
+
+	const handleCancelLeave = () => {
+		setShowLeaveDialog(false);
+		setPendingNavigation(null);
+	};
+
 	const isHost = lobby?.hostPlayerId === playerId;
-	const canStart = isHost && lobby && lobby.players.length >= 1;
+	const canStart = isHost && lobby && lobby.players.length >= 2;
 
 	if (playerLoading || isLoading) {
 		return (
@@ -177,10 +193,27 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 
 	return (
 		<div className="min-h-screen bg-background">
+			<Dialog open={showLeaveDialog} onOpenChange={setShowLeaveDialog}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>You're about to leave the lobby</DialogTitle>
+						<DialogDescription>Are you sure?</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button variant="outline" onClick={handleCancelLeave}>
+							Nevermind
+						</Button>
+						<Button variant="destructive" onClick={handleLeaveLobby} disabled={isLeaving}>
+							{isLeaving ? "Leaving..." : "Yes"}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
 			<header className="border-b bg-card">
 				<div className="container mx-auto px-4 py-4 flex items-center justify-between">
 					<div className="flex items-center gap-4">
-						<Button variant="ghost" size="icon" onClick={() => router.push("/")}>
+						<Button variant="ghost" size="icon" onClick={handleBackClick}>
 							<HugeiconsIcon icon={ArrowLeft01Icon} className="w-5 h-5" />
 						</Button>
 						<div className="flex items-center gap-3">
@@ -252,7 +285,7 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 								variant="outline"
 								size="lg"
 								className="w-full gap-2 text-destructive-foreground"
-								onClick={handleLeaveLobby}
+								onClick={() => setShowLeaveDialog(true)}
 								disabled={isLeaving}
 							>
 								<HugeiconsIcon icon={Logout01Icon} className="w-5 h-5" />

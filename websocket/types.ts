@@ -130,7 +130,9 @@ export interface LobbyInfo {
 	playerCount: number;
 	maxPlayers: number;
 	status: string;
+	isSystemLobby: boolean;
 	createdAt: string;
+	players: { id: string; username: string; image?: string | null }[];
 	matchConfig: {
 		timelineDuration: number;
 		matchDuration: number;

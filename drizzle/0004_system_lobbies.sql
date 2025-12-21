@@ -1,0 +1,1 @@
+ALTER TABLE "lobbies" ADD COLUMN "is_system_lobby" boolean DEFAULT false NOT NULL;

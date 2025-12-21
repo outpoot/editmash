@@ -10,6 +10,7 @@ import type {
 	PlayerJoinedMessage,
 	PlayerLeftMessage,
 	PlayerCountMessage,
+	MatchStatusMessage,
 } from "@/websocket/types";
 import { createMessage } from "@/websocket/types";
 
@@ -34,6 +35,7 @@ interface MatchWebSocketProviderProps {
 	onPlayerJoined?: (player: { userId: string; username: string }) => void;
 	onPlayerLeft?: (userId: string) => void;
 	onConnectionFailed?: () => void;
+	onMatchStatusChange?: (status: string) => void;
 }
 
 export function MatchWS({
@@ -45,13 +47,14 @@ export function MatchWS({
 	onPlayerJoined,
 	onPlayerLeft,
 	onConnectionFailed,
+	onMatchStatusChange,
 }: MatchWebSocketProviderProps) {
 	const [status, setStatus] = useState<ConnectionStatus>("disconnected");
 	const [playersOnline, setPlayersOnline] = useState(0);
 	const hasReceivedInitialCount = useRef(false);
 
-	const callbacksRef = useRef({ onRemoteMediaUploaded, onPlayerJoined, onPlayerLeft, onConnectionFailed });
-	callbacksRef.current = { onRemoteMediaUploaded, onPlayerJoined, onPlayerLeft, onConnectionFailed };
+	const callbacksRef = useRef({ onRemoteMediaUploaded, onPlayerJoined, onPlayerLeft, onConnectionFailed, onMatchStatusChange });
+	callbacksRef.current = { onRemoteMediaUploaded, onPlayerJoined, onPlayerLeft, onConnectionFailed, onMatchStatusChange };
 
 	const propsRef = useRef({ matchId, userId, username });
 	propsRef.current = { matchId, userId, username };
@@ -117,6 +120,11 @@ export function MatchWS({
 					const msg = message as PlayerLeftMessage;
 					setPlayersOnline((n) => Math.max(0, n - 1));
 					callbacksRef.current.onPlayerLeft?.(msg.payload.userId);
+					break;
+				}
+				case "match_status": {
+					const msg = message as MatchStatusMessage;
+					callbacksRef.current.onMatchStatusChange?.(msg.payload.status);
 					break;
 				}
 			}
