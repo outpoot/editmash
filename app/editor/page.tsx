@@ -15,7 +15,6 @@ interface SavedTimelineData {
 }
 
 export default function EditorPage() {
-	const [showMedia, setShowMedia] = useState(true);
 	const [showEffects, setShowEffects] = useState(false);
 	const [isRendering, setIsRendering] = useState(false);
 	const [renderJobId, setRenderJobId] = useState<string | null>(null);
@@ -229,9 +228,7 @@ export default function EditorPage() {
 	return (
 		<div className="h-screen flex flex-col">
 			<TopBar
-				showMedia={showMedia}
 				showEffects={showEffects}
-				onToggleMedia={() => setShowMedia(!showMedia)}
 				onToggleEffects={() => setShowEffects(!showEffects)}
 				onRender={() => {
 					if (currentTimelineState) {
@@ -243,7 +240,7 @@ export default function EditorPage() {
 				onSaveTimeline={handleSaveTimeline}
 				onImportTimeline={handleImportTimeline}
 			/>
-			<MainLayout ref={mainLayoutRef} showMedia={showMedia} showEffects={showEffects} onTimelineStateChange={setCurrentTimelineState} />
+			<MainLayout ref={mainLayoutRef} showEffects={showEffects} onTimelineStateChange={setCurrentTimelineState} />
 
 			{isRendering && (
 				<div className="fixed inset-0 bg-background/50 flex items-center justify-center z-[100]">

@@ -5,9 +5,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Tick01Icon, Video01Icon, Download01Icon, Upload01Icon, UserGroupIcon } from "@hugeicons/core-free-icons";
 
 interface TopBarProps {
-	showMedia: boolean;
 	showEffects: boolean;
-	onToggleMedia: () => void;
 	onToggleEffects: () => void;
 	onRender?: () => void;
 	onSaveTimeline?: () => void;
@@ -17,9 +15,7 @@ interface TopBarProps {
 }
 
 export default function TopBar({
-	showMedia,
 	showEffects,
-	onToggleMedia,
 	onToggleEffects,
 	onRender,
 	onSaveTimeline,
@@ -37,7 +33,6 @@ export default function TopBar({
 		switch (item) {
 			case "View":
 				return [
-					{ label: "Media Pool", action: onToggleMedia, checked: showMedia, type: "checkbox" },
 					{ label: "Effects Library", action: onToggleEffects, checked: showEffects, type: "checkbox" },
 				];
 			case "File":

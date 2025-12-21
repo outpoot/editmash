@@ -7,7 +7,7 @@ import TopBar from "@/app/components/TopBar";
 import MainLayout, { MainLayoutRef } from "@/app/components/MainLayout";
 import { MatchWS, useMatchWebSocketOptional } from "@/app/components/MatchWS";
 import { TimelineState } from "@/app/types/timeline";
-import { Match, MatchStatus } from "@/app/types/match";
+import { Match, MatchStatus, DEFAULT_MATCH_CONFIG } from "@/app/types/match";
 import { mediaStore } from "@/app/store/mediaStore";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { WifiOff02Icon } from "@hugeicons/core-free-icons";
@@ -43,7 +43,6 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 	const mainLayoutRef = useRef<MainLayoutRef>(null);
 	const lastServerSyncRef = useRef<number>(Date.now());
 
-	const [showMedia, setShowMedia] = useState(true);
 	const [showEffects, setShowEffects] = useState(false);
 
 	const fetchMatch = useCallback(async () => {
@@ -198,6 +197,8 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 		);
 	}
 
+	const maxClipsPerUser = match?.config?.maxClipsPerUser ?? DEFAULT_MATCH_CONFIG.maxClipsPerUser;
+
 	return (
 		<MatchWS
 			matchId={matchId}
@@ -210,36 +211,33 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 			onMatchStatusChange={handleMatchStatusChange}
 		>
 			<MatchContent
-				showMedia={showMedia}
 				showEffects={showEffects}
-				setShowMedia={setShowMedia}
 				setShowEffects={setShowEffects}
 				localTimeRemaining={localTimeRemaining}
 				mainLayoutRef={mainLayoutRef}
 				onTimelineStateChange={handleTimelineStateChange}
+				maxClipsPerUser={maxClipsPerUser}
 			/>
 		</MatchWS>
 	);
 }
 
 interface MatchContentProps {
-	showMedia: boolean;
 	showEffects: boolean;
-	setShowMedia: (show: boolean) => void;
 	setShowEffects: (show: boolean) => void;
 	localTimeRemaining: number | null;
 	mainLayoutRef: React.RefObject<MainLayoutRef | null>;
 	onTimelineStateChange: (timeline: TimelineState | null) => void;
+	maxClipsPerUser: number;
 }
 
 function MatchContent({
-	showMedia,
 	showEffects,
-	setShowMedia,
 	setShowEffects,
 	localTimeRemaining,
 	mainLayoutRef,
 	onTimelineStateChange,
+	maxClipsPerUser,
 }: MatchContentProps) {
 	const ws = useMatchWebSocketOptional();
 	const isDisconnected = ws?.status === "disconnected" || ws?.status === "connecting";
@@ -248,9 +246,7 @@ function MatchContent({
 	return (
 		<div className="h-screen flex flex-col relative">
 			<TopBar
-				showMedia={showMedia}
 				showEffects={showEffects}
-				onToggleMedia={() => setShowMedia(!showMedia)}
 				onToggleEffects={() => setShowEffects(!showEffects)}
 				onRender={() => {
 					alert("Match will render automatically when time expires!");
@@ -258,7 +254,12 @@ function MatchContent({
 				timeRemaining={localTimeRemaining}
 				playersOnline={ws?.playersOnline}
 			/>
-			<MainLayout ref={mainLayoutRef} showMedia={showMedia} showEffects={showEffects} onTimelineStateChange={onTimelineStateChange} />
+			<MainLayout
+				ref={mainLayoutRef}
+				showEffects={showEffects}
+				onTimelineStateChange={onTimelineStateChange}
+				maxClipsPerUser={maxClipsPerUser}
+			/>
 
 			{isFailed && (
 				<div className="fixed inset-0 z-100 flex items-center justify-center bg-background/90 backdrop-blur-xl">

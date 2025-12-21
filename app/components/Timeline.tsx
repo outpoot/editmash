@@ -19,7 +19,7 @@ import {
 	CropIcon,
 	ArrowDown01Icon,
 } from "@hugeicons/core-free-icons";
-import { getCurrentDragItem } from "./MediaBrowser";
+import { getCurrentDragItem } from "./MediaCardDock";
 import { historyStore } from "../store/historyStore";
 
 const initialTimelineState: TimelineState = {

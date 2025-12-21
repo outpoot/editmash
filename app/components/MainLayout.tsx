@@ -2,17 +2,17 @@
 
 import { useState, useRef, memo, useCallback, useImperativeHandle, forwardRef } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import MediaBrowser from "./MediaBrowser";
 import EffectsBrowser from "./EffectsBrowser";
 import VideoPreview from "./VideoPreview";
 import Inspector from "./Inspector";
 import Timeline, { TimelineRef } from "./Timeline";
+import MediaCardDock from "./MediaCardDock";
 import { Clip, TimelineState, VideoClip, ImageClip, AudioClip } from "../types/timeline";
 
 interface MainLayoutProps {
-	showMedia: boolean;
 	showEffects: boolean;
 	onTimelineStateChange?: (timelineState: TimelineState | null) => void;
+	maxClipsPerUser?: number;
 }
 
 export interface MainLayoutRef {
@@ -20,12 +20,9 @@ export interface MainLayoutRef {
 }
 
 // components that don't need playback state
-const MemoizedMediaBrowser = memo(MediaBrowser);
 const MemoizedEffectsBrowser = memo(EffectsBrowser);
 
-const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(({ showMedia, showEffects, onTimelineStateChange }, ref) => {
-	const bothVisible = showMedia && showEffects;
-	const noneVisible = !showMedia && !showEffects;
+const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(({ showEffects, onTimelineStateChange, maxClipsPerUser = 10 }, ref) => {
 	const [selectedClips, setSelectedClips] = useState<{ clip: Clip; trackId: string }[] | null>(null);
 	const [isPlaying, setIsPlaying] = useState(false);
 	const [currentTime, setCurrentTime] = useState(0);
@@ -63,32 +60,18 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(({ showMedia, show
 	);
 
 	return (
-		<div className="flex-1 h-full pt-8 bg-background">
+		<div className="flex-1 h-full pt-8 bg-background relative">
 			<ResizablePanelGroup direction="horizontal" className="h-full">
-				{!noneVisible && (
+				{showEffects && (
 					<>
 						<ResizablePanel defaultSize={25} minSize={20} maxSize={60}>
-							{bothVisible ? (
-								<ResizablePanelGroup direction="vertical">
-									<ResizablePanel defaultSize={50} minSize={20}>
-										<MemoizedMediaBrowser />
-									</ResizablePanel>
-									<ResizableHandle />
-									<ResizablePanel defaultSize={50} minSize={20}>
-										<MemoizedEffectsBrowser />
-									</ResizablePanel>
-								</ResizablePanelGroup>
-							) : showMedia ? (
-								<MemoizedMediaBrowser />
-							) : (
-								<MemoizedEffectsBrowser />
-							)}
+							<MemoizedEffectsBrowser />
 						</ResizablePanel>
 						<ResizableHandle />
 					</>
 				)}
 
-				<ResizablePanel defaultSize={noneVisible ? 100 : 60} minSize={40}>
+				<ResizablePanel defaultSize={showEffects ? 75 : 100} minSize={40}>
 					<ResizablePanelGroup direction="vertical">
 						<ResizablePanel defaultSize={60} minSize={30}>
 							<ResizablePanelGroup direction="horizontal">
@@ -131,6 +114,8 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(({ showMedia, show
 					</ResizablePanelGroup>
 				</ResizablePanel>
 			</ResizablePanelGroup>
+
+			<MediaCardDock maxClips={maxClipsPerUser} />
 		</div>
 	);
 });
