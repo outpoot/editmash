@@ -19,8 +19,14 @@ import { LobbyListItemWithConfig, LobbyStatus } from "./types/lobby";
 import { MatchConfig, DEFAULT_MATCH_CONFIG } from "./types/match";
 import { MatchModifierBadges } from "./components/MatchModifierBadges";
 import { UserMenu } from "./components/UserMenu";
-import type { WSMessage, LobbiesUpdateMessage, LobbyInfo } from "@/websocket/types";
-import { createMessage } from "@/websocket/types";
+import {
+	type WSMessage,
+	MessageType,
+	isLobbiesUpdateMessage,
+	serializeMessage,
+	deserializeMessage,
+	createSubscribeLobbiesMessage,
+} from "@/websocket/types";
 
 export default function MatchmakingPage() {
 	const router = useRouter();
@@ -69,6 +75,7 @@ export default function MatchmakingPage() {
 		}
 
 		const ws = new WebSocket(url);
+		ws.binaryType = "arraybuffer";
 		wsRef.current = ws;
 
 		ws.onopen = () => {
@@ -76,16 +83,16 @@ export default function MatchmakingPage() {
 				ws.close();
 				return;
 			}
-			ws.send(JSON.stringify(createMessage("subscribe_lobbies")));
+			ws.send(serializeMessage(createSubscribeLobbiesMessage()));
 		};
 
 		ws.onmessage = (event) => {
 			try {
-				const message = JSON.parse(event.data) as WSMessage;
-				if (message.type === "lobbies_update") {
-					const { lobbies } = (message as LobbiesUpdateMessage).payload;
+				const message = deserializeMessage(event.data);
+				if (isLobbiesUpdateMessage(message) && message.payload.case === "lobbiesUpdate") {
+					const lobbies = message.payload.value.lobbies;
 					setLobbies(
-						lobbies.map((l: LobbyInfo) => ({
+						lobbies.map((l) => ({
 							id: l.id,
 							name: l.name,
 							joinCode: l.joinCode,
@@ -95,8 +102,23 @@ export default function MatchmakingPage() {
 							status: l.status as LobbyStatus,
 							isSystemLobby: l.isSystemLobby ?? false,
 							createdAt: new Date(l.createdAt),
-							matchConfig: l.matchConfig,
-							players: l.players ?? [],
+							matchConfig: l.matchConfig ? {
+								timelineDuration: l.matchConfig.timelineDuration,
+								matchDuration: l.matchConfig.matchDuration,
+								maxPlayers: l.matchConfig.maxPlayers,
+								audioMaxVolume: l.matchConfig.audioMaxVolume,
+								clipSizeMin: l.matchConfig.clipSizeMin,
+								clipSizeMax: l.matchConfig.clipSizeMax,
+								maxVideoTracks: l.matchConfig.maxVideoTracks,
+								maxAudioTracks: l.matchConfig.maxAudioTracks,
+								maxClipsPerUser: l.matchConfig.maxClipsPerUser,
+								constraints: l.matchConfig.constraints,
+							} : DEFAULT_MATCH_CONFIG,
+							players: l.players?.map((p) => ({
+								id: p.id,
+								username: p.username,
+								image: p.image,
+							})) ?? [],
 						}))
 					);
 				}

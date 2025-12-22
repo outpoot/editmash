@@ -6,12 +6,13 @@ import { usePlayer } from "@/app/hooks/usePlayer";
 import TopBar from "@/app/components/TopBar";
 import MainLayout, { MainLayoutRef } from "@/app/components/MainLayout";
 import { MatchWS, useMatchWebSocketOptional } from "@/app/components/MatchWS";
-import { TimelineState } from "@/app/types/timeline";
+import { TimelineState, Clip, VideoClip, AudioClip, ImageClip } from "@/app/types/timeline";
 import { Match, MatchStatus, DEFAULT_MATCH_CONFIG } from "@/app/types/match";
 import { mediaStore } from "@/app/store/mediaStore";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { WifiOff02Icon } from "@hugeicons/core-free-icons";
 import { toast } from "sonner";
+import type { ClipData, TimelineData } from "@/websocket/types";
 
 interface MatchResponse {
 	match: Match;
@@ -38,7 +39,6 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 	const [error, setError] = useState<string | null>(null);
 	const [serverTimeRemaining, setServerTimeRemaining] = useState<number | null>(null);
 	const [localTimeRemaining, setLocalTimeRemaining] = useState<number | null>(null);
-	const [timelineLoaded, setTimelineLoaded] = useState(false);
 
 	const mainLayoutRef = useRef<MainLayoutRef>(null);
 	const lastServerSyncRef = useRef<number>(Date.now());
@@ -72,12 +72,6 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 			}
 
 			setMatch(matchData.match);
-
-			if (matchData.match.timeline && mainLayoutRef.current) {
-				mainLayoutRef.current.loadTimeline(matchData.match.timeline);
-				setTimelineLoaded(true);
-			}
-
 			setError(null);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to load match");
@@ -87,13 +81,17 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 	}, [matchId, router]);
 
 	const loadMatchMedia = useCallback(async () => {
+		if (!stablePlayerRef.current) return;
+		const currentUserId = stablePlayerRef.current.playerId;
+
 		try {
 			const response = await fetch(`/api/matches/${matchId}/media`);
 			if (response.ok) {
 				const data = await response.json();
 				for (const media of data.media) {
 					if (!mediaStore.getItemById(media.id)) {
-						mediaStore.addRemoteItem(media.id, media.name, media.type, media.url);
+						const isOwn = media.uploadedBy === currentUserId;
+						mediaStore.addRemoteItem(media.id, media.name, media.type, media.url, isOwn);
 					}
 				}
 			}
@@ -133,8 +131,13 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 
 	useEffect(() => {
 		fetchMatch();
-		loadMatchMedia();
-	}, [fetchMatch, loadMatchMedia]);
+	}, [fetchMatch]);
+
+	useEffect(() => {
+		if (playerId) {
+			loadMatchMedia();
+		}
+	}, [playerId, loadMatchMedia]);
 
 	useEffect(() => {
 		fetchStatus();
@@ -142,19 +145,35 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 		return () => clearInterval(interval);
 	}, [fetchStatus]);
 
-	const syncTimelineToServer = useCallback(async (_timeline: TimelineState) => {}, []);
-
-	const handleTimelineStateChange = useCallback(
-		(timeline: TimelineState | null) => {
-			if (timeline && timelineLoaded) {
-				syncTimelineToServer(timeline);
-			}
-		},
-		[syncTimelineToServer, timelineLoaded]
-	);
-
 	const handleRemoteMediaUploaded = useCallback((media: { name: string; uploadedBy: { username: string } }) => {
 		toast.info(`${media.uploadedBy.username} uploaded ${media.name}`);
+	}, []);
+
+	const handleRemoteClipAdded = useCallback((trackId: string, clipData: ClipData, addedBy: { userId: string; username: string }) => {
+		const clip: Clip =
+			clipData.type === "video"
+				? ({
+						...clipData,
+						type: "video",
+						properties: clipData.properties as unknown as VideoClip["properties"],
+				  } as VideoClip)
+				: clipData.type === "image"
+				? ({
+						...clipData,
+						type: "image",
+						properties: clipData.properties as unknown as ImageClip["properties"],
+				  } as ImageClip)
+				: ({
+						...clipData,
+						type: "audio",
+						properties: clipData.properties as unknown as AudioClip["properties"],
+				  } as AudioClip);
+
+		mainLayoutRef.current?.addRemoteClip(trackId, clip);
+	}, []);
+
+	const handleRemoteClipRemoved = useCallback((trackId: string, clipId: string, removedBy: { userId: string; username: string }) => {
+		mainLayoutRef.current?.removeRemoteClip(trackId, clipId);
 	}, []);
 
 	const handlePlayerJoined = useCallback((player: { username: string }) => {
@@ -169,12 +188,39 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 		toast.error("Connection to server failed after multiple attempts");
 	}, []);
 
-	const handleMatchStatusChange = useCallback((status: string) => {
-		console.log(`[Match] Status changed to: ${status}`);
-		if (status === "rendering" || status === "completed" || status === "completing" || status === "failed") {
-			router.push(`/results/${matchId}`);
-		}
-	}, [matchId, router]);
+	const handleMatchStatusChange = useCallback(
+		(status: string) => {
+			if (status === "rendering" || status === "completed" || status === "completing" || status === "failed") {
+				router.push(`/results/${matchId}`);
+			}
+		},
+		[matchId, router]
+	);
+
+	const handleTimelineSyncRequested = useCallback((): TimelineData | null => {
+		const timelineState = mainLayoutRef.current?.getTimelineState();
+		if (!timelineState) return null;
+
+		return {
+			duration: timelineState.duration,
+			tracks: timelineState.tracks.map((track) => ({
+				id: track.id,
+				type: track.type,
+				clips: track.clips.map((clip) => ({
+					id: clip.id,
+					type: clip.type,
+					name: clip.name,
+					src: clip.src,
+					startTime: clip.startTime,
+					duration: clip.duration,
+					sourceIn: clip.sourceIn,
+					sourceDuration: clip.sourceDuration,
+					// unknown since we have to strip thumbnail for sync, client will regenerate
+					properties: clip.properties as unknown as Record<string, unknown>,
+				})),
+			})),
+		};
+	}, []);
 
 	if (playerLoading || isLoading || !stablePlayerRef.current) {
 		return (
@@ -205,18 +251,21 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 			userId={stablePlayerRef.current.playerId}
 			username={stablePlayerRef.current.username}
 			onRemoteMediaUploaded={handleRemoteMediaUploaded}
+			onRemoteClipAdded={handleRemoteClipAdded}
+			onRemoteClipRemoved={handleRemoteClipRemoved}
 			onPlayerJoined={handlePlayerJoined}
 			onPlayerLeft={handlePlayerLeft}
 			onConnectionFailed={handleConnectionFailed}
 			onMatchStatusChange={handleMatchStatusChange}
+			onTimelineSyncRequested={handleTimelineSyncRequested}
 		>
 			<MatchContent
 				showEffects={showEffects}
 				setShowEffects={setShowEffects}
 				localTimeRemaining={localTimeRemaining}
 				mainLayoutRef={mainLayoutRef}
-				onTimelineStateChange={handleTimelineStateChange}
 				maxClipsPerUser={maxClipsPerUser}
+				initialTimeline={match?.timeline}
 			/>
 		</MatchWS>
 	);
@@ -227,8 +276,8 @@ interface MatchContentProps {
 	setShowEffects: (show: boolean) => void;
 	localTimeRemaining: number | null;
 	mainLayoutRef: React.RefObject<MainLayoutRef | null>;
-	onTimelineStateChange: (timeline: TimelineState | null) => void;
 	maxClipsPerUser: number;
+	initialTimeline?: TimelineState;
 }
 
 function MatchContent({
@@ -236,12 +285,59 @@ function MatchContent({
 	setShowEffects,
 	localTimeRemaining,
 	mainLayoutRef,
-	onTimelineStateChange,
 	maxClipsPerUser,
+	initialTimeline,
 }: MatchContentProps) {
 	const ws = useMatchWebSocketOptional();
 	const isDisconnected = ws?.status === "disconnected" || ws?.status === "connecting";
 	const isFailed = ws?.status === "failed";
+
+	const initialLoadDoneRef = useRef(false);
+	const loadRetryCountRef = useRef(0);
+	const MAX_LOAD_RETRIES = 5;
+
+	const loadTimeline = useCallback(() => {
+		if (initialLoadDoneRef.current) return;
+
+		const totalClips = initialTimeline?.tracks?.reduce((acc, t) => acc + t.clips.length, 0) ?? 0;
+		if (!initialTimeline || !initialTimeline.tracks || totalClips === 0) return;
+
+		if (mainLayoutRef.current) {
+			mainLayoutRef.current.loadTimeline(initialTimeline);
+			initialLoadDoneRef.current = true;
+			loadRetryCountRef.current = 0;
+		} else if (loadRetryCountRef.current < MAX_LOAD_RETRIES) {
+			const delay = 50 * Math.pow(2, loadRetryCountRef.current);
+			loadRetryCountRef.current++;
+			setTimeout(loadTimeline, delay);
+		} else {
+			toast.error("Failed to load timeline. Please refresh the page.");
+		}
+	}, [initialTimeline]);
+
+	const mainLayoutCallbackRef = useCallback(
+		(node: MainLayoutRef | null) => {
+			(mainLayoutRef as React.MutableRefObject<MainLayoutRef | null>).current = node;
+			if (node) {
+				loadTimeline();
+			}
+		},
+		[loadTimeline]
+	);
+
+	const handleClipAdded = useCallback(
+		(trackId: string, clip: Clip) => {
+			ws?.broadcastClipAdded(trackId, clip);
+		},
+		[ws]
+	);
+
+	const handleClipRemoved = useCallback(
+		(trackId: string, clipId: string) => {
+			ws?.broadcastClipRemoved(trackId, clipId);
+		},
+		[ws]
+	);
 
 	return (
 		<div className="h-screen flex flex-col relative">
@@ -255,10 +351,11 @@ function MatchContent({
 				playersOnline={ws?.playersOnline}
 			/>
 			<MainLayout
-				ref={mainLayoutRef}
+				ref={mainLayoutCallbackRef}
 				showEffects={showEffects}
-				onTimelineStateChange={onTimelineStateChange}
 				maxClipsPerUser={maxClipsPerUser}
+				onClipAdded={handleClipAdded}
+				onClipRemoved={handleClipRemoved}
 			/>
 
 			{isFailed && (

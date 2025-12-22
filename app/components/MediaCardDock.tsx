@@ -19,12 +19,15 @@ export function getCurrentDragItem() {
 	return currentDragItem;
 }
 
+const UNLIMITED_CLIPS = 0;
+
 export default function MediaCardDock({ maxClips = 10 }: MediaCardDockProps) {
 	const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const matchWs = useMatchWebSocketOptional();
 
-	const myMediaItems = mediaItems.filter((item) => !item.isDownloading || item.isUploading);
+	const isUnlimited = maxClips === UNLIMITED_CLIPS;
+	const myMediaItems = mediaItems.filter((item) => !item.isRemote);
 
 	useEffect(() => {
 		const unsubscribe = mediaStore.subscribe(() => {
@@ -72,114 +75,6 @@ export default function MediaCardDock({ maxClips = 10 }: MediaCardDockProps) {
 			return null;
 		}
 	};
-
-	const handleFileSelect = useCallback(
-		async (e: React.ChangeEvent<HTMLInputElement>) => {
-			const files = e.target.files;
-			if (!files) return;
-
-			const currentCount = myMediaItems.length;
-			const remainingSlots = maxClips - currentCount;
-
-			if (remainingSlots <= 0) {
-				toast.error(`Maximum ${maxClips} clips allowed`);
-				return;
-			}
-
-			const filesToProcess = Array.from(files).slice(0, remainingSlots);
-
-			if (files.length > remainingSlots) {
-				toast.warning(`Only ${remainingSlots} more clip${remainingSlots === 1 ? "" : "s"} allowed. Some files were not imported.`);
-			}
-
-			for (const file of filesToProcess) {
-				const validation = validateFile({
-					name: file.name,
-					size: file.size,
-					type: file.type,
-				});
-
-				if (!validation.valid) {
-					toast.error(validation.message || "Invalid file", { description: file.name });
-					continue;
-				}
-
-				const tempUrl = URL.createObjectURL(file);
-				const type: "video" | "audio" | "image" =
-					validation.category === "video" ? "video" : validation.category === "image" ? "image" : "audio";
-				const itemId = `${Date.now()}-${Math.random()}`;
-
-				if (type === "image") {
-					const img = document.createElement("img");
-					img.src = tempUrl;
-
-					img.addEventListener("error", () => {
-						URL.revokeObjectURL(tempUrl);
-						toast.error("Failed to load image", { description: file.name });
-					});
-
-					img.addEventListener("load", async () => {
-						const thumbnail = generateThumbnail(img, img.naturalWidth, img.naturalHeight);
-
-						const mediaItem: MediaItem = {
-							id: itemId,
-							name: file.name,
-							type: "image",
-							url: tempUrl,
-							duration: DEFAULT_IMAGE_DURATION,
-							width: img.naturalWidth,
-							height: img.naturalHeight,
-							thumbnail,
-							isUploading: true,
-						};
-
-						mediaStore.addItem(mediaItem);
-						await uploadFile(file, itemId, type, tempUrl);
-					});
-					continue;
-				}
-
-				const element = type === "video" ? document.createElement("video") : document.createElement("audio");
-				element.src = tempUrl;
-				element.preload = "metadata";
-
-				element.addEventListener("loadedmetadata", async () => {
-					const mediaItem: MediaItem = {
-						id: itemId,
-						name: file.name,
-						type,
-						url: tempUrl,
-						duration: element.duration,
-						width: type === "video" ? (element as HTMLVideoElement).videoWidth : undefined,
-						height: type === "video" ? (element as HTMLVideoElement).videoHeight : undefined,
-						isUploading: true,
-					};
-
-					mediaStore.addItem(mediaItem);
-
-					if (type === "video") {
-						const video = element as HTMLVideoElement;
-						video.currentTime = 0.1;
-						video.addEventListener(
-							"seeked",
-							() => {
-								const thumbnail = generateThumbnail(video, video.videoWidth, video.videoHeight);
-								mediaStore.updateItem(itemId, { thumbnail });
-							},
-							{ once: true }
-						);
-					}
-
-					await uploadFile(file, itemId, type, tempUrl);
-				});
-			}
-
-			if (fileInputRef.current) {
-				fileInputRef.current.value = "";
-			}
-		},
-		[myMediaItems.length, maxClips, matchWs]
-	);
 
 	const uploadFile = async (file: File, itemId: string, type: "video" | "audio" | "image", tempUrl: string) => {
 		try {
@@ -241,13 +136,136 @@ export default function MediaCardDock({ maxClips = 10 }: MediaCardDockProps) {
 		}
 	};
 
+	const processFile = async (file: File) => {
+		const validation = validateFile({
+			name: file.name,
+			size: file.size,
+			type: file.type,
+		});
+
+		if (!validation.valid) {
+			toast.error(validation.message || "Invalid file", { description: file.name });
+			return;
+		}
+
+		const tempUrl = URL.createObjectURL(file);
+		const type: "video" | "audio" | "image" =
+			validation.category === "video" ? "video" : validation.category === "image" ? "image" : "audio";
+		const itemId = `${Date.now()}-${Math.random()}`;
+
+		if (type === "image") {
+			const img = document.createElement("img");
+			img.src = tempUrl;
+
+			img.addEventListener("error", () => {
+				URL.revokeObjectURL(tempUrl);
+				toast.error("Failed to load image", { description: file.name });
+			});
+
+			img.addEventListener("load", async () => {
+				const thumbnail = generateThumbnail(img, img.naturalWidth, img.naturalHeight);
+
+				const mediaItem: MediaItem = {
+					id: itemId,
+					name: file.name,
+					type: "image",
+					url: tempUrl,
+					duration: DEFAULT_IMAGE_DURATION,
+					width: img.naturalWidth,
+					height: img.naturalHeight,
+					thumbnail,
+					isUploading: true,
+				};
+
+				mediaStore.addItem(mediaItem);
+				await uploadFile(file, itemId, type, tempUrl);
+			});
+			return;
+		}
+
+		const element = type === "video" ? document.createElement("video") : document.createElement("audio");
+		element.src = tempUrl;
+		element.preload = "metadata";
+
+		element.addEventListener("error", () => {
+			URL.revokeObjectURL(tempUrl);
+			toast.error("Failed to load media", { description: file.name });
+		});
+		
+		element.addEventListener("loadedmetadata", async () => {
+			const mediaItem: MediaItem = {
+				id: itemId,
+				name: file.name,
+				type,
+				url: tempUrl,
+				duration: element.duration,
+				width: type === "video" ? (element as HTMLVideoElement).videoWidth : undefined,
+				height: type === "video" ? (element as HTMLVideoElement).videoHeight : undefined,
+				isUploading: true,
+			};
+
+			mediaStore.addItem(mediaItem);
+
+			if (type === "video") {
+				const video = element as HTMLVideoElement;
+				video.currentTime = 0.1;
+				video.addEventListener(
+					"seeked",
+					() => {
+						const thumbnail = generateThumbnail(video, video.videoWidth, video.videoHeight);
+						mediaStore.updateItem(itemId, { thumbnail });
+					},
+					{ once: true }
+				);
+			}
+
+			await uploadFile(file, itemId, type, tempUrl);
+		});
+	};
+
+	const handleFileSelect = useCallback(
+		async (e: React.ChangeEvent<HTMLInputElement>) => {
+			const files = e.target.files;
+			if (!files) return;
+
+			const currentCount = myMediaItems.length;
+
+			let filesToProcess: File[];
+			if (isUnlimited) {
+				filesToProcess = Array.from(files);
+			} else {
+				const remainingSlots = maxClips - currentCount;
+
+				if (remainingSlots <= 0) {
+					toast.error(`Maximum ${maxClips} clips allowed`);
+					return;
+				}
+
+				filesToProcess = Array.from(files).slice(0, remainingSlots);
+
+				if (files.length > remainingSlots) {
+					toast.warning(`Only ${remainingSlots} more clip${remainingSlots === 1 ? "" : "s"} allowed. Some files were not imported.`);
+				}
+			}
+
+			for (const file of filesToProcess) {
+				await processFile(file);
+			}
+
+			if (fileInputRef.current) {
+				fileInputRef.current.value = "";
+			}
+		},
+		[myMediaItems.length, maxClips, isUnlimited]
+	);
+
 	const handleAddClick = useCallback(() => {
-		if (myMediaItems.length >= maxClips) {
+		if (!isUnlimited && myMediaItems.length >= maxClips) {
 			toast.error(`Maximum ${maxClips} clips allowed`);
 			return;
 		}
 		fileInputRef.current?.click();
-	}, [myMediaItems.length, maxClips]);
+	}, [myMediaItems.length, maxClips, isUnlimited]);
 
 	const handleDragStart = useCallback((item: MediaItem) => {
 		currentDragItem = item;
@@ -257,7 +275,8 @@ export default function MediaCardDock({ maxClips = 10 }: MediaCardDockProps) {
 		currentDragItem = null;
 	}, []);
 
-	const remainingSlots = maxClips - myMediaItems.length;
+	const remainingSlots = isUnlimited ? Infinity : maxClips - myMediaItems.length;
+	const showAddButton = remainingSlots > 0;
 
 	return (
 		<div className="media-card-dock">
@@ -269,13 +288,13 @@ export default function MediaCardDock({ maxClips = 10 }: MediaCardDockProps) {
 						key={item.id}
 						item={item}
 						index={idx}
-						totalCards={myMediaItems.length + (remainingSlots > 0 ? 1 : 0)}
+						totalCards={myMediaItems.length + (showAddButton ? 1 : 0)}
 						onDragStart={handleDragStart}
 						onDragEnd={handleDragEnd}
 					/>
 				))}
 
-				{remainingSlots > 0 && (
+				{showAddButton && (
 					<button onClick={handleAddClick} className="media-card-dock__add-button" title="Add media">
 						<HugeiconsIcon icon={Add01Icon} size={20} strokeWidth={2.5} />
 					</button>
@@ -283,8 +302,8 @@ export default function MediaCardDock({ maxClips = 10 }: MediaCardDockProps) {
 			</div>
 
 			<div className="mt-2 text-[11px] font-medium pointer-events-auto bg-foreground px-3 py-1 rounded-xl backdrop-blur-sm">
-				<span className={remainingSlots === 0 ? "text-red-400" : "text-primary-foreground/80"}>
-					{myMediaItems.length} / {maxClips} clips
+				<span className={!isUnlimited && remainingSlots === 0 ? "text-red-400" : "text-primary-foreground/80"}>
+					{isUnlimited ? `${myMediaItems.length} clips` : `${myMediaItems.length} / ${maxClips} clips`}
 				</span>
 			</div>
 		</div>

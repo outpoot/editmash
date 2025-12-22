@@ -1,17 +1,34 @@
 import type { ServerWebSocket } from "bun";
+import { timingSafeEqual, createHash } from "crypto";
 import {
-	WSMessage,
-	JoinMatchMessage,
-	LeaveMatchMessage,
-	MediaUploadedMessage,
-	MediaRemovedMessage,
-	LobbyInfo,
+	type WSMessage,
+	MessageType,
+	MediaType,
+	TrackType,
+	serializeMessage,
+	deserializeMessage,
 	isJoinMatchMessage,
 	isLeaveMatchMessage,
 	isMediaUploadedMessage,
 	isMediaRemovedMessage,
+	isClipAddedMessage,
+	isClipUpdatedMessage,
+	isClipRemovedMessage,
+	isTimelineSyncMessage,
+	isRequestTimelineSyncMessage,
 	isPingMessage,
-	createMessage,
+	isSubscribeLobbiesMessage,
+	isUnsubscribeLobbiesMessage,
+	createLeaveMatchMessage,
+	createPlayerJoinedMessage,
+	createPlayerLeftMessage,
+	createPlayerCountMessage,
+	createMatchStatusMessage,
+	createRequestTimelineSyncMessage,
+	createLobbiesUpdateMessage,
+	createErrorMessage,
+	createPongMessage,
+	toLobbyInfoProto,
 } from "./types";
 
 interface WebSocketData {
@@ -28,44 +45,81 @@ const matchPlayers = new Map<string, Set<string>>();
 const connections = new Map<string, ServerWebSocket<WebSocketData>>();
 const lobbySubscribers = new Set<string>();
 
+const pendingTimelineSyncs = new Map<string, ReturnType<typeof setTimeout>>();
+const TIMELINE_SYNC_DELAY = 1000; // 1 second debounce
+
 const PORT = parseInt(process.env.WS_PORT || "3001", 10);
 const IDLE_TIMEOUT = 120; // seconds
 const WS_API_KEY = process.env.WS_API_KEY;
 
+function secureCompare(a: string | null | undefined, b: string | null | undefined): boolean {
+	if (!a || !b) return false;
+
+	const hashA = createHash("sha256").update(a).digest();
+	const hashB = createHash("sha256").update(b).digest();
+
+	return timingSafeEqual(hashA, hashB);
+}
+
 function generateConnectionId(): string {
 	return `conn_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+function requestTimelineSync(matchId: string) {
+	const existing = pendingTimelineSyncs.get(matchId);
+	if (existing) {
+		clearTimeout(existing);
+	}
+
+	const timeout = setTimeout(() => {
+		pendingTimelineSyncs.delete(matchId);
+
+		const players = matchPlayers.get(matchId);
+		if (!players || players.size === 0) return;
+
+		const firstConnId = players.values().next().value;
+		if (!firstConnId) return;
+
+		const ws = connections.get(firstConnId);
+		if (ws && ws.readyState === 1) {
+			ws.send(serializeMessage(createRequestTimelineSyncMessage(matchId)));
+			console.log(`[WS] Requested timeline sync from ${firstConnId} for match ${matchId}`);
+		}
+	}, TIMELINE_SYNC_DELAY);
+
+	pendingTimelineSyncs.set(matchId, timeout);
 }
 
 function broadcast(matchId: string, message: WSMessage, excludeConnectionId?: string) {
 	const players = matchPlayers.get(matchId);
 	if (!players) return;
 
-	const msgStr = JSON.stringify(message);
+	const msgBytes = serializeMessage(message);
 
 	for (const connId of players) {
 		if (excludeConnectionId && connId === excludeConnectionId) continue;
 
 		const ws = connections.get(connId);
 		if (ws && ws.readyState === 1) {
-			ws.send(msgStr);
+			ws.send(msgBytes);
 		}
 	}
 }
 
 function broadcastToLobbySubscribers(message: WSMessage, excludeConnectionId?: string) {
-	const msgStr = JSON.stringify(message);
+	const msgBytes = serializeMessage(message);
 
 	for (const connId of lobbySubscribers) {
 		if (excludeConnectionId && connId === excludeConnectionId) continue;
 
 		const ws = connections.get(connId);
 		if (ws && ws.readyState === 1) {
-			ws.send(msgStr);
+			ws.send(msgBytes);
 		}
 	}
 }
 
-async function fetchLobbies(): Promise<LobbyInfo[]> {
+async function fetchLobbies() {
 	try {
 		const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 		const [waitingRes, inMatchRes] = await Promise.all([
@@ -73,7 +127,30 @@ async function fetchLobbies(): Promise<LobbyInfo[]> {
 			fetch(`${apiUrl}/api/lobbies?status=in_match`),
 		]);
 
-		const lobbies: LobbyInfo[] = [];
+		const lobbies: {
+			id: string;
+			name: string;
+			joinCode: string;
+			hostUsername: string;
+			playerCount: number;
+			maxPlayers: number;
+			status: string;
+			isSystemLobby: boolean;
+			createdAt: string;
+			players: { id: string; username: string; image?: string | null }[];
+			matchConfig: {
+				timelineDuration: number;
+				matchDuration: number;
+				maxPlayers: number;
+				audioMaxVolume: number;
+				clipSizeMin: number;
+				clipSizeMax: number;
+				maxVideoTracks: number;
+				maxAudioTracks: number;
+				maxClipsPerUser: number;
+				constraints: string[];
+			};
+		}[] = [];
 
 		if (waitingRes.ok) {
 			const data = await waitingRes.json();
@@ -127,7 +204,8 @@ function handleSubscribeLobbies(ws: ServerWebSocket<WebSocketData>) {
 
 	fetchLobbies().then((lobbies) => {
 		if (ws.readyState === 1) {
-			ws.send(JSON.stringify(createMessage("lobbies_update", { lobbies })));
+			const protoLobbies = lobbies.map(toLobbyInfoProto);
+			ws.send(serializeMessage(createLobbiesUpdateMessage(protoLobbies)));
 		}
 	});
 }
@@ -138,17 +216,12 @@ function handleUnsubscribeLobbies(ws: ServerWebSocket<WebSocketData>) {
 	console.log(`[WS] Connection ${ws.data.id} unsubscribed from lobbies`);
 }
 
-function handleJoinMatch(ws: ServerWebSocket<WebSocketData>, message: JoinMatchMessage) {
-	const { matchId, userId, username } = message.payload;
+function handleJoinMatch(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
+	if (msg.payload.case !== "joinMatch" || !msg.payload.value) return;
+	const { matchId, userId, username } = msg.payload.value;
 
 	if (ws.data.matchId) {
-		handleLeaveMatch(
-			ws,
-			createMessage("leave_match", {
-				matchId: ws.data.matchId,
-				userId: ws.data.userId!,
-			})
-		);
+		handleLeaveMatch(ws, createLeaveMatchMessage(ws.data.matchId, ws.data.userId!));
 	}
 
 	ws.data.matchId = matchId;
@@ -163,29 +236,16 @@ function handleJoinMatch(ws: ServerWebSocket<WebSocketData>, message: JoinMatchM
 	matchPlayers.get(matchId)!.add(ws.data.id);
 
 	const playerCount = matchPlayers.get(matchId)!.size;
-	ws.send(
-		JSON.stringify(
-			createMessage("player_count", {
-				matchId,
-				count: playerCount,
-			})
-		)
-	);
+	ws.send(serializeMessage(createPlayerCountMessage(matchId, playerCount)));
 
-	broadcast(
-		matchId,
-		createMessage("player_joined", {
-			matchId,
-			player: { userId, username },
-		}),
-		ws.data.id
-	);
+	broadcast(matchId, createPlayerJoinedMessage(matchId, { userId, username }), ws.data.id);
 
 	console.log(`[WS] Player ${username} (${userId}) joined match ${matchId}`);
 }
 
-function handleLeaveMatch(ws: ServerWebSocket<WebSocketData>, message: LeaveMatchMessage) {
-	const { matchId, userId } = message.payload;
+function handleLeaveMatch(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
+	if (msg.payload.case !== "leaveMatch" || !msg.payload.value) return;
+	const { matchId, userId } = msg.payload.value;
 
 	ws.unsubscribe(`match:${matchId}`);
 
@@ -197,7 +257,7 @@ function handleLeaveMatch(ws: ServerWebSocket<WebSocketData>, message: LeaveMatc
 		}
 	}
 
-	broadcast(matchId, createMessage("player_left", { matchId, userId }));
+	broadcast(matchId, createPlayerLeftMessage(matchId, userId));
 
 	ws.data.matchId = null;
 	ws.data.userId = null;
@@ -206,63 +266,163 @@ function handleLeaveMatch(ws: ServerWebSocket<WebSocketData>, message: LeaveMatc
 	console.log(`[WS] Player ${userId} left match ${matchId}`);
 }
 
-function handleMediaUploaded(ws: ServerWebSocket<WebSocketData>, message: MediaUploadedMessage) {
-	const { matchId, media } = message.payload;
+function handleMediaUploaded(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
+	if (msg.payload.case !== "mediaUploaded" || !msg.payload.value) return;
+	const { matchId, media } = msg.payload.value;
 
 	if (ws.data.matchId !== matchId) {
 		console.log(`[WS] Media upload rejected - connection matchId: ${ws.data.matchId}, message matchId: ${matchId}`);
-		ws.send(
-			JSON.stringify(
-				createMessage("error", {
-					code: "NOT_IN_MATCH",
-					message: "You are not in this match",
-				})
-			)
-		);
+		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
 		return;
 	}
 	const players = matchPlayers.get(matchId);
 	console.log(`[WS] Broadcasting media to ${players?.size ?? 0} players in match ${matchId} (excluding sender)`);
 
-	broadcast(matchId, message, ws.data.id);
+	broadcast(matchId, msg, ws.data.id);
 
-	console.log(`[WS] Media uploaded in match ${matchId}: ${media.name} by ${media.uploadedBy.username}`);
+	console.log(`[WS] Media uploaded in match ${matchId}: ${media?.name} by ${media?.uploadedBy?.username}`);
 }
 
-function handleMediaRemoved(ws: ServerWebSocket<WebSocketData>, message: MediaRemovedMessage) {
-	const { matchId, mediaId } = message.payload;
+function handleMediaRemoved(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
+	if (msg.payload.case !== "mediaRemoved" || !msg.payload.value) return;
+	const { matchId, mediaId } = msg.payload.value;
 
 	if (ws.data.matchId !== matchId) {
-		ws.send(
-			JSON.stringify(
-				createMessage("error", {
-					code: "NOT_IN_MATCH",
-					message: "You are not in this match",
-				})
-			)
-		);
+		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
 		return;
 	}
 
-	broadcast(matchId, message, ws.data.id);
+	broadcast(matchId, msg, ws.data.id);
 
 	console.log(`[WS] Media removed in match ${matchId}: ${mediaId}`);
 }
 
+function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
+	if (msg.payload.case !== "clipAdded" || !msg.payload.value) return;
+	const { matchId, trackId, clip, addedBy } = msg.payload.value;
+
+	if (ws.data.matchId !== matchId) {
+		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
+		return;
+	}
+
+	broadcast(matchId, msg, ws.data.id);
+
+	requestTimelineSync(matchId);
+}
+
+function handleClipUpdated(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
+	if (msg.payload.case !== "clipUpdated" || !msg.payload.value) return;
+	const { matchId, trackId, clipId, updatedBy } = msg.payload.value;
+
+	if (ws.data.matchId !== matchId) {
+		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
+		return;
+	}
+
+	broadcast(matchId, msg, ws.data.id);
+
+	requestTimelineSync(matchId);
+}
+
+function handleClipRemoved(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
+	if (msg.payload.case !== "clipRemoved" || !msg.payload.value) return;
+	const { matchId, trackId, clipId, removedBy } = msg.payload.value;
+
+	if (ws.data.matchId !== matchId) {
+		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
+		return;
+	}
+
+	broadcast(matchId, msg, ws.data.id);
+
+	requestTimelineSync(matchId);
+}
+
+async function handleTimelineSync(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
+	if (msg.payload.case !== "timelineSync" || !msg.payload.value) return;
+	const { matchId, timeline } = msg.payload.value;
+
+	if (ws.data.matchId !== matchId) {
+		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
+		return;
+	}
+
+	const timelineJson = timeline
+		? {
+				duration: timeline.duration,
+				tracks: timeline.tracks.map((track) => ({
+					id: track.id,
+					type: track.type === TrackType.VIDEO ? "video" : "audio",
+					clips: track.clips.map((clip) => ({
+						id: clip.id,
+						type: clip.type === MediaType.VIDEO ? "video" : clip.type === MediaType.AUDIO ? "audio" : "image",
+						name: clip.name,
+						src: clip.src,
+						startTime: clip.startTime,
+						duration: clip.duration,
+						sourceIn: clip.sourceIn,
+						sourceDuration: clip.sourceDuration,
+						thumbnail: clip.thumbnail,
+						properties: clip.properties
+							? {
+									x: clip.properties.x,
+									y: clip.properties.y,
+									width: clip.properties.width,
+									height: clip.properties.height,
+									opacity: clip.properties.opacity,
+									rotation: clip.properties.rotation,
+									scale: clip.properties.scale,
+									speed: clip.properties.speed,
+									flipX: clip.properties.flipX,
+									flipY: clip.properties.flipY,
+									volume: clip.properties.volume,
+									cropTop: clip.properties.cropTop,
+									cropBottom: clip.properties.cropBottom,
+									cropLeft: clip.properties.cropLeft,
+									cropRight: clip.properties.cropRight,
+							  }
+							: {},
+					})),
+				})),
+		  }
+		: null;
+
+	try {
+		const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+		const response = await fetch(`${apiUrl}/api/matches/${matchId}`, {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${WS_API_KEY}`,
+			},
+			body: JSON.stringify({ timeline: timelineJson }),
+		});
+
+		if (response.ok) {
+			console.log(`[WS] Timeline synced to database for match ${matchId}`);
+		} else {
+			console.error(`[WS] Failed to sync timeline: ${response.status}`);
+		}
+	} catch (error) {
+		console.error(`[WS] Error syncing timeline:`, error);
+	}
+}
+
 function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | Buffer | ArrayBuffer) {
 	try {
-		const msgStr =
-			typeof rawMessage === "string"
-				? rawMessage
-				: rawMessage instanceof Buffer
-				? rawMessage.toString("utf-8")
-				: new TextDecoder().decode(rawMessage);
-		const message = JSON.parse(msgStr) as WSMessage;
+		if (typeof rawMessage === "string") {
+			ws.send(serializeMessage(createErrorMessage("INVALID_MESSAGE", "Text messages are not supported, use binary")));
+			return;
+		}
+
+		const bytes = new Uint8Array(rawMessage);
+		const message = deserializeMessage(bytes);
 
 		ws.data.lastPing = Date.now();
 
 		if (isPingMessage(message)) {
-			ws.send(JSON.stringify(createMessage("pong")));
+			ws.send(serializeMessage(createPongMessage()));
 			return;
 		}
 
@@ -286,12 +446,32 @@ function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | 
 			return;
 		}
 
-		if (message.type === "subscribe_lobbies") {
+		if (isClipAddedMessage(message)) {
+			handleClipAdded(ws, message);
+			return;
+		}
+
+		if (isClipUpdatedMessage(message)) {
+			handleClipUpdated(ws, message);
+			return;
+		}
+
+		if (isClipRemovedMessage(message)) {
+			handleClipRemoved(ws, message);
+			return;
+		}
+
+		if (isTimelineSyncMessage(message)) {
+			handleTimelineSync(ws, message);
+			return;
+		}
+
+		if (isSubscribeLobbiesMessage(message)) {
 			handleSubscribeLobbies(ws);
 			return;
 		}
 
-		if (message.type === "unsubscribe_lobbies") {
+		if (isUnsubscribeLobbiesMessage(message)) {
 			handleUnsubscribeLobbies(ws);
 			return;
 		}
@@ -299,14 +479,7 @@ function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | 
 		console.log(`[WS] Unknown message type: ${message.type}`);
 	} catch (error) {
 		console.error("[WS] Failed to parse message:", error);
-		ws.send(
-			JSON.stringify(
-				createMessage("error", {
-					code: "INVALID_MESSAGE",
-					message: "Failed to parse message",
-				})
-			)
-		);
+		ws.send(serializeMessage(createErrorMessage("INVALID_MESSAGE", "Failed to parse message")));
 	}
 }
 
@@ -328,7 +501,7 @@ function handleClose(ws: ServerWebSocket<WebSocketData>) {
 			}
 		}
 
-		broadcast(matchId, createMessage("player_left", { matchId, userId }));
+		broadcast(matchId, createPlayerLeftMessage(matchId, userId));
 	}
 
 	console.log(`[WS] Connection closed: ${id} (user: ${username || "unknown"})`);
@@ -338,7 +511,8 @@ async function notifyLobbyChange() {
 	if (lobbySubscribers.size === 0) return;
 
 	const lobbies = await fetchLobbies();
-	broadcastToLobbySubscribers(createMessage("lobbies_update", { lobbies }));
+	const protoLobbies = lobbies.map(toLobbyInfoProto);
+	broadcastToLobbySubscribers(createLobbiesUpdateMessage(protoLobbies));
 	console.log(`[WS] Broadcast lobby update to ${lobbySubscribers.size} subscribers`);
 }
 
@@ -367,7 +541,7 @@ const server = Bun.serve({
 			const authHeader = req.headers.get("Authorization");
 			const providedKey = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
-			if (providedKey !== WS_API_KEY) {
+			if (!secureCompare(providedKey, WS_API_KEY)) {
 				console.warn("[WS] Unauthorized /notify/lobbies request");
 				return new Response(JSON.stringify({ error: "Unauthorized" }), {
 					status: 401,
@@ -388,7 +562,7 @@ const server = Bun.serve({
 			const authHeader = req.headers.get("Authorization");
 			const providedKey = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
-			if (providedKey !== WS_API_KEY) {
+			if (!secureCompare(providedKey, WS_API_KEY)) {
 				console.warn("[WS] Unauthorized /notify/match request");
 				return new Response(JSON.stringify({ error: "Unauthorized" }), {
 					status: 401,
@@ -403,15 +577,7 @@ const server = Bun.serve({
 				if (matchId) {
 					const players = matchPlayers.get(matchId);
 					if (players && players.size > 0) {
-						broadcast(
-							matchId,
-							createMessage("match_status", {
-								matchId,
-								status,
-								timeRemaining,
-								playerCount: players.size,
-							})
-						);
+						broadcast(matchId, createMatchStatusMessage(matchId, status, timeRemaining, players.size));
 						console.log(`[WS] Broadcast match status to ${players.size} players: ${matchId} -> ${status}`);
 					}
 				}

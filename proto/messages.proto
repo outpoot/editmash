@@ -1,0 +1,275 @@
+syntax = "proto3";
+
+package editmash.ws;
+
+message WSMessage {
+  MessageType type = 1;
+  int64 timestamp = 2;
+  oneof payload {
+    // Match messages
+    JoinMatchPayload join_match = 10;
+    LeaveMatchPayload leave_match = 11;
+    PlayerJoinedPayload player_joined = 12;
+    PlayerLeftPayload player_left = 13;
+    PlayerCountPayload player_count = 14;
+    MatchStatusPayload match_status = 15;
+    
+    // Media messages
+    MediaUploadedPayload media_uploaded = 20;
+    MediaRemovedPayload media_removed = 21;
+    
+    // Clip messages
+    ClipAddedPayload clip_added = 30;
+    ClipUpdatedPayload clip_updated = 31;
+    ClipRemovedPayload clip_removed = 32;
+    RequestTimelineSyncPayload request_timeline_sync = 33;
+    TimelineSyncPayload timeline_sync = 34;
+    
+    // Lobby messages
+    SubscribeLobbiesPayload subscribe_lobbies = 40;
+    UnsubscribeLobbiesPayload unsubscribe_lobbies = 41;
+    LobbiesUpdatePayload lobbies_update = 42;
+    LobbyCreatedPayload lobby_created = 43;
+    LobbyUpdatedPayload lobby_updated = 44;
+    LobbyDeletedPayload lobby_deleted = 45;
+    
+    // Utility messages
+    ErrorPayload error = 50;
+    PingPayload ping = 51;
+    PongPayload pong = 52;
+  }
+}
+
+enum MessageType {
+  MESSAGE_TYPE_UNSPECIFIED = 0;
+  MESSAGE_TYPE_PING = 1;
+  MESSAGE_TYPE_PONG = 2;
+  MESSAGE_TYPE_JOIN_MATCH = 3;
+  MESSAGE_TYPE_LEAVE_MATCH = 4;
+  MESSAGE_TYPE_MEDIA_UPLOADED = 5;
+  MESSAGE_TYPE_MEDIA_REMOVED = 6;
+  // value 7 reserved for future use cuz it was a wrong type
+  MESSAGE_TYPE_CLIP_ADDED = 8;
+  MESSAGE_TYPE_CLIP_UPDATED = 9;
+  MESSAGE_TYPE_CLIP_REMOVED = 10;
+  MESSAGE_TYPE_PLAYER_JOINED = 11;
+  MESSAGE_TYPE_PLAYER_LEFT = 12;
+  MESSAGE_TYPE_PLAYER_COUNT = 13;
+  MESSAGE_TYPE_MATCH_STATUS = 14;
+  MESSAGE_TYPE_ERROR = 15;
+  MESSAGE_TYPE_REQUEST_TIMELINE_SYNC = 16;
+  MESSAGE_TYPE_TIMELINE_SYNC = 17;
+  MESSAGE_TYPE_SUBSCRIBE_LOBBIES = 18;
+  MESSAGE_TYPE_UNSUBSCRIBE_LOBBIES = 19;
+  MESSAGE_TYPE_LOBBIES_UPDATE = 20;
+  MESSAGE_TYPE_LOBBY_CREATED = 21;
+  MESSAGE_TYPE_LOBBY_UPDATED = 22;
+  MESSAGE_TYPE_LOBBY_DELETED = 23;
+}
+
+message UserInfo {
+  string user_id = 1;
+  string username = 2;
+}
+
+message PlayerInfo {
+  string id = 1;
+  string username = 2;
+  optional string image = 3;
+}
+
+message JoinMatchPayload {
+  string match_id = 1;
+  string user_id = 2;
+  string username = 3;
+}
+
+message LeaveMatchPayload {
+  string match_id = 1;
+  string user_id = 2;
+}
+
+message PlayerJoinedPayload {
+  string match_id = 1;
+  UserInfo player = 2;
+}
+
+message PlayerLeftPayload {
+  string match_id = 1;
+  string user_id = 2;
+}
+
+message PlayerCountPayload {
+  string match_id = 1;
+  int32 count = 2;
+}
+
+message MatchStatusPayload {
+  string match_id = 1;
+  string status = 2;
+  optional double time_remaining = 3;
+  int32 player_count = 4;
+}
+
+enum MediaType {
+  MEDIA_TYPE_UNSPECIFIED = 0;
+  MEDIA_TYPE_VIDEO = 1;
+  MEDIA_TYPE_AUDIO = 2;
+  MEDIA_TYPE_IMAGE = 3;
+}
+
+message MediaInfo {
+  string id = 1;
+  string name = 2;
+  MediaType type = 3;
+  string url = 4;
+  UserInfo uploaded_by = 5;
+}
+
+message MediaUploadedPayload {
+  string match_id = 1;
+  MediaInfo media = 2;
+}
+
+message MediaRemovedPayload {
+  string match_id = 1;
+  string media_id = 2;
+  string removed_by = 3;
+}
+
+message ClipProperties {
+  optional double x = 1;
+  optional double y = 2;
+  optional double width = 3;
+  optional double height = 4;
+  optional double opacity = 5;
+  optional double rotation = 6;
+  optional double scale = 7;
+  optional double speed = 8;
+  optional bool flip_x = 9;
+  optional bool flip_y = 10;
+  
+  optional double volume = 20;
+  
+  optional double crop_top = 30;
+  optional double crop_bottom = 31;
+  optional double crop_left = 32;
+  optional double crop_right = 33;
+}
+
+message ClipData {
+  string id = 1;
+  MediaType type = 2;
+  string name = 3;
+  string src = 4;
+  double start_time = 5;
+  double duration = 6;
+  double source_in = 7;
+  double source_duration = 8;
+  optional string thumbnail = 9;
+  ClipProperties properties = 10;
+}
+
+message ClipAddedPayload {
+  string match_id = 1;
+  string track_id = 2;
+  ClipData clip = 3;
+  UserInfo added_by = 4;
+}
+
+message ClipUpdatedPayload {
+  string match_id = 1;
+  string track_id = 2;
+  string clip_id = 3;
+  ClipData updates = 4;
+  UserInfo updated_by = 5;
+}
+
+message ClipRemovedPayload {
+  string match_id = 1;
+  string track_id = 2;
+  string clip_id = 3;
+  UserInfo removed_by = 4;
+}
+
+message RequestTimelineSyncPayload {
+  string match_id = 1;
+}
+
+enum TrackType {
+  TRACK_TYPE_UNSPECIFIED = 0;
+  TRACK_TYPE_VIDEO = 1;
+  TRACK_TYPE_AUDIO = 2;
+}
+
+message Track {
+  string id = 1;
+  TrackType type = 2;
+  repeated ClipData clips = 3;
+}
+
+message TimelineData {
+  double duration = 1;
+  repeated Track tracks = 2;
+}
+
+message TimelineSyncPayload {
+  string match_id = 1;
+  TimelineData timeline = 2;
+}
+
+message MatchConfig {
+  double timeline_duration = 1;
+  double match_duration = 2;
+  int32 max_players = 3;
+  double audio_max_volume = 4;
+  double clip_size_min = 5;
+  double clip_size_max = 6;
+  int32 max_video_tracks = 7;
+  int32 max_audio_tracks = 8;
+  int32 max_clips_per_user = 9;
+  repeated string constraints = 10;
+}
+
+message LobbyInfo {
+  string id = 1;
+  string name = 2;
+  string join_code = 3;
+  string host_username = 4;
+  int32 player_count = 5;
+  int32 max_players = 6;
+  string status = 7;
+  bool is_system_lobby = 8;
+  string created_at = 9;
+  repeated PlayerInfo players = 10;
+  MatchConfig match_config = 11;
+}
+
+message SubscribeLobbiesPayload {}
+
+message UnsubscribeLobbiesPayload {}
+
+message LobbiesUpdatePayload {
+  repeated LobbyInfo lobbies = 1;
+}
+
+message LobbyCreatedPayload {
+  LobbyInfo lobby = 1;
+}
+
+message LobbyUpdatedPayload {
+  LobbyInfo lobby = 1;
+}
+
+message LobbyDeletedPayload {
+  string lobby_id = 1;
+}
+
+message ErrorPayload {
+  string code = 1;
+  string message = 2;
+}
+
+message PingPayload {}
+
+message PongPayload {}

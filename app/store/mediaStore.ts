@@ -13,6 +13,7 @@ interface MediaItem {
 	uploadProgress?: number;
 	uploadError?: string;
 	downloadError?: string;
+	isRemote?: boolean; // true if uploaded by another player
 }
 
 const DEFAULT_IMAGE_DURATION = 2;
@@ -105,10 +106,10 @@ class MediaStore {
 		return this.items.find((item) => item.id === id);
 	}
 
-	addRemoteItem(id: string, name: string, type: "video" | "audio" | "image", url: string) {
+	addRemoteItem(id: string, name: string, type: "video" | "audio" | "image", url: string, isOwn: boolean = false) {
 		if (this.getItemById(id)) return;
 
-		this.addItem({ id, name, type, url, duration: 0, isDownloading: true });
+		this.addItem({ id, name, type, url, duration: 0, isDownloading: true, isRemote: !isOwn });
 
 		if (type === "image") {
 			let img: HTMLImageElement | null = document.createElement("img");

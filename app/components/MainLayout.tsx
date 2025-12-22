@@ -13,16 +13,21 @@ interface MainLayoutProps {
 	showEffects: boolean;
 	onTimelineStateChange?: (timelineState: TimelineState | null) => void;
 	maxClipsPerUser?: number;
+	onClipAdded?: (trackId: string, clip: Clip) => void;
+	onClipRemoved?: (trackId: string, clipId: string) => void;
 }
 
 export interface MainLayoutRef {
 	loadTimeline: (state: TimelineState) => void;
+	addRemoteClip: (trackId: string, clip: Clip) => void;
+	removeRemoteClip: (trackId: string, clipId: string) => void;
+	getTimelineState: () => TimelineState | null;
 }
 
 // components that don't need playback state
 const MemoizedEffectsBrowser = memo(EffectsBrowser);
 
-const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(({ showEffects, onTimelineStateChange, maxClipsPerUser = 10 }, ref) => {
+const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(({ showEffects, onTimelineStateChange, maxClipsPerUser = 10, onClipAdded, onClipRemoved }, ref) => {
 	const [selectedClips, setSelectedClips] = useState<{ clip: Clip; trackId: string }[] | null>(null);
 	const [isPlaying, setIsPlaying] = useState(false);
 	const [currentTime, setCurrentTime] = useState(0);
@@ -47,6 +52,20 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(({ showEffects, on
 		[onTimelineStateChange]
 	);
 
+	const handleClipAdded = useCallback(
+		(trackId: string, clip: Clip) => {
+			onClipAdded?.(trackId, clip);
+		},
+		[onClipAdded]
+	);
+
+	const handleClipRemoved = useCallback(
+		(trackId: string, clipId: string) => {
+			onClipRemoved?.(trackId, clipId);
+		},
+		[onClipRemoved]
+	);
+
 	useImperativeHandle(
 		ref,
 		() => ({
@@ -55,8 +74,17 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(({ showEffects, on
 				setTimelineState(state);
 				onTimelineStateChange?.(state);
 			},
+			addRemoteClip: (trackId: string, clip: Clip) => {
+				timelineRef.current?.addRemoteClip(trackId, clip);
+			},
+			removeRemoteClip: (trackId: string, clipId: string) => {
+				timelineRef.current?.removeRemoteClip(trackId, clipId);
+			},
+			getTimelineState: () => {
+				return timelineRef.current?.getState() ?? timelineState;
+			},
 		}),
-		[onTimelineStateChange]
+		[onTimelineStateChange, timelineState]
 	);
 
 	return (
@@ -109,6 +137,8 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(({ showEffects, on
 								onPlayingChange={setIsPlaying}
 								onTimelineStateChange={handleTimelineStateChange}
 								onTransformModeChange={setTransformMode}
+								onClipAdded={handleClipAdded}
+								onClipRemoved={handleClipRemoved}
 							/>
 						</ResizablePanel>
 					</ResizablePanelGroup>

@@ -1,5 +1,5 @@
 import type { WSMessage } from "@/websocket/types";
-import { createMessage } from "@/websocket/types";
+import { serializeMessage, deserializeMessage, createJoinMatchMessage } from "@/websocket/types";
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected" | "failed";
 type MessageHandler = (message: WSMessage) => void;
@@ -86,6 +86,7 @@ function connect(conn: MatchConnection) {
 	setStatus(conn, "connecting");
 
 	const ws = new WebSocket(url);
+	ws.binaryType = "arraybuffer";
 	conn.ws = ws;
 
 	ws.onopen = () => {
@@ -105,15 +106,8 @@ function connect(conn: MatchConnection) {
 
 		if (ws.readyState === WebSocket.OPEN) {
 			try {
-				ws.send(
-					JSON.stringify(
-						createMessage("join_match", {
-							matchId: conn.matchId,
-							userId: conn.userId,
-							username: conn.username,
-						})
-					)
-				);
+				const msg = createJoinMatchMessage(conn.matchId, conn.userId, conn.username);
+				ws.send(serializeMessage(msg));
 			} catch (error) {
 				console.error(`[WS:${conn.matchId.slice(0, 8)}] Failed to send join message:`, error, {
 					matchId: conn.matchId,
@@ -132,7 +126,7 @@ function connect(conn: MatchConnection) {
 	ws.onmessage = (event) => {
 		if (conn.ws !== ws) return;
 		try {
-			const message = JSON.parse(event.data) as WSMessage;
+			const message = deserializeMessage(event.data);
 			conn.messageHandlers.forEach((handler) => handler(message));
 		} catch (e) {
 			console.error("[WS] Parse error:", e);
@@ -236,7 +230,7 @@ export function sendMessage(matchId: string, userId: string, message: WSMessage)
 	}
 
 	try {
-		conn.ws.send(JSON.stringify(message));
+		conn.ws.send(serializeMessage(message));
 		return true;
 	} catch (error) {
 		console.error(`[WS:${matchId.slice(0, 8)}] Send failed:`, error);
