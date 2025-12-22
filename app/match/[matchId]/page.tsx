@@ -344,9 +344,6 @@ function MatchContent({
 			<TopBar
 				showEffects={showEffects}
 				onToggleEffects={() => setShowEffects(!showEffects)}
-				onRender={() => {
-					alert("Match will render automatically when time expires!");
-				}}
 				timeRemaining={localTimeRemaining}
 				playersOnline={ws?.playersOnline}
 			/>

@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Logout01Icon, Loading03Icon, UserIcon, Settings01Icon, HelpCircleIcon, FileEditIcon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
+import { Logout01Icon, Loading03Icon, UserIcon, Settings01Icon, HelpCircleIcon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
 
 function GoogleIcon({ className }: { className?: string }) {
 	return (
@@ -186,10 +186,6 @@ export function UserMenu() {
 					<DropdownMenuItem className="cursor-pointer" onClick={() => router.push("/account")}>
 						<HugeiconsIcon icon={UserIcon} className="h-4 w-4" />
 						Account
-					</DropdownMenuItem>
-					<DropdownMenuItem className="cursor-pointer" onClick={() => router.push("/editor")}>
-						<HugeiconsIcon icon={FileEditIcon} className="h-4 w-4" />
-						Solo Editor
 					</DropdownMenuItem>
 				</DropdownMenuGroup>
 				<DropdownMenuSeparator />

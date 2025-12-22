@@ -2,12 +2,11 @@
 
 import { useState, useRef } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Tick01Icon, Video01Icon, Download01Icon, Upload01Icon, UserGroupIcon } from "@hugeicons/core-free-icons";
+import { Tick01Icon, Download01Icon, Upload01Icon, UserGroupIcon } from "@hugeicons/core-free-icons";
 
 interface TopBarProps {
 	showEffects: boolean;
 	onToggleEffects: () => void;
-	onRender?: () => void;
 	onSaveTimeline?: () => void;
 	onImportTimeline?: (file: File) => void;
 	timeRemaining?: number | null;
@@ -17,7 +16,6 @@ interface TopBarProps {
 export default function TopBar({
 	showEffects,
 	onToggleEffects,
-	onRender,
 	onSaveTimeline,
 	onImportTimeline,
 	timeRemaining,
@@ -121,16 +119,6 @@ export default function TopBar({
 						);
 					})}
 				</div>
-
-				{onRender && (
-					<button
-						onClick={onRender}
-						className="flex items-center gap-1.5 px-3 py-1 bg-primary hover:bg-primary/90 text-primary-foreground rounded transition-colors text-xs font-medium"
-					>
-						<HugeiconsIcon icon={Video01Icon} size={14} />
-						Render
-					</button>
-				)}
 
 				{isDev && onSaveTimeline && (
 					<button
