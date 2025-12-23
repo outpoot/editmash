@@ -19,6 +19,7 @@ import {
 	isPingMessage,
 	isSubscribeLobbiesMessage,
 	isUnsubscribeLobbiesMessage,
+	isClipSelectionMessage,
 	createLeaveMatchMessage,
 	createPlayerJoinedMessage,
 	createPlayerLeftMessage,
@@ -412,6 +413,18 @@ async function handleTimelineSync(ws: ServerWebSocket<WebSocketData>, msg: WSMes
 	}
 }
 
+function handleClipSelection(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
+	if (msg.payload.case !== "clipSelection" || !msg.payload.value) return;
+	const { matchId } = msg.payload.value;
+
+	if (ws.data.matchId !== matchId) {
+		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
+		return;
+	}
+
+	broadcast(matchId, msg, ws.data.id);
+}
+
 function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | Buffer | ArrayBuffer) {
 	try {
 		if (typeof rawMessage === "string") {
@@ -466,6 +479,11 @@ function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | 
 
 		if (isTimelineSyncMessage(message)) {
 			handleTimelineSync(ws, message);
+			return;
+		}
+
+		if (isClipSelectionMessage(message)) {
+			handleClipSelection(ws, message);
 			return;
 		}
 

@@ -24,6 +24,7 @@ message WSMessage {
     ClipRemovedPayload clip_removed = 32;
     RequestTimelineSyncPayload request_timeline_sync = 33;
     TimelineSyncPayload timeline_sync = 34;
+    ClipSelectionPayload clip_selection = 35;
     
     // Lobby messages
     SubscribeLobbiesPayload subscribe_lobbies = 40;
@@ -65,6 +66,7 @@ enum MessageType {
   MESSAGE_TYPE_LOBBY_CREATED = 21;
   MESSAGE_TYPE_LOBBY_UPDATED = 22;
   MESSAGE_TYPE_LOBBY_DELETED = 23;
+  MESSAGE_TYPE_CLIP_SELECTION = 24;
 }
 
 message UserInfo {
@@ -216,6 +218,20 @@ message TimelineData {
 message TimelineSyncPayload {
   string match_id = 1;
   TimelineData timeline = 2;
+}
+
+message ClipSelectionInfo {
+  string clip_id = 1;
+  string track_id = 2;
+}
+
+message ClipSelectionPayload {
+  string match_id = 1;
+  string user_id = 2;
+  string username = 3;
+  optional string user_image = 4;
+  string highlight_color = 5;
+  repeated ClipSelectionInfo selected_clips = 6;
 }
 
 message MatchConfig {

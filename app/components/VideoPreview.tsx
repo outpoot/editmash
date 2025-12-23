@@ -213,10 +213,10 @@ export default function VideoPreview({
 					const audioClip = clip as AudioClip;
 					const nodes = audioNodesRef.current.get(audioClip.id);
 					if (nodes && !nodes.gain.disposed && !nodes.pitchShift.disposed && !nodes.pan.disposed) {
-						nodes.gain.gain.rampTo(audioClip.properties.volume, 0.001);
-						nodes.pan.pan.rampTo(audioClip.properties.pan, 0.001);
-						nodes.pitchShift.pitch = audioClip.properties.pitch;
-						nodes.element.playbackRate = Math.max(0.25, Math.min(4, audioClip.properties.speed));
+						nodes.gain.gain.rampTo(audioClip.properties.volume ?? 1, 0.001);
+						nodes.pan.pan.rampTo(audioClip.properties.pan ?? 0, 0.001);
+						nodes.pitchShift.pitch = audioClip.properties.pitch ?? 0;
+						nodes.element.playbackRate = Math.max(0.25, Math.min(4, audioClip.properties.speed ?? 1));
 					}
 				});
 			}

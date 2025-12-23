@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, forwardRef, useImper
 import { TimelineState, Clip, DragState, VideoClip, ImageClip, AudioClip } from "../types/timeline";
 import TimelineTrack from "./TimelineTrack";
 import TimeRuler from "./TimeRuler";
+import type { RemoteSelection } from "./MatchWS";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	SearchAddIcon,
@@ -135,6 +136,7 @@ interface TimelineProps {
 	onTransformModeChange?: (mode: "transform" | "crop" | null) => void;
 	onClipAdded?: (trackId: string, clip: Clip) => void;
 	onClipRemoved?: (trackId: string, clipId: string) => void;
+	remoteSelections?: Map<string, RemoteSelection>;
 }
 
 export interface TimelineRef {
@@ -158,6 +160,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			onTransformModeChange,
 			onClipAdded,
 			onClipRemoved,
+			remoteSelections,
 		},
 		ref
 	) => {
@@ -1717,6 +1720,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 											onMediaDragOver={handleMediaDragOver}
 											onMediaDragLeave={handleMediaDragLeave}
 											dragPreview={dragPreview}
+											remoteSelections={remoteSelections}
 										/>
 									</div>
 								))}

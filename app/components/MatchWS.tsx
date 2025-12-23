@@ -16,12 +16,14 @@ import {
 	isPlayerCountMessage,
 	isMatchStatusMessage,
 	isRequestTimelineSyncMessage,
+	isClipSelectionMessage,
 	createMediaUploadedMessage,
 	createMediaRemovedMessage,
 	createClipAddedMessage,
 	createClipUpdatedMessage,
 	createClipRemovedMessage,
 	createTimelineSyncMessage,
+	createClipSelectionMessage,
 	createClipDataProto,
 	createTrackProto,
 	createTimelineDataProto,
@@ -33,6 +35,14 @@ import {
 import type { Clip } from "@/app/types/timeline";
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected" | "failed";
+
+export interface RemoteSelection {
+	userId: string;
+	username: string;
+	userImage?: string;
+	highlightColor: string;
+	selectedClips: Array<{ clipId: string; trackId: string }>;
+}
 
 function buildTimelineProto(timeline: TimelineData) {
 	return createTimelineDataProto({
@@ -64,11 +74,13 @@ interface MatchWebSocketContextValue {
 	status: ConnectionStatus;
 	playersOnline: number;
 	matchId: string;
+	remoteSelections: Map<string, RemoteSelection>;
 	broadcastMediaUploaded: (media: MediaItem) => void;
 	broadcastMediaRemoved: (mediaId: string) => void;
 	broadcastClipAdded: (trackId: string, clip: Clip) => void;
 	broadcastClipUpdated: (trackId: string, clipId: string, updates: Partial<Clip>) => void;
 	broadcastClipRemoved: (trackId: string, clipId: string) => void;
+	broadcastClipSelection: (selectedClips: Array<{ clipId: string; trackId: string }>) => void;
 	sendTimelineSync: (timeline: TimelineData) => void;
 }
 
@@ -79,6 +91,8 @@ interface MatchWebSocketProviderProps {
 	matchId: string;
 	userId: string;
 	username: string;
+	userImage?: string;
+	highlightColor?: string;
 	onRemoteMediaUploaded?: (media: MediaData) => void;
 	onRemoteClipAdded?: (trackId: string, clip: ClipData, addedBy: { userId: string; username: string }) => void;
 	onRemoteClipUpdated?: (
@@ -146,6 +160,8 @@ export function MatchWS({
 	matchId,
 	userId,
 	username,
+	userImage,
+	highlightColor = "#3b82f6",
 	onRemoteMediaUploaded,
 	onRemoteClipAdded,
 	onRemoteClipUpdated,
@@ -158,6 +174,7 @@ export function MatchWS({
 }: MatchWebSocketProviderProps) {
 	const [status, setStatus] = useState<ConnectionStatus>("disconnected");
 	const [playersOnline, setPlayersOnline] = useState(0);
+	const [remoteSelections, setRemoteSelections] = useState<Map<string, RemoteSelection>>(new Map());
 	const hasReceivedInitialCount = useRef(false);
 
 	const callbacksRef = useRef({
@@ -183,8 +200,8 @@ export function MatchWS({
 		onTimelineSyncRequested,
 	};
 
-	const propsRef = useRef({ matchId, userId, username });
-	propsRef.current = { matchId, userId, username };
+	const propsRef = useRef({ matchId, userId, username, userImage, highlightColor });
+	propsRef.current = { matchId, userId, username, userImage, highlightColor };
 
 	useEffect(() => {
 		setPlayersOnline(0);
@@ -286,12 +303,57 @@ export function MatchWS({
 			if (isPlayerLeftMessage(message) && message.payload.case === "playerLeft") {
 				const { userId: leftUserId } = message.payload.value;
 				setPlayersOnline((n) => Math.max(0, n - 1));
+				// Remove selections when player leaves
+				setRemoteSelections((prev) => {
+					const next = new Map(prev);
+					next.delete(leftUserId);
+					return next;
+				});
 				callbacksRef.current.onPlayerLeft?.(leftUserId);
 				return;
 			}
 
 			if (isMatchStatusMessage(message) && message.payload.case === "matchStatus") {
 				callbacksRef.current.onMatchStatusChange?.(message.payload.value.status);
+				return;
+			}
+
+			if (isClipSelectionMessage(message) && message.payload.case === "clipSelection") {
+				const {
+					userId: selUserId,
+					username: selUsername,
+					userImage: selUserImage,
+					highlightColor: selHighlightColor,
+					selectedClips,
+				} = message.payload.value;
+
+				if (!selUserId || selUserId === userId) {
+					return;
+				}
+
+				const validUsername = typeof selUsername === "string" && selUsername.length > 0 ? selUsername : "Unknown";
+				const validHighlightColor =
+					typeof selHighlightColor === "string" && /^#[0-9A-Fa-f]{6}$/.test(selHighlightColor) ? selHighlightColor : "#3b82f6";
+				const validSelectedClips = Array.isArray(selectedClips) ? selectedClips : [];
+
+				setRemoteSelections((prev) => {
+					const next = new Map(prev);
+					if (validSelectedClips.length === 0) {
+						next.delete(selUserId);
+					} else {
+						next.set(selUserId, {
+							userId: selUserId,
+							username: validUsername,
+							userImage: selUserImage,
+							highlightColor: validHighlightColor,
+							selectedClips: validSelectedClips.map((s) => ({
+								clipId: s.clipId ?? "",
+								trackId: s.trackId ?? "",
+							})),
+						});
+					}
+					return next;
+				});
 				return;
 			}
 
@@ -374,6 +436,11 @@ export function MatchWS({
 		sendMessage(matchId, userId, createClipRemovedMessage(matchId, trackId, clipId, { userId, username }));
 	}, []);
 
+	const broadcastClipSelection = useCallback((selectedClips: Array<{ clipId: string; trackId: string }>) => {
+		const { matchId, userId, username, userImage, highlightColor } = propsRef.current;
+		sendMessage(matchId, userId, createClipSelectionMessage(matchId, userId, username, userImage, highlightColor, selectedClips));
+	}, []);
+
 	const sendTimelineSync = useCallback((timeline: TimelineData) => {
 		const { matchId, userId } = propsRef.current;
 		sendMessage(matchId, userId, createTimelineSyncMessage(matchId, buildTimelineProto(timeline)));
@@ -383,11 +450,13 @@ export function MatchWS({
 		status,
 		playersOnline,
 		matchId,
+		remoteSelections,
 		broadcastMediaUploaded,
 		broadcastMediaRemoved,
 		broadcastClipAdded,
 		broadcastClipUpdated,
 		broadcastClipRemoved,
+		broadcastClipSelection,
 		sendTimelineSync,
 	};
 

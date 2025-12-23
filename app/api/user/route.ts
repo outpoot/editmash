@@ -121,7 +121,7 @@ export async function PATCH(request: Request) {
 		}
 
 		const body = await request.json();
-		const { name } = body;
+		const { name, highlightColor } = body;
 
 		if (name !== undefined) {
 			if (typeof name !== "string") {
@@ -134,6 +134,18 @@ export async function PATCH(request: Request) {
 			}
 
 			await db.update(user).set({ name: trimmedName }).where(eq(user.id, userId));
+		}
+
+		if (highlightColor !== undefined) {
+			if (typeof highlightColor !== "string") {
+				return NextResponse.json({ error: "Highlight color must be a string" }, { status: 400 });
+			}
+
+			if (!/^#[0-9A-Fa-f]{6}$/.test(highlightColor)) {
+				return NextResponse.json({ error: "Highlight color must be a valid hex color (e.g., #3b82f6)" }, { status: 400 });
+			}
+
+			await db.update(user).set({ highlightColor }).where(eq(user.id, userId));
 		}
 
 		return NextResponse.json({ success: true });

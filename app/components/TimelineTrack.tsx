@@ -1,6 +1,7 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { Track, Clip } from "../types/timeline";
 import TimelineClip from "./TimelineClip";
+import type { RemoteSelection } from "./MatchWS";
 
 interface TimelineTrackProps {
 	track: Track;
@@ -21,6 +22,7 @@ interface TimelineTrackProps {
 	onMediaDragLeave: () => void;
 	dragPreview: { trackId: string; startTime: number; duration: number; type: "video" | "audio" } | null;
 	isLastTrack?: boolean;
+	remoteSelections?: Map<string, RemoteSelection>;
 }
 
 function TimelineTrack({
@@ -42,6 +44,7 @@ function TimelineTrack({
 	onMediaDragLeave,
 	dragPreview,
 	isLastTrack,
+	remoteSelections,
 }: TimelineTrackProps) {
 	const handleDragOver = (e: React.DragEvent) => {
 		onMediaDragOver(e, track.id);
@@ -51,6 +54,28 @@ function TimelineTrack({
 		e.preventDefault();
 		onMediaDrop(e, track.id);
 	};
+
+	const clipRemoteSelectors = useMemo(() => {
+		const result = new Map<string, Array<{ userId: string; username: string; userImage?: string; highlightColor: string }>>();
+		if (!remoteSelections) return result;
+
+		for (const selection of remoteSelections.values()) {
+			for (const sel of selection.selectedClips) {
+				if (sel.trackId === track.id) {
+					const existing = result.get(sel.clipId) || [];
+					existing.push({
+						userId: selection.userId,
+						username: selection.username,
+						userImage: selection.userImage,
+						highlightColor: selection.highlightColor,
+					});
+					result.set(sel.clipId, existing);
+				}
+			}
+		}
+		return result;
+	}, [remoteSelections, track.id]);
+
 	return (
 		<div
 			className={`h-10 relative cursor-crosshair transition-colors ${!isLastTrack ? "border-b border-border" : ""} ${
@@ -100,6 +125,7 @@ function TimelineTrack({
 					toolMode={toolMode}
 					onBladeClick={onBladeClick}
 					bladeCursorPosition={bladeCursorPosition}
+					remoteSelectors={clipRemoteSelectors.get(clip.id)}
 				/>
 			))}
 		</div>

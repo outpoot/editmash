@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Clip, VideoClip, ImageClip, AudioClip, VideoClipProperties, AudioClipProperties } from "../types/timeline";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -17,6 +17,25 @@ import { Slider } from "@/components/ui/slider";
 import { Checkbox } from "@/components/ui/checkbox";
 import DragNumberInput from "./DragNumberInput";
 
+const DEFAULT_VIDEO_PROPERTIES: VideoClipProperties = {
+	position: { x: 0, y: 0 },
+	size: { width: 1920, height: 1080 },
+	zoom: { x: 1, y: 1, linked: true },
+	rotation: 0,
+	flip: { horizontal: false, vertical: false },
+	crop: { left: 0, right: 0, top: 0, bottom: 0, softness: 0 },
+	speed: 1,
+	freezeFrame: false,
+	freezeFrameTime: 0,
+};
+
+const DEFAULT_AUDIO_PROPERTIES: AudioClipProperties = {
+	volume: 1,
+	pan: 0,
+	pitch: 0,
+	speed: 1,
+};
+
 interface InspectorProps {
 	selectedClips: { clip: Clip; trackId: string }[] | null;
 	onClipUpdate?: (trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<ImageClip> | Partial<AudioClip>) => void;
@@ -32,6 +51,33 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 
 	const clip = selectedClips?.[selectedClips.length - 1]?.clip;
 	const trackId = selectedClips?.[selectedClips.length - 1]?.trackId;
+
+	const video = useMemo(() => {
+		if (!clip || (clip.type !== "video" && clip.type !== "image")) return DEFAULT_VIDEO_PROPERTIES;
+		const props = clip.properties as Partial<VideoClipProperties>;
+		return {
+			position: props.position ?? DEFAULT_VIDEO_PROPERTIES.position,
+			size: props.size ?? DEFAULT_VIDEO_PROPERTIES.size,
+			zoom: props.zoom ?? DEFAULT_VIDEO_PROPERTIES.zoom,
+			rotation: props.rotation ?? DEFAULT_VIDEO_PROPERTIES.rotation,
+			flip: props.flip ?? DEFAULT_VIDEO_PROPERTIES.flip,
+			crop: props.crop ?? DEFAULT_VIDEO_PROPERTIES.crop,
+			speed: props.speed ?? DEFAULT_VIDEO_PROPERTIES.speed,
+			freezeFrame: props.freezeFrame ?? DEFAULT_VIDEO_PROPERTIES.freezeFrame,
+			freezeFrameTime: props.freezeFrameTime ?? DEFAULT_VIDEO_PROPERTIES.freezeFrameTime,
+		};
+	}, [clip]);
+
+	const audio = useMemo(() => {
+		if (!clip || clip.type !== "audio") return DEFAULT_AUDIO_PROPERTIES;
+		const props = clip.properties as Partial<AudioClipProperties>;
+		return {
+			volume: props.volume ?? DEFAULT_AUDIO_PROPERTIES.volume,
+			pan: props.pan ?? DEFAULT_AUDIO_PROPERTIES.pan,
+			pitch: props.pitch ?? DEFAULT_AUDIO_PROPERTIES.pitch,
+			speed: props.speed ?? DEFAULT_AUDIO_PROPERTIES.speed,
+		};
+	}, [clip]);
 
 	useEffect(() => {
 		if (clip?.type === "video" || clip?.type === "image") {
@@ -140,13 +186,13 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Zoom</Label>
 													<span className="text-muted-foreground/60 text-xs">X</span>
 													<DragNumberInput
-														value={clip.properties.zoom.x}
+														value={video.zoom.x}
 														onChange={(newValue) => {
 															updateVideoProperty({
 																zoom: {
-																	...clip.properties.zoom,
+																	...video.zoom,
 																	x: newValue,
-																	y: clip.properties.zoom.linked ? newValue : clip.properties.zoom.y,
+																	y: video.zoom.linked ? newValue : video.zoom.y,
 																},
 															});
 														}}
@@ -159,16 +205,14 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														onClick={() => {
 															updateVideoProperty({
 																zoom: {
-																	...clip.properties.zoom,
-																	linked: !clip.properties.zoom.linked,
+																	...video.zoom,
+																	linked: !video.zoom.linked,
 																},
 															});
 														}}
-														className={`p-1 rounded ${
-															clip.properties.zoom.linked ? "text-primary" : "text-muted-foreground"
-														} hover:bg-muted`}
+														className={`p-1 rounded ${video.zoom.linked ? "text-primary" : "text-muted-foreground"} hover:bg-muted`}
 													>
-														{clip.properties.zoom.linked ? (
+														{video.zoom.linked ? (
 															<HugeiconsIcon icon={Link01Icon} size={14} />
 														) : (
 															<HugeiconsIcon icon={LinkSquare01Icon} size={14} />
@@ -176,13 +220,13 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 													</button>
 													<span className="text-muted-foreground/60 text-xs">Y</span>
 													<DragNumberInput
-														value={clip.properties.zoom.y}
+														value={video.zoom.y}
 														onChange={(newValue) => {
 															updateVideoProperty({
 																zoom: {
-																	...clip.properties.zoom,
+																	...video.zoom,
 																	y: newValue,
-																	x: clip.properties.zoom.linked ? newValue : clip.properties.zoom.x,
+																	x: video.zoom.linked ? newValue : video.zoom.x,
 																},
 															});
 														}}
@@ -200,11 +244,11 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Position</Label>
 													<span className="text-muted-foreground/60 text-xs">X</span>
 													<DragNumberInput
-														value={clip.properties.position.x}
+														value={video.position.x}
 														onChange={(newValue) => {
 															updateVideoProperty({
 																position: {
-																	...clip.properties.position,
+																	...video.position,
 																	x: newValue,
 																},
 															});
@@ -214,11 +258,11 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 													/>
 													<span className="text-muted-foreground/60 text-xs">Y</span>
 													<DragNumberInput
-														value={clip.properties.position.y}
+														value={video.position.y}
 														onChange={(newValue) => {
 															updateVideoProperty({
 																position: {
-																	...clip.properties.position,
+																	...video.position,
 																	y: newValue,
 																},
 															});
@@ -234,7 +278,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Rotation</Label>
 													<Slider
-														value={[clip.properties.rotation]}
+														value={[video.rotation]}
 														onValueChange={([value]) => {
 															updateVideoProperty({ rotation: value });
 														}}
@@ -244,7 +288,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														className="flex-1"
 													/>
 													<DragNumberInput
-														value={clip.properties.rotation}
+														value={video.rotation}
 														onChange={(newValue) => {
 															updateVideoProperty({ rotation: newValue });
 														}}
@@ -264,13 +308,13 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														onClick={() => {
 															updateVideoProperty({
 																flip: {
-																	...clip.properties.flip,
-																	horizontal: !clip.properties.flip.horizontal,
+																	...video.flip,
+																	horizontal: !video.flip.horizontal,
 																},
 															});
 														}}
 														className={`p-2 rounded border ${
-															clip.properties.flip.horizontal
+															video.flip.horizontal
 																? "bg-primary/20 border-primary text-primary"
 																: "border-border text-muted-foreground hover:bg-muted"
 														}`}
@@ -282,13 +326,13 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														onClick={() => {
 															updateVideoProperty({
 																flip: {
-																	...clip.properties.flip,
-																	vertical: !clip.properties.flip.vertical,
+																	...video.flip,
+																	vertical: !video.flip.vertical,
 																},
 															});
 														}}
 														className={`p-2 rounded border ${
-															clip.properties.flip.vertical
+															video.flip.vertical
 																? "bg-primary/20 border-primary text-primary"
 																: "border-border text-muted-foreground hover:bg-muted"
 														}`}
@@ -326,11 +370,11 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 												<div className="pt-2 flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Left</Label>
 													<Slider
-														value={[clip.properties.crop.left]}
+														value={[video.crop.left]}
 														onValueChange={([value]) => {
 															updateVideoProperty({
 																crop: {
-																	...clip.properties.crop,
+																	...video.crop,
 																	left: value,
 																},
 															});
@@ -341,11 +385,11 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														className="flex-1"
 													/>
 													<DragNumberInput
-														value={clip.properties.crop.left}
+														value={video.crop.left}
 														onChange={(newValue) => {
 															updateVideoProperty({
 																crop: {
-																	...clip.properties.crop,
+																	...video.crop,
 																	left: Math.max(0, newValue),
 																},
 															});
@@ -363,11 +407,11 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Right</Label>
 													<Slider
-														value={[clip.properties.crop.right]}
+														value={[video.crop.right]}
 														onValueChange={([value]) => {
 															updateVideoProperty({
 																crop: {
-																	...clip.properties.crop,
+																	...video.crop,
 																	right: value,
 																},
 															});
@@ -378,11 +422,11 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														className="flex-1"
 													/>
 													<DragNumberInput
-														value={clip.properties.crop.right}
+														value={video.crop.right}
 														onChange={(newValue) => {
 															updateVideoProperty({
 																crop: {
-																	...clip.properties.crop,
+																	...video.crop,
 																	right: Math.max(0, newValue),
 																},
 															});
@@ -400,11 +444,11 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Top</Label>
 													<Slider
-														value={[clip.properties.crop.top]}
+														value={[video.crop.top]}
 														onValueChange={([value]) => {
 															updateVideoProperty({
 																crop: {
-																	...clip.properties.crop,
+																	...video.crop,
 																	top: value,
 																},
 															});
@@ -415,11 +459,11 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														className="flex-1"
 													/>
 													<DragNumberInput
-														value={clip.properties.crop.top}
+														value={video.crop.top}
 														onChange={(newValue) => {
 															updateVideoProperty({
 																crop: {
-																	...clip.properties.crop,
+																	...video.crop,
 																	top: Math.max(0, newValue),
 																},
 															});
@@ -437,11 +481,11 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Bottom</Label>
 													<Slider
-														value={[clip.properties.crop.bottom]}
+														value={[video.crop.bottom]}
 														onValueChange={([value]) => {
 															updateVideoProperty({
 																crop: {
-																	...clip.properties.crop,
+																	...video.crop,
 																	bottom: value,
 																},
 															});
@@ -452,11 +496,11 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														className="flex-1"
 													/>
 													<DragNumberInput
-														value={clip.properties.crop.bottom}
+														value={video.crop.bottom}
 														onChange={(newValue) => {
 															updateVideoProperty({
 																crop: {
-																	...clip.properties.crop,
+																	...video.crop,
 																	bottom: Math.max(0, newValue),
 																},
 															});
@@ -496,10 +540,10 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 												<div className="pt-2 flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Speed</Label>
 													<DragNumberInput
-														value={clip.properties.speed * 100}
+														value={video.speed * 100}
 														onChange={(newValue) => {
 															const newSpeed = newValue / 100;
-															const oldSpeed = clip.properties.speed;
+															const oldSpeed = video.speed;
 															const sourceDuration = clip.duration * oldSpeed;
 															const newDuration = sourceDuration / newSpeed;
 
@@ -507,7 +551,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 																onClipUpdate(trackId, clip.id, {
 																	duration: newDuration,
 																	properties: {
-																		...clip.properties,
+																		...video,
 																		speed: newSpeed,
 																	},
 																});
@@ -527,7 +571,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs flex-1">Freeze Frame</Label>
 													<Checkbox
-														checked={clip.properties.freezeFrame}
+														checked={video.freezeFrame}
 														onCheckedChange={(checked) => {
 															const freezeTime = Math.max(0, currentTime - clip.startTime);
 															updateVideoProperty({
@@ -572,7 +616,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 												<div className="pt-2 flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Volume</Label>
 													<Slider
-														value={[clip.properties.volume <= 0 ? -60 : 20 * Math.log10(clip.properties.volume)]}
+														value={[audio.volume <= 0 ? -60 : 20 * Math.log10(audio.volume)]}
 														onValueChange={([value]) => {
 															const linearVolume = value <= -60 ? 0 : Math.pow(10, value / 20);
 															updateAudioProperty({
@@ -585,7 +629,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														className="flex-1"
 													/>
 													<DragNumberInput
-														value={clip.properties.volume <= 0 ? -60.0 : Number((20 * Math.log10(clip.properties.volume)).toFixed(1))}
+														value={audio.volume <= 0 ? -60.0 : Number((20 * Math.log10(audio.volume)).toFixed(1))}
 														onChange={(newValue) => {
 															const linearVolume = newValue <= -60 ? 0 : Math.pow(10, newValue / 20);
 															updateAudioProperty({
@@ -606,7 +650,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Pan</Label>
 													<Slider
-														value={[clip.properties.pan * 100]}
+														value={[audio.pan * 100]}
 														onValueChange={([value]) => {
 															updateAudioProperty({ pan: value / 100 });
 														}}
@@ -616,7 +660,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														className="flex-1"
 													/>
 													<DragNumberInput
-														value={Number((clip.properties.pan * 100).toFixed(1))}
+														value={Number((audio.pan * 100).toFixed(1))}
 														onChange={(newValue) => {
 															updateAudioProperty({ pan: newValue / 100 });
 														}}
@@ -633,7 +677,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Pitch</Label>
 													<Slider
-														value={[clip.properties.pitch]}
+														value={[audio.pitch]}
 														onValueChange={([value]) => {
 															updateAudioProperty({ pitch: value });
 														}}
@@ -643,7 +687,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														className="flex-1"
 													/>
 													<DragNumberInput
-														value={Number(clip.properties.pitch.toFixed(1))}
+														value={Number(audio.pitch.toFixed(1))}
 														onChange={(newValue) => {
 															updateAudioProperty({ pitch: Math.round(newValue) });
 														}}
@@ -660,10 +704,10 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 flex-shrink-0">Speed</Label>
 													<DragNumberInput
-														value={Number((clip.properties.speed * 100).toFixed(1))}
+														value={Number((audio.speed * 100).toFixed(1))}
 														onChange={(newValue) => {
 															const newSpeed = newValue / 100;
-															const oldSpeed = clip.properties.speed;
+															const oldSpeed = audio.speed;
 															const sourceDuration = clip.duration * oldSpeed;
 															const newDuration = sourceDuration / newSpeed;
 
@@ -671,7 +715,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 																onClipUpdate(trackId, clip.id, {
 																	duration: newDuration,
 																	properties: {
-																		...clip.properties,
+																		...audio,
 																		speed: newSpeed,
 																	},
 																});

@@ -31,6 +31,10 @@ import {
 	RequestTimelineSyncPayloadSchema,
 	type TimelineSyncPayload,
 	TimelineSyncPayloadSchema,
+	type ClipSelectionPayload,
+	ClipSelectionPayloadSchema,
+	type ClipSelectionInfo,
+	ClipSelectionInfoSchema,
 	type SubscribeLobbiesPayload,
 	SubscribeLobbiesPayloadSchema,
 	type UnsubscribeLobbiesPayload,
@@ -88,6 +92,8 @@ export {
 	type ClipRemovedPayload,
 	type RequestTimelineSyncPayload,
 	type TimelineSyncPayload,
+	type ClipSelectionPayload,
+	type ClipSelectionInfo,
 	type SubscribeLobbiesPayload,
 	type UnsubscribeLobbiesPayload,
 	type LobbiesUpdatePayload,
@@ -225,6 +231,10 @@ export function isUnsubscribeLobbiesMessage(msg: WSMessageProto): msg is WSMessa
 
 export function isLobbiesUpdateMessage(msg: WSMessageProto): msg is WSMessageProto & { payload: { case: "lobbiesUpdate" } } {
 	return msg.type === MessageType.LOBBIES_UPDATE && msg.payload?.case === "lobbiesUpdate";
+}
+
+export function isClipSelectionMessage(msg: WSMessageProto): msg is WSMessageProto & { payload: { case: "clipSelection" } } {
+	return msg.type === MessageType.CLIP_SELECTION && msg.payload?.case === "clipSelection";
 }
 
 export function createJoinMatchMessage(matchId: string, userId: string, username: string): WSMessageProto {
@@ -607,4 +617,29 @@ export function createTrackProto(track: { id: string; type: "video" | "audio"; c
 
 export function createTimelineDataProto(timeline: { duration: number; tracks: Track[] }): TimelineDataProto {
 	return create(TimelineDataSchema, timeline);
+}
+
+export function createClipSelectionMessage(
+	matchId: string,
+	userId: string,
+	username: string,
+	userImage: string | undefined,
+	highlightColor: string,
+	selectedClips: Array<{ clipId: string; trackId: string }>
+): WSMessageProto {
+	return create(WSMessageSchema, {
+		type: MessageType.CLIP_SELECTION,
+		timestamp: BigInt(Date.now()),
+		payload: {
+			case: "clipSelection",
+			value: create(ClipSelectionPayloadSchema, {
+				matchId,
+				userId,
+				username,
+				userImage,
+				highlightColor,
+				selectedClips: selectedClips.map((s) => create(ClipSelectionInfoSchema, { clipId: s.clipId, trackId: s.trackId })),
+			}),
+		},
+	});
 }

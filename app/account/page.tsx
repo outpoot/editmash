@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useDebouncedCallback } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { useSession, signOut, getSession } from "@/lib/auth-client";
 import { toast } from "sonner";
@@ -46,6 +47,8 @@ export default function AccountPage() {
 	const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 	const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 	const [displayName, setDisplayName] = useState<string | null>(null);
+	const [highlightColor, setHighlightColor] = useState("#3b82f6");
+	const [isSavingHighlightColor, setIsSavingHighlightColor] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const previewUrlsRef = useRef<Set<string>>(new Set());
 
@@ -76,6 +79,9 @@ export default function AccountPage() {
 					if (data.user.name) {
 						setDisplayName(data.user.name);
 						setNewName(data.user.name);
+					}
+					if (data.user.highlightColor) {
+						setHighlightColor(data.user.highlightColor);
 					}
 				})
 				.catch(console.error);
@@ -236,6 +242,29 @@ export default function AccountPage() {
 		}
 	};
 
+	const saveHighlightColor = useCallback(async (color: string) => {
+		setIsSavingHighlightColor(true);
+		try {
+			const response = await fetch("/api/user", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ highlightColor: color }),
+			});
+
+			if (!response.ok) {
+				throw new Error("Failed to update highlight color");
+			}
+
+			toast.success("Highlight color updated");
+		} catch {
+			toast.error("Failed to update highlight color");
+		} finally {
+			setIsSavingHighlightColor(false);
+		}
+	}, []);
+
+	const handleHighlightColorChange = useDebouncedCallback(saveHighlightColor, 500);
+
 	if (isPending) {
 		return (
 			<div className="min-h-screen bg-background flex items-center justify-center">
@@ -384,6 +413,45 @@ export default function AccountPage() {
 									</div>
 								</div>
 							)}
+
+							<Separator />
+
+							<div className="space-y-2">
+								<Label className="text-muted-foreground text-xs uppercase tracking-wide">Highlight</Label>
+								<p className="text-xs text-muted-foreground/70">This color shows other players which clips you have selected</p>
+								<div className="flex items-center gap-3">
+									<div className="relative">
+										<input
+											type="color"
+											value={highlightColor}
+											onChange={(e) => {
+												setHighlightColor(e.target.value);
+												handleHighlightColorChange(e.target.value);
+											}}
+											className="w-10 h-10 rounded-lg cursor-pointer border border-border"
+											style={{ backgroundColor: highlightColor }}
+										/>
+									</div>
+									<Input
+										value={highlightColor}
+										onChange={(e) => {
+											const val = e.target.value;
+											if (/^#[0-9A-Fa-f]{0,6}$/.test(val)) {
+												setHighlightColor(val);
+												if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
+													handleHighlightColorChange(val);
+												}
+											}
+										}}
+										placeholder="#3b82f6"
+										className="w-28 font-mono text-sm"
+										maxLength={7}
+									/>
+									{isSavingHighlightColor && (
+										<HugeiconsIcon icon={Loading03Icon} className="w-4 h-4 animate-spin text-muted-foreground" />
+									)}
+								</div>
+							</div>
 						</CardContent>
 					</Card>
 

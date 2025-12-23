@@ -37,6 +37,9 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 	const [match, setMatch] = useState<Match | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const [userImage, setUserImage] = useState<string | undefined>(undefined);
+	const [highlightColor, setHighlightColor] = useState<string>("#3b82f6");
+	const [profileLoaded, setProfileLoaded] = useState(false);
 	const [serverTimeRemaining, setServerTimeRemaining] = useState<number | null>(null);
 	const [localTimeRemaining, setLocalTimeRemaining] = useState<number | null>(null);
 
@@ -100,6 +103,25 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 		}
 	}, [matchId]);
 
+	const fetchUserProfile = useCallback(async () => {
+		if (!stablePlayerRef.current) return;
+
+		try {
+			const response = await fetch("/api/user");
+			if (response.ok) {
+				const data = await response.json();
+				if (data.user) {
+					setUserImage(data.user.image ?? undefined);
+					setHighlightColor(data.user.highlightColor ?? "#3b82f6");
+				}
+			}
+		} catch (error) {
+			console.error("Error fetching user profile:", error);
+		} finally {
+			setProfileLoaded(true);
+		}
+	}, []);
+
 	const fetchStatus = useCallback(async () => {
 		try {
 			const response = await fetch(`/api/matches/${matchId}/status`);
@@ -136,8 +158,9 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 	useEffect(() => {
 		if (playerId) {
 			loadMatchMedia();
+			fetchUserProfile();
 		}
-	}, [playerId, loadMatchMedia]);
+	}, [playerId, loadMatchMedia, fetchUserProfile]);
 
 	useEffect(() => {
 		fetchStatus();
@@ -222,7 +245,7 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 		};
 	}, []);
 
-	if (playerLoading || isLoading || !stablePlayerRef.current) {
+	if (playerLoading || isLoading || !stablePlayerRef.current || !profileLoaded) {
 		return (
 			<div className="min-h-screen bg-background flex items-center justify-center">
 				<div className="animate-pulse text-muted-foreground">Loading match...</div>
@@ -250,6 +273,8 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 			matchId={matchId}
 			userId={stablePlayerRef.current.playerId}
 			username={stablePlayerRef.current.username}
+			userImage={userImage}
+			highlightColor={highlightColor}
 			onRemoteMediaUploaded={handleRemoteMediaUploaded}
 			onRemoteClipAdded={handleRemoteClipAdded}
 			onRemoteClipRemoved={handleRemoteClipRemoved}
@@ -339,6 +364,13 @@ function MatchContent({
 		[ws]
 	);
 
+	const handleSelectionChange = useCallback(
+		(clips: Array<{ clipId: string; trackId: string }>) => {
+			ws?.broadcastClipSelection(clips);
+		},
+		[ws]
+	);
+
 	return (
 		<div className="h-screen flex flex-col relative">
 			<TopBar
@@ -353,6 +385,8 @@ function MatchContent({
 				maxClipsPerUser={maxClipsPerUser}
 				onClipAdded={handleClipAdded}
 				onClipRemoved={handleClipRemoved}
+				onSelectionChange={handleSelectionChange}
+				remoteSelections={ws?.remoteSelections}
 			/>
 
 			{isFailed && (
