@@ -22,7 +22,7 @@ function transformTimelineFromApi(timeline: TimelineState): TimelineState {
 			...track,
 			clips: track.clips.map((clip) => {
 				const props = clip.properties as unknown as Record<string, unknown>;
-				const isAlreadyNested = props && typeof props.position === "object";
+				const isAlreadyNested = props && props.position !== null && typeof props.position === "object";
 
 				if (isAlreadyNested) {
 					return clip;

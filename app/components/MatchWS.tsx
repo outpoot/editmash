@@ -111,12 +111,7 @@ interface MatchWebSocketProviderProps {
 		updatedBy: { userId: string; username: string }
 	) => void;
 	onRemoteClipRemoved?: (trackId: string, clipId: string, removedBy: { userId: string; username: string }) => void;
-	onRemoteClipSplit?: (
-		trackId: string,
-		originalClip: ClipData,
-		newClip: ClipData,
-		splitBy: { userId: string; username: string }
-	) => void;
+	onRemoteClipSplit?: (trackId: string, originalClip: ClipData, newClip: ClipData, splitBy: { userId: string; username: string }) => void;
 	onZoneClipsReceived?: (startTime: number, endTime: number, clips: Array<{ trackId: string; clip: ClipData }>) => void;
 	onPlayerJoined?: (player: { userId: string; username: string }) => void;
 	onPlayerLeft?: (userId: string) => void;
@@ -415,12 +410,10 @@ export function MatchWS({
 			if (isClipSplitMessage(message) && message.payload.case === "clipSplit") {
 				const { trackId, originalClip, newClip, splitBy } = message.payload.value;
 				if (originalClip && newClip && splitBy && splitBy.userId !== userId) {
-					callbacksRef.current.onRemoteClipSplit?.(
-						trackId,
-						clipDataFromProto(originalClip),
-						clipDataFromProto(newClip),
-						{ userId: splitBy.userId, username: splitBy.username }
-					);
+					callbacksRef.current.onRemoteClipSplit?.(trackId, clipDataFromProto(originalClip), clipDataFromProto(newClip), {
+						userId: splitBy.userId,
+						username: splitBy.username,
+					});
 				}
 				return;
 			}
@@ -501,10 +494,12 @@ export function MatchWS({
 			}
 
 			if (isZoneClipsMessage(message) && message.payload.case === "zoneClips") {
-				const { startTime, endTime, tracks } = message.payload.value;
+				const { startTime, endTime } = message.payload.value;
+				const tracks = Array.isArray(message.payload.value.tracks) ? message.payload.value.tracks : [];
 				const clips: Array<{ trackId: string; clip: ClipData }> = [];
 
 				for (const track of tracks) {
+					if (!track || !Array.isArray(track.clips)) continue;
 					for (const clip of track.clips) {
 						clips.push({
 							trackId: track.id,

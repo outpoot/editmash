@@ -24,6 +24,50 @@ import { getCurrentDragItem } from "./MediaCardDock";
 import { historyStore } from "../store/historyStore";
 import { generateThumbnail } from "../store/mediaStore";
 
+function generateAndUpdateThumbnail(clip: Clip, setTimelineState: React.Dispatch<React.SetStateAction<TimelineState>>) {
+	if ((clip.type === "video" || clip.type === "image") && !clip.thumbnail && clip.src) {
+		if (clip.type === "video") {
+			const video = document.createElement("video");
+			video.crossOrigin = "anonymous";
+			video.preload = "metadata";
+			video.src = clip.src;
+			video.currentTime = 0.1;
+			video.onseeked = () => {
+				const thumbnail = generateThumbnail(video, video.videoWidth, video.videoHeight);
+				if (thumbnail) {
+					setTimelineState((prev) => ({
+						...prev,
+						tracks: prev.tracks.map((t) => ({
+							...t,
+							clips: t.clips.map((c) => (c.id === clip.id ? { ...c, thumbnail } : c)),
+						})),
+					}));
+				}
+				video.src = "";
+			};
+			video.onerror = () => {
+				video.src = "";
+			};
+		} else {
+			const img = document.createElement("img");
+			img.crossOrigin = "anonymous";
+			img.src = clip.src;
+			img.onload = () => {
+				const thumbnail = generateThumbnail(img, img.naturalWidth, img.naturalHeight);
+				if (thumbnail) {
+					setTimelineState((prev) => ({
+						...prev,
+						tracks: prev.tracks.map((t) => ({
+							...t,
+							clips: t.clips.map((c) => (c.id === clip.id ? { ...c, thumbnail } : c)),
+						})),
+					}));
+				}
+			};
+		}
+	}
+}
+
 const initialTimelineState: TimelineState = {
 	duration: 60,
 	tracks: [
@@ -283,47 +327,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 
 					state.tracks.forEach((track) => {
 						track.clips.forEach((clip) => {
-							if ((clip.type === "video" || clip.type === "image") && !clip.thumbnail && clip.src) {
-								if (clip.type === "video") {
-									const video = document.createElement("video");
-									video.crossOrigin = "anonymous";
-									video.preload = "metadata";
-									video.src = clip.src;
-									video.currentTime = 0.1;
-									video.onseeked = () => {
-										const thumbnail = generateThumbnail(video, video.videoWidth, video.videoHeight);
-										if (thumbnail) {
-											setTimelineState((prev) => ({
-												...prev,
-												tracks: prev.tracks.map((t) => ({
-													...t,
-													clips: t.clips.map((c) => (c.id === clip.id ? { ...c, thumbnail } : c)),
-												})),
-											}));
-										}
-										video.src = "";
-									};
-									video.onerror = () => {
-										video.src = "";
-									};
-								} else {
-									const img = document.createElement("img");
-									img.crossOrigin = "anonymous";
-									img.src = clip.src;
-									img.onload = () => {
-										const thumbnail = generateThumbnail(img, img.naturalWidth, img.naturalHeight);
-										if (thumbnail) {
-											setTimelineState((prev) => ({
-												...prev,
-												tracks: prev.tracks.map((t) => ({
-													...t,
-													clips: t.clips.map((c) => (c.id === clip.id ? { ...c, thumbnail } : c)),
-												})),
-											}));
-										}
-									};
-								}
-							}
+							generateAndUpdateThumbnail(clip, setTimelineState);
 						});
 					});
 				},
@@ -347,47 +351,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						return placeClipOnTimeline(clip, trackId, newState).state;
 					});
 
-					if ((clip.type === "video" || clip.type === "image") && !clip.thumbnail && clip.src) {
-						if (clip.type === "video") {
-							const video = document.createElement("video");
-							video.crossOrigin = "anonymous";
-							video.preload = "metadata";
-							video.src = clip.src;
-							video.currentTime = 0.1;
-							video.onseeked = () => {
-								const thumbnail = generateThumbnail(video, video.videoWidth, video.videoHeight);
-								if (thumbnail) {
-									setTimelineState((prev) => ({
-										...prev,
-										tracks: prev.tracks.map((t) => ({
-											...t,
-											clips: t.clips.map((c) => (c.id === clip.id ? { ...c, thumbnail } : c)),
-										})),
-									}));
-								}
-								video.src = "";
-							};
-							video.onerror = () => {
-								video.src = "";
-							};
-						} else {
-							const img = document.createElement("img");
-							img.crossOrigin = "anonymous";
-							img.src = clip.src;
-							img.onload = () => {
-								const thumbnail = generateThumbnail(img, img.naturalWidth, img.naturalHeight);
-								if (thumbnail) {
-									setTimelineState((prev) => ({
-										...prev,
-										tracks: prev.tracks.map((t) => ({
-											...t,
-											clips: t.clips.map((c) => (c.id === clip.id ? { ...c, thumbnail } : c)),
-										})),
-									}));
-								}
-							};
-						}
-					}
+					generateAndUpdateThumbnail(clip, setTimelineState);
 				},
 				removeRemoteClip: (trackId: string, clipId: string) => {
 					setTimelineState((prev) => {
@@ -537,48 +501,8 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						return newState;
 					});
 
-					for (const { trackId, clip } of clips) {
-						if ((clip.type === "video" || clip.type === "image") && !clip.thumbnail && clip.src) {
-							if (clip.type === "video") {
-								const video = document.createElement("video");
-								video.crossOrigin = "anonymous";
-								video.preload = "metadata";
-								video.src = clip.src;
-								video.currentTime = 0.1;
-								video.onseeked = () => {
-									const thumbnail = generateThumbnail(video, video.videoWidth, video.videoHeight);
-									if (thumbnail) {
-										setTimelineState((prev) => ({
-											...prev,
-											tracks: prev.tracks.map((t) => ({
-												...t,
-												clips: t.clips.map((c) => (c.id === clip.id ? { ...c, thumbnail } : c)),
-											})),
-										}));
-									}
-									video.src = "";
-								};
-								video.onerror = () => {
-									video.src = "";
-								};
-							} else {
-								const img = new Image();
-								img.crossOrigin = "anonymous";
-								img.src = clip.src;
-								img.onload = () => {
-									const thumbnail = generateThumbnail(img, img.naturalWidth, img.naturalHeight);
-									if (thumbnail) {
-										setTimelineState((prev) => ({
-											...prev,
-											tracks: prev.tracks.map((t) => ({
-												...t,
-												clips: t.clips.map((c) => (c.id === clip.id ? { ...c, thumbnail } : c)),
-											})),
-										}));
-									}
-								};
-							}
-						}
+					for (const { clip } of clips) {
+						generateAndUpdateThumbnail(clip, setTimelineState);
 					}
 				},
 				splitRemoteClip: (trackId: string, originalClip: Clip, newClip: Clip) => {
@@ -615,47 +539,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						return newState;
 					});
 
-					if ((newClip.type === "video" || newClip.type === "image") && !newClip.thumbnail && newClip.src) {
-						if (newClip.type === "video") {
-							const video = document.createElement("video");
-							video.crossOrigin = "anonymous";
-							video.preload = "metadata";
-							video.src = newClip.src;
-							video.currentTime = 0.1;
-							video.onseeked = () => {
-								const thumbnail = generateThumbnail(video, video.videoWidth, video.videoHeight);
-								if (thumbnail) {
-									setTimelineState((prev) => ({
-										...prev,
-										tracks: prev.tracks.map((t) => ({
-											...t,
-											clips: t.clips.map((c) => (c.id === newClip.id ? { ...c, thumbnail } : c)),
-										})),
-									}));
-								}
-								video.src = "";
-							};
-							video.onerror = () => {
-								video.src = "";
-							};
-						} else {
-							const img = new Image();
-							img.crossOrigin = "anonymous";
-							img.src = newClip.src;
-							img.onload = () => {
-								const thumbnail = generateThumbnail(img, img.naturalWidth, img.naturalHeight);
-								if (thumbnail) {
-									setTimelineState((prev) => ({
-										...prev,
-										tracks: prev.tracks.map((t) => ({
-											...t,
-											clips: t.clips.map((c) => (c.id === newClip.id ? { ...c, thumbnail } : c)),
-										})),
-									}));
-								}
-							};
-						}
-					}
+					generateAndUpdateThumbnail(newClip, setTimelineState);
 				},
 				getState: () => timelineState,
 			}),
