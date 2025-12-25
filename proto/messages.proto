@@ -25,6 +25,9 @@ message WSMessage {
     RequestTimelineSyncPayload request_timeline_sync = 33;
     TimelineSyncPayload timeline_sync = 34;
     ClipSelectionPayload clip_selection = 35;
+    ZoneSubscribePayload zone_subscribe = 36;
+    ZoneClipsPayload zone_clips = 37;
+    ClipSplitPayload clip_split = 38;
     
     // Lobby messages
     SubscribeLobbiesPayload subscribe_lobbies = 40;
@@ -67,6 +70,9 @@ enum MessageType {
   MESSAGE_TYPE_LOBBY_UPDATED = 22;
   MESSAGE_TYPE_LOBBY_DELETED = 23;
   MESSAGE_TYPE_CLIP_SELECTION = 24;
+  MESSAGE_TYPE_ZONE_SUBSCRIBE = 25;
+  MESSAGE_TYPE_ZONE_CLIPS = 26;
+  MESSAGE_TYPE_CLIP_SPLIT = 27;
 }
 
 message UserInfo {
@@ -151,7 +157,16 @@ message ClipProperties {
   optional bool flip_x = 9;
   optional bool flip_y = 10;
   
+  optional double zoom_x = 11;
+  optional double zoom_y = 12;
+  optional bool zoom_linked = 13;
+  
+  optional bool freeze_frame = 14;
+  optional double freeze_frame_time = 15;
+  
   optional double volume = 20;
+  optional double pan = 21;
+  optional double pitch = 22;
   
   optional double crop_top = 30;
   optional double crop_bottom = 31;
@@ -192,6 +207,14 @@ message ClipRemovedPayload {
   string track_id = 2;
   string clip_id = 3;
   UserInfo removed_by = 4;
+}
+
+message ClipSplitPayload {
+  string match_id = 1;
+  string track_id = 2;
+  ClipData original_clip = 3;
+  ClipData new_clip = 4;
+  UserInfo split_by = 5;
 }
 
 message RequestTimelineSyncPayload {
@@ -290,3 +313,16 @@ message ErrorPayload {
 message PingPayload {}
 
 message PongPayload {}
+
+message ZoneSubscribePayload {
+  string match_id = 1;
+  double start_time = 2;
+  double end_time = 3;
+}
+
+message ZoneClipsPayload {
+  string match_id = 1;
+  double start_time = 2;
+  double end_time = 3;
+  repeated Track tracks = 4;
+}

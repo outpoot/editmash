@@ -5,14 +5,46 @@ import { useRouter } from "next/navigation";
 import { usePlayer } from "@/app/hooks/usePlayer";
 import TopBar from "@/app/components/TopBar";
 import MainLayout, { MainLayoutRef } from "@/app/components/MainLayout";
-import { MatchWS, useMatchWebSocketOptional } from "@/app/components/MatchWS";
-import { TimelineState, Clip, VideoClip, AudioClip, ImageClip } from "@/app/types/timeline";
+import { MatchWS, useMatchWebSocketOptional, flatPropertiesToNested } from "@/app/components/MatchWS";
+import { TimelineState, Clip, VideoClip, AudioClip, ImageClip, Track } from "@/app/types/timeline";
 import { Match, MatchStatus, DEFAULT_MATCH_CONFIG } from "@/app/types/match";
 import { mediaStore } from "@/app/store/mediaStore";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { WifiOff02Icon } from "@hugeicons/core-free-icons";
 import { toast } from "sonner";
 import type { ClipData, TimelineData } from "@/websocket/types";
+import { VideoClipProperties, AudioClipProperties } from "@/app/types/timeline";
+
+function transformTimelineFromApi(timeline: TimelineState): TimelineState {
+	return {
+		...timeline,
+		tracks: timeline.tracks.map((track) => ({
+			...track,
+			clips: track.clips.map((clip) => {
+				const props = clip.properties as unknown as Record<string, unknown>;
+				const isAlreadyNested = props && typeof props.position === "object";
+
+				if (isAlreadyNested) {
+					return clip;
+				}
+
+				const nestedProps = flatPropertiesToNested(props, clip.type);
+
+				if (clip.type === "audio") {
+					return {
+						...clip,
+						properties: nestedProps as unknown as AudioClipProperties,
+					};
+				}
+
+				return {
+					...clip,
+					properties: nestedProps as unknown as VideoClipProperties,
+				};
+			}),
+		})) as Track[],
+	};
+}
 
 interface MatchResponse {
 	match: Match;
@@ -195,8 +227,74 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 		mainLayoutRef.current?.addRemoteClip(trackId, clip);
 	}, []);
 
+	const handleRemoteClipUpdated = useCallback(
+		(trackId: string, clipId: string, updates: Partial<ClipData>, updatedBy: { userId: string; username: string }) => {
+			mainLayoutRef.current?.updateRemoteClip(trackId, clipId, updates as Partial<Clip>);
+		},
+		[]
+	);
+
 	const handleRemoteClipRemoved = useCallback((trackId: string, clipId: string, removedBy: { userId: string; username: string }) => {
 		mainLayoutRef.current?.removeRemoteClip(trackId, clipId);
+	}, []);
+
+	const handleRemoteClipSplit = useCallback(
+		(trackId: string, originalClipData: ClipData, newClipData: ClipData, splitBy: { userId: string; username: string }) => {
+			const convertClip = (clipData: ClipData): Clip => {
+				if (clipData.type === "video") {
+					return {
+						...clipData,
+						type: "video",
+						properties: clipData.properties as unknown as VideoClip["properties"],
+					} as VideoClip;
+				} else if (clipData.type === "image") {
+					return {
+						...clipData,
+						type: "image",
+						properties: clipData.properties as unknown as ImageClip["properties"],
+					} as ImageClip;
+				} else {
+					return {
+						...clipData,
+						type: "audio",
+						properties: clipData.properties as unknown as AudioClip["properties"],
+					} as AudioClip;
+				}
+			};
+
+			const originalClip = convertClip(originalClipData);
+			const newClip = convertClip(newClipData);
+
+			mainLayoutRef.current?.splitRemoteClip(trackId, originalClip, newClip);
+		},
+		[]
+	);
+
+	const handleZoneClipsReceived = useCallback((startTime: number, endTime: number, clips: Array<{ trackId: string; clip: ClipData }>) => {
+		const convertedClips: Array<{ trackId: string; clip: Clip }> = clips.map(({ trackId, clip }) => {
+			const convertedClip: Clip =
+				clip.type === "video"
+					? ({
+							...clip,
+							type: "video",
+							properties: clip.properties as unknown as VideoClip["properties"],
+					  } as VideoClip)
+					: clip.type === "image"
+					? ({
+							...clip,
+							type: "image",
+							properties: clip.properties as unknown as ImageClip["properties"],
+					  } as ImageClip)
+					: ({
+							...clip,
+							type: "audio",
+							properties: clip.properties as unknown as AudioClip["properties"],
+					  } as AudioClip);
+
+			return { trackId, clip: convertedClip };
+		});
+
+		mainLayoutRef.current?.syncZoneClips(convertedClips);
 	}, []);
 
 	const handlePlayerJoined = useCallback((player: { username: string }) => {
@@ -277,7 +375,10 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 			highlightColor={highlightColor}
 			onRemoteMediaUploaded={handleRemoteMediaUploaded}
 			onRemoteClipAdded={handleRemoteClipAdded}
+			onRemoteClipUpdated={handleRemoteClipUpdated}
 			onRemoteClipRemoved={handleRemoteClipRemoved}
+			onRemoteClipSplit={handleRemoteClipSplit}
+			onZoneClipsReceived={handleZoneClipsReceived}
 			onPlayerJoined={handlePlayerJoined}
 			onPlayerLeft={handlePlayerLeft}
 			onConnectionFailed={handleConnectionFailed}
@@ -290,7 +391,7 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 				localTimeRemaining={localTimeRemaining}
 				mainLayoutRef={mainLayoutRef}
 				maxClipsPerUser={maxClipsPerUser}
-				initialTimeline={match?.timeline}
+				initialTimeline={match?.timeline ? transformTimelineFromApi(match.timeline) : undefined}
 			/>
 		</MatchWS>
 	);
@@ -320,6 +421,10 @@ function MatchContent({
 	const initialLoadDoneRef = useRef(false);
 	const loadRetryCountRef = useRef(0);
 	const MAX_LOAD_RETRIES = 5;
+
+	const ZONE_SIZE = 5; // size of each zone
+	const ZONE_PREFETCH = 1; // how early to start fetching next zone
+	const lastZoneRef = useRef<{ startTime: number; endTime: number } | null>(null);
 
 	const loadTimeline = useCallback(() => {
 		if (initialLoadDoneRef.current) return;
@@ -357,9 +462,23 @@ function MatchContent({
 		[ws]
 	);
 
+	const handleClipUpdated = useCallback(
+		(trackId: string, clip: Clip) => {
+			ws?.broadcastClipUpdated(trackId, clip);
+		},
+		[ws]
+	);
+
 	const handleClipRemoved = useCallback(
 		(trackId: string, clipId: string) => {
 			ws?.broadcastClipRemoved(trackId, clipId);
+		},
+		[ws]
+	);
+
+	const handleClipSplit = useCallback(
+		(trackId: string, originalClip: Clip, newClip: Clip) => {
+			ws?.broadcastClipSplit(trackId, originalClip, newClip);
 		},
 		[ws]
 	);
@@ -370,6 +489,39 @@ function MatchContent({
 		},
 		[ws]
 	);
+
+	const handleCurrentTimeChange = useCallback(
+		(time: number) => {
+			if (!ws?.subscribeToZone) return;
+
+			const zoneIndex = Math.floor(time / ZONE_SIZE);
+			const zoneStart = zoneIndex * ZONE_SIZE;
+			const zoneEnd = zoneStart + ZONE_SIZE;
+
+			const lastZone = lastZoneRef.current;
+			const needsNewZone =
+				!lastZone ||
+				zoneStart !== lastZone.startTime || // different zone
+				time >= lastZone.endTime - ZONE_PREFETCH; // approaching end of current zone
+
+			if (needsNewZone) {
+				const newZoneStart = zoneStart;
+				const newZoneEnd = zoneEnd + ZONE_SIZE; // include next zone
+
+				lastZoneRef.current = { startTime: newZoneStart, endTime: newZoneEnd };
+				ws.subscribeToZone(newZoneStart, newZoneEnd);
+			}
+		},
+		[ws]
+	);
+
+	useEffect(() => {
+		if (ws?.status === "connected" && ws.subscribeToZone) {
+			const initialZoneEnd = ZONE_SIZE * 2;
+			lastZoneRef.current = { startTime: 0, endTime: initialZoneEnd };
+			ws.subscribeToZone(0, initialZoneEnd);
+		}
+	}, [ws?.status, ws?.subscribeToZone]);
 
 	return (
 		<div className="h-screen flex flex-col relative">
@@ -384,9 +536,12 @@ function MatchContent({
 				showEffects={showEffects}
 				maxClipsPerUser={maxClipsPerUser}
 				onClipAdded={handleClipAdded}
+				onClipUpdated={handleClipUpdated}
 				onClipRemoved={handleClipRemoved}
+				onClipSplit={handleClipSplit}
 				onSelectionChange={handleSelectionChange}
 				remoteSelections={ws?.remoteSelections}
+				onCurrentTimeChange={handleCurrentTimeChange}
 			/>
 
 			{isFailed && (

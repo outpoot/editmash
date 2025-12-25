@@ -33,7 +33,14 @@ const initialTimelineState: TimelineState = {
 	],
 };
 
-function placeClipOnTimeline(clip: Clip, trackId: string, state: TimelineState): TimelineState {
+interface PlacementResult {
+	state: TimelineState;
+	removedClips: Array<{ trackId: string; clipId: string }>;
+	updatedClips: Array<{ trackId: string; clip: Clip }>;
+	addedClips: Array<{ trackId: string; clip: Clip }>;
+}
+
+function placeClipOnTimeline(clip: Clip, trackId: string, state: TimelineState): PlacementResult {
 	const newState = {
 		...state,
 		tracks: state.tracks.map((t) => ({
@@ -42,7 +49,11 @@ function placeClipOnTimeline(clip: Clip, trackId: string, state: TimelineState):
 		})),
 	};
 	const track = newState.tracks.find((t) => t.id === trackId);
-	if (!track) return state;
+	if (!track) return { state, removedClips: [], updatedClips: [], addedClips: [] };
+
+	const removedClips: Array<{ trackId: string; clipId: string }> = [];
+	const updatedClips: Array<{ trackId: string; clip: Clip }> = [];
+	const addedClips: Array<{ trackId: string; clip: Clip }> = [];
 
 	const clipEnd = clip.startTime + clip.duration;
 	const otherClips = track.clips.filter((c) => c.id !== clip.id);
@@ -56,7 +67,7 @@ function placeClipOnTimeline(clip: Clip, trackId: string, state: TimelineState):
 
 	if (overlaps.length === 0) {
 		// no overlaps - just place the clip
-		return newState;
+		return { state: newState, removedClips, updatedClips, addedClips };
 	}
 
 	for (const overlappingClip of overlaps) {
@@ -67,6 +78,7 @@ function placeClipOnTimeline(clip: Clip, trackId: string, state: TimelineState):
 		if (clip.startTime <= overlapStart && clipEnd >= overlapEnd) {
 			const trackIndex = newState.tracks.findIndex((t) => t.id === trackId);
 			newState.tracks[trackIndex].clips = newState.tracks[trackIndex].clips.filter((c) => c.id !== overlappingClip.id);
+			removedClips.push({ trackId, clipId: overlappingClip.id });
 		}
 		// case 2: new clip is in the middle of overlapping clip - split it
 		else if (clip.startTime > overlapStart && clipEnd < overlapEnd) {
@@ -94,6 +106,8 @@ function placeClipOnTimeline(clip: Clip, trackId: string, state: TimelineState):
 			// Replace original with left part and add right part
 			newState.tracks[trackIndex].clips[clipIndex] = leftPart;
 			newState.tracks[trackIndex].clips.push(rightPart);
+			updatedClips.push({ trackId, clip: leftPart });
+			addedClips.push({ trackId, clip: rightPart });
 		}
 		// case 3: new clip overlaps the start - trim overlapping clip from start
 		else if (clip.startTime <= overlapStart && clipEnd > overlapStart && clipEnd < overlapEnd) {
@@ -109,6 +123,7 @@ function placeClipOnTimeline(clip: Clip, trackId: string, state: TimelineState):
 			trimmed.sourceIn = overlappingClip.sourceIn + sourceOffset;
 
 			newState.tracks[trackIndex].clips[clipIndex] = trimmed;
+			updatedClips.push({ trackId, clip: trimmed });
 		}
 		// case 4: new clip overlaps the end - trim overlapping clip from end
 		else if (clip.startTime > overlapStart && clip.startTime < overlapEnd && clipEnd >= overlapEnd) {
@@ -119,10 +134,11 @@ function placeClipOnTimeline(clip: Clip, trackId: string, state: TimelineState):
 			trimmed.duration = clip.startTime - overlapStart;
 
 			newState.tracks[trackIndex].clips[clipIndex] = trimmed;
+			updatedClips.push({ trackId, clip: trimmed });
 		}
 	}
 
-	return newState;
+	return { state: newState, removedClips, updatedClips, addedClips };
 }
 
 interface TimelineProps {
@@ -135,15 +151,20 @@ interface TimelineProps {
 	onTimelineStateChange: (state: TimelineState) => void;
 	onTransformModeChange?: (mode: "transform" | "crop" | null) => void;
 	onClipAdded?: (trackId: string, clip: Clip) => void;
+	onClipUpdated?: (trackId: string, clip: Clip) => void;
 	onClipRemoved?: (trackId: string, clipId: string) => void;
+	onClipSplit?: (trackId: string, originalClip: Clip, newClip: Clip) => void;
 	remoteSelections?: Map<string, RemoteSelection>;
 }
 
 export interface TimelineRef {
 	updateClip: (trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<ImageClip> | Partial<AudioClip>) => void;
+	updateRemoteClip: (trackId: string, clipId: string, updates: Partial<Clip>) => void;
 	loadTimeline: (state: TimelineState) => void;
 	addRemoteClip: (trackId: string, clip: Clip) => void;
 	removeRemoteClip: (trackId: string, clipId: string) => void;
+	splitRemoteClip: (trackId: string, originalClip: Clip, newClip: Clip) => void;
+	syncZoneClips: (clips: Array<{ trackId: string; clip: Clip }>) => void;
 	getState: () => TimelineState;
 }
 
@@ -159,7 +180,9 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			onTimelineStateChange,
 			onTransformModeChange,
 			onClipAdded,
+			onClipUpdated,
 			onClipRemoved,
+			onClipSplit,
 			remoteSelections,
 		},
 		ref
@@ -321,7 +344,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						if (existingClip) return prev;
 
 						newState.tracks[trackIndex].clips.push(clip);
-						return placeClipOnTimeline(clip, trackId, newState);
+						return placeClipOnTimeline(clip, trackId, newState).state;
 					});
 
 					if ((clip.type === "video" || clip.type === "image") && !clip.thumbnail && clip.src) {
@@ -368,10 +391,20 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				},
 				removeRemoteClip: (trackId: string, clipId: string) => {
 					setTimelineState((prev) => {
-						const newState = {
+						let foundTrackId: string | null = null;
+						for (const track of prev.tracks) {
+							if (track.clips.some((c) => c.id === clipId)) {
+								foundTrackId = track.id;
+								break;
+							}
+						}
+
+						if (!foundTrackId) return prev;
+
+						return {
 							...prev,
 							tracks: prev.tracks.map((t) =>
-								t.id === trackId
+								t.id === foundTrackId
 									? {
 											...t,
 											clips: t.clips.filter((c) => c.id !== clipId),
@@ -379,8 +412,250 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 									: t
 							),
 						};
+					});
+				},
+				updateRemoteClip: (trackId: string, clipId: string, updates: Partial<Clip>) => {
+					setTimelineState((prev) => {
+						const targetTrack = prev.tracks.find((t) => t.id === trackId);
+						const clipInTargetTrack = targetTrack?.clips.find((c) => c.id === clipId);
+
+						let intermediateState: TimelineState;
+						let updatedClip: Clip;
+
+						if (clipInTargetTrack) {
+							updatedClip = {
+								...clipInTargetTrack,
+								...updates,
+								thumbnail: updates.thumbnail || clipInTargetTrack.thumbnail,
+							} as Clip;
+
+							intermediateState = {
+								...prev,
+								tracks: prev.tracks.map((t) =>
+									t.id === trackId
+										? {
+												...t,
+												clips: t.clips.map((c) => (c.id === clipId ? updatedClip : c)),
+										  }
+										: t
+								),
+							};
+						} else {
+							let sourceTrackId: string | null = null;
+							let originalClip: Clip | null = null;
+
+							for (const track of prev.tracks) {
+								const found = track.clips.find((c) => c.id === clipId);
+								if (found) {
+									sourceTrackId = track.id;
+									originalClip = found;
+									break;
+								}
+							}
+
+							if (!sourceTrackId || !originalClip) {
+								return prev;
+							}
+
+							updatedClip = {
+								...originalClip,
+								...updates,
+								thumbnail: updates.thumbnail || originalClip.thumbnail,
+							} as Clip;
+
+							intermediateState = {
+								...prev,
+								tracks: prev.tracks.map((t) => {
+									if (t.id === sourceTrackId) {
+										return {
+											...t,
+											clips: t.clips.filter((c) => c.id !== clipId),
+										};
+									}
+									if (t.id === trackId) {
+										return {
+											...t,
+											clips: [...t.clips, updatedClip],
+										};
+									}
+									return t;
+								}),
+							};
+						}
+
+						const result = placeClipOnTimeline(updatedClip, trackId, intermediateState);
+						return result.state;
+					});
+				},
+				syncZoneClips: (clips: Array<{ trackId: string; clip: Clip }>) => {
+					setTimelineState((prev) => {
+						let newState = {
+							...prev,
+							tracks: prev.tracks.map((t) => ({
+								...t,
+								clips: [...t.clips],
+							})),
+						};
+
+						for (const { trackId, clip } of clips) {
+							const trackIndex = newState.tracks.findIndex((t) => t.id === trackId);
+							if (trackIndex === -1) continue;
+
+							const existingClipIndex = newState.tracks[trackIndex].clips.findIndex((c) => c.id === clip.id);
+							if (existingClipIndex !== -1) {
+								const existingClip = newState.tracks[trackIndex].clips[existingClipIndex];
+								newState.tracks[trackIndex].clips[existingClipIndex] = {
+									...clip,
+									thumbnail: clip.thumbnail || existingClip.thumbnail,
+								} as Clip;
+							} else {
+								let foundInOtherTrack = false;
+								for (let i = 0; i < newState.tracks.length; i++) {
+									if (i === trackIndex) continue;
+									const otherClipIndex = newState.tracks[i].clips.findIndex((c) => c.id === clip.id);
+									if (otherClipIndex !== -1) {
+										const existingClip = newState.tracks[i].clips[otherClipIndex];
+										newState.tracks[i].clips.splice(otherClipIndex, 1);
+										const mergedClip = {
+											...clip,
+											thumbnail: clip.thumbnail || existingClip.thumbnail,
+										} as Clip;
+										newState.tracks[trackIndex].clips.push(mergedClip);
+										newState = placeClipOnTimeline(mergedClip, trackId, newState).state;
+										foundInOtherTrack = true;
+										break;
+									}
+								}
+
+								if (!foundInOtherTrack) {
+									newState.tracks[trackIndex].clips.push(clip);
+									newState = placeClipOnTimeline(clip, trackId, newState).state;
+								}
+							}
+						}
+
 						return newState;
 					});
+
+					for (const { trackId, clip } of clips) {
+						if ((clip.type === "video" || clip.type === "image") && !clip.thumbnail && clip.src) {
+							if (clip.type === "video") {
+								const video = document.createElement("video");
+								video.crossOrigin = "anonymous";
+								video.preload = "metadata";
+								video.src = clip.src;
+								video.currentTime = 0.1;
+								video.onseeked = () => {
+									const thumbnail = generateThumbnail(video, video.videoWidth, video.videoHeight);
+									if (thumbnail) {
+										setTimelineState((prev) => ({
+											...prev,
+											tracks: prev.tracks.map((t) => ({
+												...t,
+												clips: t.clips.map((c) => (c.id === clip.id ? { ...c, thumbnail } : c)),
+											})),
+										}));
+									}
+									video.src = "";
+								};
+								video.onerror = () => {
+									video.src = "";
+								};
+							} else {
+								const img = new Image();
+								img.crossOrigin = "anonymous";
+								img.src = clip.src;
+								img.onload = () => {
+									const thumbnail = generateThumbnail(img, img.naturalWidth, img.naturalHeight);
+									if (thumbnail) {
+										setTimelineState((prev) => ({
+											...prev,
+											tracks: prev.tracks.map((t) => ({
+												...t,
+												clips: t.clips.map((c) => (c.id === clip.id ? { ...c, thumbnail } : c)),
+											})),
+										}));
+									}
+								};
+							}
+						}
+					}
+				},
+				splitRemoteClip: (trackId: string, originalClip: Clip, newClip: Clip) => {
+					setTimelineState((prev) => {
+						let newState = {
+							...prev,
+							tracks: prev.tracks.map((t) =>
+								t.id === trackId
+									? {
+											...t,
+											clips: t.clips.map((c) => {
+												if (c.id === originalClip.id) {
+													return {
+														...originalClip,
+														thumbnail: originalClip.thumbnail || c.thumbnail,
+													} as Clip;
+												}
+												return c;
+											}),
+									  }
+									: t
+							),
+						};
+
+						const trackIndex = newState.tracks.findIndex((t) => t.id === trackId);
+						if (trackIndex !== -1) {
+							const existingNewClip = newState.tracks[trackIndex].clips.find((c) => c.id === newClip.id);
+							if (!existingNewClip) {
+								newState.tracks[trackIndex].clips.push(newClip);
+								newState = placeClipOnTimeline(newClip, trackId, newState).state;
+							}
+						}
+
+						return newState;
+					});
+
+					if ((newClip.type === "video" || newClip.type === "image") && !newClip.thumbnail && newClip.src) {
+						if (newClip.type === "video") {
+							const video = document.createElement("video");
+							video.crossOrigin = "anonymous";
+							video.preload = "metadata";
+							video.src = newClip.src;
+							video.currentTime = 0.1;
+							video.onseeked = () => {
+								const thumbnail = generateThumbnail(video, video.videoWidth, video.videoHeight);
+								if (thumbnail) {
+									setTimelineState((prev) => ({
+										...prev,
+										tracks: prev.tracks.map((t) => ({
+											...t,
+											clips: t.clips.map((c) => (c.id === newClip.id ? { ...c, thumbnail } : c)),
+										})),
+									}));
+								}
+								video.src = "";
+							};
+							video.onerror = () => {
+								video.src = "";
+							};
+						} else {
+							const img = new Image();
+							img.crossOrigin = "anonymous";
+							img.src = newClip.src;
+							img.onload = () => {
+								const thumbnail = generateThumbnail(img, img.naturalWidth, img.naturalHeight);
+								if (thumbnail) {
+									setTimelineState((prev) => ({
+										...prev,
+										tracks: prev.tracks.map((t) => ({
+											...t,
+											clips: t.clips.map((c) => (c.id === newClip.id ? { ...c, thumbnail } : c)),
+										})),
+									}));
+								}
+							};
+						}
+					}
 				},
 				getState: () => timelineState,
 			}),
@@ -569,7 +844,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		);
 
 		// clip placement on drop
-		const handleClipPlacement = useCallback((clip: Clip, trackId: string, state: TimelineState): TimelineState => {
+		const handleClipPlacement = useCallback((clip: Clip, trackId: string, state: TimelineState): PlacementResult => {
 			return placeClipOnTimeline(clip, trackId, state);
 		}, []);
 
@@ -655,7 +930,12 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 									const targetTrackIndex = newState.tracks.findIndex((t) => t.id === currentTrackId);
 									const targetTrack = newState.tracks[targetTrackIndex];
 
-									if (targetTrack && targetTrack.type === clip.type) {
+									const isCompatible =
+										targetTrack &&
+										((targetTrack.type === "video" && (clip.type === "video" || clip.type === "image")) ||
+											(targetTrack.type === "audio" && clip.type === "audio"));
+
+									if (isCompatible) {
 										newState.tracks[sourceTrackIndex].clips = newState.tracks[sourceTrackIndex].clips.filter(
 											(c) => c.id !== latestDragState.clipId
 										);
@@ -715,12 +995,55 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				if (currentDragState && currentDragState.hasMoved) {
 					updateTimelineState((prev) => {
 						if (currentDragState.type === "move") {
-							const track = prev.tracks.find((t) => t.id === currentDragState.trackId);
-							const clip = track?.clips.find((c) => c.id === currentDragState.clipId);
+							let actualTrackId = currentDragState.trackId;
+							let clip: Clip | undefined;
+
+							for (const track of prev.tracks) {
+								const foundClip = track.clips.find((c) => c.id === currentDragState.clipId);
+								if (foundClip) {
+									clip = foundClip;
+									actualTrackId = track.id;
+									break;
+								}
+							}
 
 							if (!clip) return prev;
 
-							return handleClipPlacement(clip, currentDragState.trackId, prev);
+							onClipUpdated?.(actualTrackId, clip);
+
+							const result = handleClipPlacement(clip, actualTrackId, prev);
+
+							for (const { trackId, clipId } of result.removedClips) {
+								onClipRemoved?.(trackId, clipId);
+							}
+							for (const { trackId, clip: updatedClip } of result.updatedClips) {
+								onClipUpdated?.(trackId, updatedClip);
+							}
+							for (const { trackId, clip: addedClip } of result.addedClips) {
+								onClipAdded?.(trackId, addedClip);
+							}
+
+							return result.state;
+						} else if (currentDragState.type === "trim-start" || currentDragState.type === "trim-end") {
+							const track = prev.tracks.find((t) => t.id === currentDragState.trackId);
+							const clip = track?.clips.find((c) => c.id === currentDragState.clipId);
+							if (clip) {
+								onClipUpdated?.(currentDragState.trackId, clip);
+
+								const result = handleClipPlacement(clip, currentDragState.trackId, prev);
+
+								for (const { trackId, clipId } of result.removedClips) {
+									onClipRemoved?.(trackId, clipId);
+								}
+								for (const { trackId, clip: updatedClip } of result.updatedClips) {
+									onClipUpdated?.(trackId, updatedClip);
+								}
+								for (const { trackId, clip: addedClip } of result.addedClips) {
+									onClipAdded?.(trackId, addedClip);
+								}
+
+								return result.state;
+							}
 						}
 						return prev;
 					});
@@ -740,7 +1063,16 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				window.removeEventListener("mousemove", handleMouseMove);
 				window.removeEventListener("mouseup", handleMouseUp);
 			};
-		}, [!!dragState, pixelsPerSecond, calculateSnappedTime, handleClipPlacement, updateTimelineState]);
+		}, [
+			!!dragState,
+			pixelsPerSecond,
+			calculateSnappedTime,
+			handleClipPlacement,
+			updateTimelineState,
+			onClipUpdated,
+			onClipRemoved,
+			onClipAdded,
+		]);
 
 		const timelineStateRef = useRef(timelineState);
 		timelineStateRef.current = timelineState;
@@ -980,7 +1312,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					const trackIndex = newState.tracks.findIndex((t) => t.id === trackId);
 					if (trackIndex !== -1) {
 						newState.tracks[trackIndex].clips.push(newClip);
-						newState = handleClipPlacement(newClip, trackId, newState);
+						newState = handleClipPlacement(newClip, trackId, newState).state;
 						newClipIds.push({ clipId: newClip.id, trackId });
 					}
 				});
@@ -1269,7 +1601,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 
 						newState.tracks[trackIndex].clips.push(newClip);
 
-						return handleClipPlacement(newClip, trackId, newState);
+						return handleClipPlacement(newClip, trackId, newState).state;
 					});
 
 					onClipAdded?.(trackId, newClip);
@@ -1302,6 +1634,9 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				const frameTime = 1 / fps;
 				const clickTime = Math.round(mouseTime / frameTime) * frameTime;
 
+				let leftPartResult: Clip | null = null;
+				let rightPartResult: Clip | null = null;
+
 				updateTimelineState((prev) => {
 					const newState = {
 						...prev,
@@ -1333,7 +1668,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						return prev;
 					}
 
-					const leftPart = {
+					const leftPart: Clip = {
 						...clipToSplit,
 						duration: clickTime - clipToSplit.startTime,
 					};
@@ -1352,14 +1687,21 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						sourceIn: clipToSplit.sourceIn + sourceOffset,
 					};
 
+					leftPartResult = leftPart;
+					rightPartResult = rightPart;
+
 					// replace original with left part and add right part
 					newState.tracks[trackIndex].clips[clipIndex] = leftPart;
 					newState.tracks[trackIndex].clips.push(rightPart);
 
 					return newState;
 				});
+
+				if (leftPartResult && rightPartResult) {
+					onClipSplit?.(trackId, leftPartResult, rightPartResult);
+				}
 			},
-			[toolMode, pixelsPerSecond, updateTimelineState]
+			[toolMode, pixelsPerSecond, updateTimelineState, onClipSplit]
 		);
 
 		useEffect(() => {

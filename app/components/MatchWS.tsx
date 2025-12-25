@@ -11,19 +11,23 @@ import {
 	isClipAddedMessage,
 	isClipUpdatedMessage,
 	isClipRemovedMessage,
+	isClipSplitMessage,
 	isPlayerJoinedMessage,
 	isPlayerLeftMessage,
 	isPlayerCountMessage,
 	isMatchStatusMessage,
 	isRequestTimelineSyncMessage,
 	isClipSelectionMessage,
+	isZoneClipsMessage,
 	createMediaUploadedMessage,
 	createMediaRemovedMessage,
 	createClipAddedMessage,
 	createClipUpdatedMessage,
 	createClipRemovedMessage,
+	createClipSplitMessage,
 	createTimelineSyncMessage,
 	createClipSelectionMessage,
+	createZoneSubscribeMessage,
 	createClipDataProto,
 	createTrackProto,
 	createTimelineDataProto,
@@ -31,6 +35,7 @@ import {
 	type ClipData,
 	type TimelineData,
 	type MediaData,
+	type Track,
 } from "@/websocket/types";
 import type { Clip } from "@/app/types/timeline";
 
@@ -51,8 +56,9 @@ function buildTimelineProto(timeline: TimelineData) {
 			createTrackProto({
 				id: track.id,
 				type: track.type,
-				clips: track.clips.map((clip) =>
-					createClipDataProto({
+				clips: track.clips.map((clip) => {
+					const flatProps = nestedPropertiesToFlat(clip.properties, clip.type);
+					return createClipDataProto({
 						id: clip.id,
 						type: clip.type,
 						name: clip.name,
@@ -62,9 +68,9 @@ function buildTimelineProto(timeline: TimelineData) {
 						sourceIn: clip.sourceIn,
 						sourceDuration: clip.sourceDuration,
 						thumbnail: clip.thumbnail,
-						properties: clip.properties,
-					})
-				),
+						properties: flatProps,
+					});
+				}),
 			})
 		),
 	});
@@ -78,10 +84,13 @@ interface MatchWebSocketContextValue {
 	broadcastMediaUploaded: (media: MediaItem) => void;
 	broadcastMediaRemoved: (mediaId: string) => void;
 	broadcastClipAdded: (trackId: string, clip: Clip) => void;
-	broadcastClipUpdated: (trackId: string, clipId: string, updates: Partial<Clip>) => void;
+	broadcastClipUpdated: (trackId: string, clip: Clip) => void;
 	broadcastClipRemoved: (trackId: string, clipId: string) => void;
+	broadcastClipSplit: (trackId: string, originalClip: Clip, newClip: Clip) => void;
 	broadcastClipSelection: (selectedClips: Array<{ clipId: string; trackId: string }>) => void;
 	sendTimelineSync: (timeline: TimelineData) => void;
+	subscribeToZone: (startTime: number, endTime: number) => void;
+	currentZone: { startTime: number; endTime: number } | null;
 }
 
 const MatchWebSocketContext = createContext<MatchWebSocketContextValue | null>(null);
@@ -102,6 +111,13 @@ interface MatchWebSocketProviderProps {
 		updatedBy: { userId: string; username: string }
 	) => void;
 	onRemoteClipRemoved?: (trackId: string, clipId: string, removedBy: { userId: string; username: string }) => void;
+	onRemoteClipSplit?: (
+		trackId: string,
+		originalClip: ClipData,
+		newClip: ClipData,
+		splitBy: { userId: string; username: string }
+	) => void;
+	onZoneClipsReceived?: (startTime: number, endTime: number, clips: Array<{ trackId: string; clip: ClipData }>) => void;
 	onPlayerJoined?: (player: { userId: string; username: string }) => void;
 	onPlayerLeft?: (userId: string) => void;
 	onConnectionFailed?: () => void;
@@ -122,10 +138,126 @@ function mediaTypeToString(type: MediaType): "video" | "audio" | "image" {
 	}
 }
 
+export function flatPropertiesToNested(
+	flat: Record<string, unknown> | undefined,
+	clipType: "video" | "audio" | "image"
+): Record<string, unknown> {
+	if (!flat) return {};
+
+	if (clipType === "audio") {
+		return {
+			volume: flat.volume ?? 1,
+			pan: flat.pan ?? 0,
+			pitch: flat.pitch ?? 0,
+			speed: flat.speed ?? 1,
+		};
+	}
+
+	return {
+		position: {
+			x: flat.x ?? 0,
+			y: flat.y ?? 0,
+		},
+		size: {
+			width: flat.width ?? 1920,
+			height: flat.height ?? 1080,
+		},
+		zoom: {
+			x: flat.zoomX ?? 1,
+			y: flat.zoomY ?? 1,
+			linked: flat.zoomLinked ?? true,
+		},
+		rotation: flat.rotation ?? 0,
+		flip: {
+			horizontal: flat.flipX ?? false,
+			vertical: flat.flipY ?? false,
+		},
+		crop: {
+			left: flat.cropLeft ?? 0,
+			right: flat.cropRight ?? 0,
+			top: flat.cropTop ?? 0,
+			bottom: flat.cropBottom ?? 0,
+		},
+		speed: flat.speed ?? 1,
+		freezeFrame: flat.freezeFrame ?? false,
+		freezeFrameTime: flat.freezeFrameTime ?? 0,
+	};
+}
+
+export function nestedPropertiesToFlat(
+	nested: Record<string, unknown> | undefined,
+	clipType: "video" | "audio" | "image"
+): Record<string, unknown> {
+	if (!nested) return {};
+
+	if (clipType === "audio") {
+		return {
+			volume: nested.volume ?? 1,
+			pan: nested.pan ?? 0,
+			pitch: nested.pitch ?? 0,
+			speed: nested.speed ?? 1,
+		};
+	}
+
+	const position = (nested.position as { x?: number; y?: number }) ?? {};
+	const size = (nested.size as { width?: number; height?: number }) ?? {};
+	const zoom = (nested.zoom as { x?: number; y?: number; linked?: boolean }) ?? {};
+	const flip = (nested.flip as { horizontal?: boolean; vertical?: boolean }) ?? {};
+	const crop = (nested.crop as { left?: number; right?: number; top?: number; bottom?: number }) ?? {};
+
+	return {
+		x: position.x ?? 0,
+		y: position.y ?? 0,
+		width: size.width ?? 1920,
+		height: size.height ?? 1080,
+		zoomX: zoom.x ?? 1,
+		zoomY: zoom.y ?? 1,
+		zoomLinked: zoom.linked ?? true,
+		rotation: nested.rotation ?? 0,
+		flipX: flip.horizontal ?? false,
+		flipY: flip.vertical ?? false,
+		cropLeft: crop.left ?? 0,
+		cropRight: crop.right ?? 0,
+		cropTop: crop.top ?? 0,
+		cropBottom: crop.bottom ?? 0,
+		speed: nested.speed ?? 1,
+		freezeFrame: nested.freezeFrame ?? false,
+		freezeFrameTime: nested.freezeFrameTime ?? 0,
+	};
+}
+
 function clipDataFromProto(clip: ClipDataProto): ClipData {
+	const clipType = mediaTypeToString(clip.type);
+	const flatProps = clip.properties
+		? {
+				x: clip.properties.x,
+				y: clip.properties.y,
+				width: clip.properties.width,
+				height: clip.properties.height,
+				opacity: clip.properties.opacity,
+				rotation: clip.properties.rotation,
+				scale: clip.properties.scale,
+				speed: clip.properties.speed,
+				flipX: clip.properties.flipX,
+				flipY: clip.properties.flipY,
+				zoomX: clip.properties.zoomX,
+				zoomY: clip.properties.zoomY,
+				zoomLinked: clip.properties.zoomLinked,
+				freezeFrame: clip.properties.freezeFrame,
+				freezeFrameTime: clip.properties.freezeFrameTime,
+				volume: clip.properties.volume,
+				pan: clip.properties.pan,
+				pitch: clip.properties.pitch,
+				cropTop: clip.properties.cropTop,
+				cropBottom: clip.properties.cropBottom,
+				cropLeft: clip.properties.cropLeft,
+				cropRight: clip.properties.cropRight,
+		  }
+		: undefined;
+
 	return {
 		id: clip.id,
-		type: mediaTypeToString(clip.type),
+		type: clipType,
 		name: clip.name,
 		src: clip.src,
 		startTime: clip.startTime,
@@ -133,25 +265,7 @@ function clipDataFromProto(clip: ClipDataProto): ClipData {
 		sourceIn: clip.sourceIn,
 		sourceDuration: clip.sourceDuration,
 		thumbnail: clip.thumbnail,
-		properties: clip.properties
-			? {
-					x: clip.properties.x,
-					y: clip.properties.y,
-					width: clip.properties.width,
-					height: clip.properties.height,
-					opacity: clip.properties.opacity,
-					rotation: clip.properties.rotation,
-					scale: clip.properties.scale,
-					speed: clip.properties.speed,
-					flipX: clip.properties.flipX,
-					flipY: clip.properties.flipY,
-					volume: clip.properties.volume,
-					cropTop: clip.properties.cropTop,
-					cropBottom: clip.properties.cropBottom,
-					cropLeft: clip.properties.cropLeft,
-					cropRight: clip.properties.cropRight,
-			  }
-			: {},
+		properties: flatPropertiesToNested(flatProps, clipType),
 	};
 }
 
@@ -166,6 +280,8 @@ export function MatchWS({
 	onRemoteClipAdded,
 	onRemoteClipUpdated,
 	onRemoteClipRemoved,
+	onRemoteClipSplit,
+	onZoneClipsReceived,
 	onPlayerJoined,
 	onPlayerLeft,
 	onConnectionFailed,
@@ -175,6 +291,7 @@ export function MatchWS({
 	const [status, setStatus] = useState<ConnectionStatus>("disconnected");
 	const [playersOnline, setPlayersOnline] = useState(0);
 	const [remoteSelections, setRemoteSelections] = useState<Map<string, RemoteSelection>>(new Map());
+	const [currentZone, setCurrentZone] = useState<{ startTime: number; endTime: number } | null>(null);
 	const hasReceivedInitialCount = useRef(false);
 
 	const callbacksRef = useRef({
@@ -182,6 +299,8 @@ export function MatchWS({
 		onRemoteClipAdded,
 		onRemoteClipUpdated,
 		onRemoteClipRemoved,
+		onRemoteClipSplit,
+		onZoneClipsReceived,
 		onPlayerJoined,
 		onPlayerLeft,
 		onConnectionFailed,
@@ -193,6 +312,8 @@ export function MatchWS({
 		onRemoteClipAdded,
 		onRemoteClipUpdated,
 		onRemoteClipRemoved,
+		onRemoteClipSplit,
+		onZoneClipsReceived,
 		onPlayerJoined,
 		onPlayerLeft,
 		onConnectionFailed,
@@ -291,6 +412,19 @@ export function MatchWS({
 				return;
 			}
 
+			if (isClipSplitMessage(message) && message.payload.case === "clipSplit") {
+				const { trackId, originalClip, newClip, splitBy } = message.payload.value;
+				if (originalClip && newClip && splitBy && splitBy.userId !== userId) {
+					callbacksRef.current.onRemoteClipSplit?.(
+						trackId,
+						clipDataFromProto(originalClip),
+						clipDataFromProto(newClip),
+						{ userId: splitBy.userId, username: splitBy.username }
+					);
+				}
+				return;
+			}
+
 			if (isPlayerJoinedMessage(message) && message.payload.case === "playerJoined") {
 				const { player } = message.payload.value;
 				if (player) {
@@ -365,6 +499,23 @@ export function MatchWS({
 				}
 				return;
 			}
+
+			if (isZoneClipsMessage(message) && message.payload.case === "zoneClips") {
+				const { startTime, endTime, tracks } = message.payload.value;
+				const clips: Array<{ trackId: string; clip: ClipData }> = [];
+
+				for (const track of tracks) {
+					for (const clip of track.clips) {
+						clips.push({
+							trackId: track.id,
+							clip: clipDataFromProto(clip),
+						});
+					}
+				}
+
+				callbacksRef.current.onZoneClipsReceived?.(startTime, endTime, clips);
+				return;
+			}
 		};
 
 		const handleStatus = (newStatus: ConnectionStatus) => {
@@ -401,6 +552,7 @@ export function MatchWS({
 
 	const broadcastClipAdded = useCallback((trackId: string, clip: Clip) => {
 		const { matchId, userId, username } = propsRef.current;
+		const flatProperties = nestedPropertiesToFlat(clip.properties as unknown as Record<string, unknown>, clip.type);
 		const clipData = createClipDataProto({
 			id: clip.id,
 			type: clip.type,
@@ -410,30 +562,62 @@ export function MatchWS({
 			duration: clip.duration,
 			sourceIn: clip.sourceIn,
 			sourceDuration: clip.sourceDuration,
-			properties: clip.properties as unknown as Record<string, unknown>,
+			properties: flatProperties,
 		});
 		sendMessage(matchId, userId, createClipAddedMessage(matchId, trackId, clipData, { userId, username }));
 	}, []);
 
-	const broadcastClipUpdated = useCallback((trackId: string, clipId: string, updates: Partial<Clip>) => {
+	const broadcastClipUpdated = useCallback((trackId: string, clip: Clip) => {
 		const { matchId, userId, username } = propsRef.current;
+		const flatProperties = nestedPropertiesToFlat(clip.properties as unknown as Record<string, unknown>, clip.type);
 		const updateData = createClipDataProto({
-			id: clipId,
-			type: (updates.type as "video" | "audio" | "image") ?? "video",
-			name: updates.name ?? "",
-			src: updates.src ?? "",
-			startTime: updates.startTime ?? 0,
-			duration: updates.duration ?? 0,
-			sourceIn: updates.sourceIn ?? 0,
-			sourceDuration: updates.sourceDuration ?? 0,
-			properties: updates.properties as unknown as Record<string, unknown>,
+			id: clip.id,
+			type: clip.type,
+			name: clip.name,
+			src: clip.src,
+			startTime: clip.startTime,
+			duration: clip.duration,
+			sourceIn: clip.sourceIn,
+			sourceDuration: clip.sourceDuration,
+			properties: flatProperties,
 		});
-		sendMessage(matchId, userId, createClipUpdatedMessage(matchId, trackId, clipId, updateData, { userId, username }));
+		sendMessage(matchId, userId, createClipUpdatedMessage(matchId, trackId, clip.id, updateData, { userId, username }));
 	}, []);
 
 	const broadcastClipRemoved = useCallback((trackId: string, clipId: string) => {
 		const { matchId, userId, username } = propsRef.current;
 		sendMessage(matchId, userId, createClipRemovedMessage(matchId, trackId, clipId, { userId, username }));
+	}, []);
+
+	const broadcastClipSplit = useCallback((trackId: string, originalClip: Clip, newClip: Clip) => {
+		const { matchId, userId, username } = propsRef.current;
+		const originalFlatProps = nestedPropertiesToFlat(originalClip.properties as unknown as Record<string, unknown>, originalClip.type);
+		const originalData = createClipDataProto({
+			id: originalClip.id,
+			type: originalClip.type,
+			name: originalClip.name,
+			src: originalClip.src,
+			startTime: originalClip.startTime,
+			duration: originalClip.duration,
+			sourceIn: originalClip.sourceIn,
+			sourceDuration: originalClip.sourceDuration,
+			properties: originalFlatProps,
+		});
+
+		const newFlatProps = nestedPropertiesToFlat(newClip.properties as unknown as Record<string, unknown>, newClip.type);
+		const newClipData = createClipDataProto({
+			id: newClip.id,
+			type: newClip.type,
+			name: newClip.name,
+			src: newClip.src,
+			startTime: newClip.startTime,
+			duration: newClip.duration,
+			sourceIn: newClip.sourceIn,
+			sourceDuration: newClip.sourceDuration,
+			properties: newFlatProps,
+		});
+
+		sendMessage(matchId, userId, createClipSplitMessage(matchId, trackId, originalData, newClipData, { userId, username }));
 	}, []);
 
 	const broadcastClipSelection = useCallback((selectedClips: Array<{ clipId: string; trackId: string }>) => {
@@ -446,6 +630,12 @@ export function MatchWS({
 		sendMessage(matchId, userId, createTimelineSyncMessage(matchId, buildTimelineProto(timeline)));
 	}, []);
 
+	const subscribeToZone = useCallback((startTime: number, endTime: number) => {
+		const { matchId, userId } = propsRef.current;
+		setCurrentZone({ startTime, endTime });
+		sendMessage(matchId, userId, createZoneSubscribeMessage(matchId, startTime, endTime));
+	}, []);
+
 	const value: MatchWebSocketContextValue = {
 		status,
 		playersOnline,
@@ -456,8 +646,11 @@ export function MatchWS({
 		broadcastClipAdded,
 		broadcastClipUpdated,
 		broadcastClipRemoved,
+		broadcastClipSplit,
 		broadcastClipSelection,
 		sendTimelineSync,
+		subscribeToZone,
+		currentZone,
 	};
 
 	return <MatchWebSocketContext.Provider value={value}>{children}</MatchWebSocketContext.Provider>;

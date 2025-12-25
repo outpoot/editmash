@@ -27,6 +27,8 @@ import {
 	ClipUpdatedPayloadSchema,
 	type ClipRemovedPayload,
 	ClipRemovedPayloadSchema,
+	type ClipSplitPayload,
+	ClipSplitPayloadSchema,
 	type RequestTimelineSyncPayload,
 	RequestTimelineSyncPayloadSchema,
 	type TimelineSyncPayload,
@@ -35,6 +37,10 @@ import {
 	ClipSelectionPayloadSchema,
 	type ClipSelectionInfo,
 	ClipSelectionInfoSchema,
+	type ZoneSubscribePayload,
+	ZoneSubscribePayloadSchema,
+	type ZoneClipsPayload,
+	ZoneClipsPayloadSchema,
 	type SubscribeLobbiesPayload,
 	SubscribeLobbiesPayloadSchema,
 	type UnsubscribeLobbiesPayload,
@@ -94,6 +100,8 @@ export {
 	type TimelineSyncPayload,
 	type ClipSelectionPayload,
 	type ClipSelectionInfo,
+	type ZoneSubscribePayload,
+	type ZoneClipsPayload,
 	type SubscribeLobbiesPayload,
 	type UnsubscribeLobbiesPayload,
 	type LobbiesUpdatePayload,
@@ -185,6 +193,10 @@ export function isClipRemovedMessage(msg: WSMessageProto): msg is WSMessageProto
 	return msg.type === MessageType.CLIP_REMOVED && msg.payload?.case === "clipRemoved";
 }
 
+export function isClipSplitMessage(msg: WSMessageProto): msg is WSMessageProto & { payload: { case: "clipSplit" } } {
+	return msg.type === MessageType.CLIP_SPLIT && msg.payload?.case === "clipSplit";
+}
+
 export function isTimelineSyncMessage(msg: WSMessageProto): msg is WSMessageProto & { payload: { case: "timelineSync" } } {
 	return msg.type === MessageType.TIMELINE_SYNC && msg.payload?.case === "timelineSync";
 }
@@ -235,6 +247,14 @@ export function isLobbiesUpdateMessage(msg: WSMessageProto): msg is WSMessagePro
 
 export function isClipSelectionMessage(msg: WSMessageProto): msg is WSMessageProto & { payload: { case: "clipSelection" } } {
 	return msg.type === MessageType.CLIP_SELECTION && msg.payload?.case === "clipSelection";
+}
+
+export function isZoneSubscribeMessage(msg: WSMessageProto): msg is WSMessageProto & { payload: { case: "zoneSubscribe" } } {
+	return msg.type === MessageType.ZONE_SUBSCRIBE && msg.payload?.case === "zoneSubscribe";
+}
+
+export function isZoneClipsMessage(msg: WSMessageProto): msg is WSMessageProto & { payload: { case: "zoneClips" } } {
+	return msg.type === MessageType.ZONE_CLIPS && msg.payload?.case === "zoneClips";
 }
 
 export function createJoinMatchMessage(matchId: string, userId: string, username: string): WSMessageProto {
@@ -406,6 +426,29 @@ export function createClipRemovedMessage(
 				trackId,
 				clipId,
 				removedBy: create(UserInfoSchema, removedBy),
+			}),
+		},
+	});
+}
+
+export function createClipSplitMessage(
+	matchId: string,
+	trackId: string,
+	originalClip: ClipDataProto,
+	newClip: ClipDataProto,
+	splitBy: { userId: string; username: string }
+): WSMessageProto {
+	return create(WSMessageSchema, {
+		type: MessageType.CLIP_SPLIT,
+		timestamp: BigInt(Date.now()),
+		payload: {
+			case: "clipSplit",
+			value: create(ClipSplitPayloadSchema, {
+				matchId,
+				trackId,
+				originalClip,
+				newClip,
+				splitBy: create(UserInfoSchema, splitBy),
 			}),
 		},
 	});
@@ -640,6 +683,28 @@ export function createClipSelectionMessage(
 				highlightColor,
 				selectedClips: selectedClips.map((s) => create(ClipSelectionInfoSchema, { clipId: s.clipId, trackId: s.trackId })),
 			}),
+		},
+	});
+}
+
+export function createZoneSubscribeMessage(matchId: string, startTime: number, endTime: number): WSMessageProto {
+	return create(WSMessageSchema, {
+		type: MessageType.ZONE_SUBSCRIBE,
+		timestamp: BigInt(Date.now()),
+		payload: {
+			case: "zoneSubscribe",
+			value: create(ZoneSubscribePayloadSchema, { matchId, startTime, endTime }),
+		},
+	});
+}
+
+export function createZoneClipsMessage(matchId: string, startTime: number, endTime: number, tracks: Track[]): WSMessageProto {
+	return create(WSMessageSchema, {
+		type: MessageType.ZONE_CLIPS,
+		timestamp: BigInt(Date.now()),
+		payload: {
+			case: "zoneClips",
+			value: create(ZoneClipsPayloadSchema, { matchId, startTime, endTime, tracks }),
 		},
 	});
 }

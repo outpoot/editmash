@@ -14,12 +14,14 @@ import {
 	isClipAddedMessage,
 	isClipUpdatedMessage,
 	isClipRemovedMessage,
+	isClipSplitMessage,
 	isTimelineSyncMessage,
 	isRequestTimelineSyncMessage,
 	isPingMessage,
 	isSubscribeLobbiesMessage,
 	isUnsubscribeLobbiesMessage,
 	isClipSelectionMessage,
+	isZoneSubscribeMessage,
 	createLeaveMatchMessage,
 	createPlayerJoinedMessage,
 	createPlayerLeftMessage,
@@ -29,8 +31,17 @@ import {
 	createLobbiesUpdateMessage,
 	createErrorMessage,
 	createPongMessage,
+	createZoneClipsMessage,
 	toLobbyInfoProto,
+	createTrackProto,
+	createClipDataProto,
+	type Track,
 } from "./types";
+
+interface ClientZone {
+	startTime: number;
+	endTime: number;
+}
 
 interface WebSocketData {
 	id: string;
@@ -40,14 +51,153 @@ interface WebSocketData {
 	subscribedToLobbies: boolean;
 	connectedAt: number;
 	lastPing: number;
+	zone: ClientZone | null;
 }
 
 const matchPlayers = new Map<string, Set<string>>();
 const connections = new Map<string, ServerWebSocket<WebSocketData>>();
 const lobbySubscribers = new Set<string>();
 
+const matchTimelines = new Map<
+	string,
+	{
+		duration: number;
+		tracks: Array<{
+			id: string;
+			type: "video" | "audio";
+			clips: Array<{
+				id: string;
+				type: "video" | "audio" | "image";
+				name: string;
+				src: string;
+				startTime: number;
+				duration: number;
+				sourceIn: number;
+				sourceDuration: number;
+				thumbnail?: string;
+				properties: Record<string, unknown>;
+			}>;
+		}>;
+	}
+>();
+
 const pendingTimelineSyncs = new Map<string, ReturnType<typeof setTimeout>>();
-const TIMELINE_SYNC_DELAY = 1000; // 1 second debounce
+const TIMELINE_SYNC_DELAY = 3000; // 3 second debounce for timeline sync to DB
+const ZONE_BUFFER = 2; // zone boundaries to ensure clips near zone edges are included for seamless playback
+
+type TimelineClip = {
+	id: string;
+	type: "video" | "audio" | "image";
+	name: string;
+	src: string;
+	startTime: number;
+	duration: number;
+	sourceIn: number;
+	sourceDuration: number;
+	thumbnail?: string;
+	properties: Record<string, unknown>;
+};
+
+type CachedTimeline = {
+	duration: number;
+	tracks: Array<{
+		id: string;
+		type: "video" | "audio";
+		clips: TimelineClip[];
+	}>;
+};
+
+function updateCacheClipAdded(matchId: string, trackId: string, clip: TimelineClip) {
+	const timeline = matchTimelines.get(matchId);
+	if (!timeline) return;
+
+	const track = timeline.tracks.find((t) => t.id === trackId);
+	if (!track) return;
+
+	if (track.clips.some((c) => c.id === clip.id)) return;
+
+	track.clips.push(clip);
+}
+
+function updateCacheClipUpdated(matchId: string, trackId: string, clipId: string, updates: Partial<TimelineClip>) {
+	const timeline = matchTimelines.get(matchId);
+	if (!timeline) return;
+
+	let track = timeline.tracks.find((t) => t.id === trackId);
+	let clipIndex = track?.clips.findIndex((c) => c.id === clipId) ?? -1;
+
+	if (clipIndex === -1) {
+		for (const t of timeline.tracks) {
+			const idx = t.clips.findIndex((c) => c.id === clipId);
+			if (idx !== -1) {
+				const [clip] = t.clips.splice(idx, 1);
+				const targetTrack = timeline.tracks.find((tr) => tr.id === trackId);
+				if (targetTrack && clip) {
+					targetTrack.clips.push({ ...clip, ...updates } as TimelineClip);
+				}
+				return;
+			}
+		}
+		return;
+	}
+
+	if (track && clipIndex !== -1) {
+		track.clips[clipIndex] = { ...track.clips[clipIndex], ...updates } as TimelineClip;
+	}
+}
+
+function updateCacheClipRemoved(matchId: string, trackId: string, clipId: string) {
+	const timeline = matchTimelines.get(matchId);
+	if (!timeline) return;
+
+	for (const track of timeline.tracks) {
+		const clipIndex = track.clips.findIndex((c) => c.id === clipId);
+		if (clipIndex !== -1) {
+			track.clips.splice(clipIndex, 1);
+			return;
+		}
+	}
+}
+
+function updateCacheClipSplit(matchId: string, trackId: string, originalClip: TimelineClip, newClip: TimelineClip) {
+	const timeline = matchTimelines.get(matchId);
+	if (!timeline) return;
+
+	const track = timeline.tracks.find((t) => t.id === trackId);
+	if (!track) return;
+
+	const originalIndex = track.clips.findIndex((c) => c.id === originalClip.id);
+	if (originalIndex !== -1) {
+		track.clips[originalIndex] = originalClip;
+	}
+
+	if (!track.clips.some((c) => c.id === newClip.id)) {
+		track.clips.push(newClip);
+	}
+}
+
+function getCachedClipTiming(matchId: string, clipId: string): { startTime: number; duration: number } | null {
+	const timeline = matchTimelines.get(matchId);
+	if (!timeline) return null;
+
+	for (const track of timeline.tracks) {
+		const clip = track.clips.find((c) => c.id === clipId);
+		if (clip) {
+			return { startTime: clip.startTime, duration: clip.duration };
+		}
+	}
+	return null;
+}
+
+function cleanupMatchResources(matchId: string) {
+	const pendingSync = pendingTimelineSyncs.get(matchId);
+	if (pendingSync) {
+		clearTimeout(pendingSync);
+		pendingTimelineSyncs.delete(matchId);
+	}
+	matchTimelines.delete(matchId);
+	console.log(`[WS] Cleaned up resources for match ${matchId}`);
+}
 
 const PORT = parseInt(process.env.WS_PORT || "3001", 10);
 const IDLE_TIMEOUT = 120; // seconds
@@ -103,6 +253,39 @@ function broadcast(matchId: string, message: WSMessage, excludeConnectionId?: st
 		const ws = connections.get(connId);
 		if (ws && ws.readyState === 1) {
 			ws.send(msgBytes);
+		}
+	}
+}
+
+function clipInZone(clipStartTime: number, clipDuration: number, zone: ClientZone | null): boolean {
+	if (!zone) return true;
+	const clipEndTime = clipStartTime + clipDuration;
+	const zoneStart = zone.startTime - ZONE_BUFFER;
+	const zoneEnd = zone.endTime + ZONE_BUFFER;
+
+	return clipStartTime < zoneEnd && clipEndTime > zoneStart;
+}
+
+function broadcastClipMessage(
+	matchId: string,
+	message: WSMessage,
+	clipStartTime: number,
+	clipDuration: number,
+	excludeConnectionId?: string
+) {
+	const players = matchPlayers.get(matchId);
+	if (!players) return;
+
+	const msgBytes = serializeMessage(message);
+
+	for (const connId of players) {
+		if (excludeConnectionId && connId === excludeConnectionId) continue;
+
+		const ws = connections.get(connId);
+		if (ws && ws.readyState === 1) {
+			if (clipInZone(clipStartTime, clipDuration, ws.data.zone)) {
+				ws.send(msgBytes);
+			}
 		}
 	}
 }
@@ -258,6 +441,7 @@ function handleLeaveMatch(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
 		players.delete(ws.data.id);
 		if (players.size === 0) {
 			matchPlayers.delete(matchId);
+			cleanupMatchResources(matchId);
 		}
 	}
 
@@ -310,21 +494,74 @@ function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
 		return;
 	}
 
-	broadcast(matchId, msg, ws.data.id);
+	if (!clip || clip.startTime === undefined || clip.duration === undefined) {
+		console.warn(`[WS] clipAdded missing clip timing data for match ${matchId}`);
+	}
+
+	if (clip) {
+		const mediaTypeMap: Record<number, "video" | "audio" | "image"> = { 1: "video", 2: "audio", 3: "image" };
+		updateCacheClipAdded(matchId, trackId, {
+			id: clip.id,
+			type: mediaTypeMap[clip.type] || "video",
+			name: clip.name,
+			src: clip.src,
+			startTime: clip.startTime,
+			duration: clip.duration,
+			sourceIn: clip.sourceIn,
+			sourceDuration: clip.sourceDuration,
+			thumbnail: clip.thumbnail,
+			properties: clip.properties ? { ...clip.properties } as Record<string, unknown> : {},
+		});
+	}
+
+	const clipStartTime = clip?.startTime ?? 0;
+	const clipDuration = clip?.duration ?? 0;
+	broadcastClipMessage(matchId, msg, clipStartTime, clipDuration, ws.data.id);
 
 	requestTimelineSync(matchId);
 }
 
 function handleClipUpdated(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
 	if (msg.payload.case !== "clipUpdated" || !msg.payload.value) return;
-	const { matchId, trackId, clipId, updatedBy } = msg.payload.value;
+	const { matchId, trackId, clipId, updates, updatedBy } = msg.payload.value;
 
 	if (ws.data.matchId !== matchId) {
 		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
 		return;
 	}
 
-	broadcast(matchId, msg, ws.data.id);
+	if (updates) {
+		const mediaTypeMap: Record<number, "video" | "audio" | "image"> = { 1: "video", 2: "audio", 3: "image" };
+		updateCacheClipUpdated(matchId, trackId, clipId, {
+			...(updates.id && { id: updates.id }),
+			...(updates.type && { type: mediaTypeMap[updates.type] || "video" }),
+			...(updates.name && { name: updates.name }),
+			...(updates.src && { src: updates.src }),
+			...(updates.startTime !== undefined && { startTime: updates.startTime }),
+			...(updates.duration !== undefined && { duration: updates.duration }),
+			...(updates.sourceIn !== undefined && { sourceIn: updates.sourceIn }),
+			...(updates.sourceDuration !== undefined && { sourceDuration: updates.sourceDuration }),
+			...(updates.thumbnail && { thumbnail: updates.thumbnail }),
+			...(updates.properties && { properties: { ...updates.properties } as Record<string, unknown> }),
+		});
+	}
+
+	let clipStartTime = updates?.startTime;
+	let clipDuration = updates?.duration;
+
+	if (clipStartTime === undefined || clipDuration === undefined) {
+		const cached = getCachedClipTiming(matchId, clipId);
+		if (cached) {
+			clipStartTime = clipStartTime ?? cached.startTime;
+			clipDuration = clipDuration ?? cached.duration;
+		} else {
+			console.warn(`[WS] Cache miss for clip ${clipId} in match ${matchId}, using default timing for broadcast`);
+			clipStartTime = clipStartTime ?? 0;
+			clipDuration = clipDuration ?? 0;
+		}
+	}
+
+	broadcastClipMessage(matchId, msg, clipStartTime, clipDuration, ws.data.id);
 
 	requestTimelineSync(matchId);
 }
@@ -338,7 +575,54 @@ function handleClipRemoved(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
 		return;
 	}
 
+	// Update server cache
+	updateCacheClipRemoved(matchId, trackId, clipId);
+
 	broadcast(matchId, msg, ws.data.id);
+
+	requestTimelineSync(matchId);
+}
+
+function handleClipSplit(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
+	if (msg.payload.case !== "clipSplit" || !msg.payload.value) return;
+	const { matchId, trackId, originalClip, newClip, splitBy } = msg.payload.value;
+
+	if (ws.data.matchId !== matchId) {
+		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
+		return;
+	}
+
+	if (!originalClip || !newClip) {
+		ws.send(serializeMessage(createErrorMessage("INVALID_PAYLOAD", "Missing clip data in split message")));
+		return;
+	}
+
+	const mediaTypeMap: Record<number, "video" | "audio" | "image"> = { 1: "video", 2: "audio", 3: "image" };
+	updateCacheClipSplit(matchId, trackId, {
+		id: originalClip.id,
+		type: mediaTypeMap[originalClip.type] || "video",
+		name: originalClip.name,
+		src: originalClip.src,
+		startTime: originalClip.startTime,
+		duration: originalClip.duration,
+		sourceIn: originalClip.sourceIn,
+		sourceDuration: originalClip.sourceDuration,
+		thumbnail: originalClip.thumbnail,
+		properties: originalClip.properties ? { ...originalClip.properties } as Record<string, unknown> : {},
+	}, {
+		id: newClip.id,
+		type: mediaTypeMap[newClip.type] || "video",
+		name: newClip.name,
+		src: newClip.src,
+		startTime: newClip.startTime,
+		duration: newClip.duration,
+		sourceIn: newClip.sourceIn,
+		sourceDuration: newClip.sourceDuration,
+		thumbnail: newClip.thumbnail,
+		properties: newClip.properties ? { ...newClip.properties } as Record<string, unknown> : {},
+	});
+
+	broadcastClipMessage(matchId, msg, originalClip.startTime, originalClip.duration + newClip.duration, ws.data.id);
 
 	requestTimelineSync(matchId);
 }
@@ -357,10 +641,13 @@ async function handleTimelineSync(ws: ServerWebSocket<WebSocketData>, msg: WSMes
 				duration: timeline.duration,
 				tracks: timeline.tracks.map((track) => ({
 					id: track.id,
-					type: track.type === TrackType.VIDEO ? "video" : "audio",
+					type: (track.type === TrackType.VIDEO ? "video" : "audio") as "video" | "audio",
 					clips: track.clips.map((clip) => ({
 						id: clip.id,
-						type: clip.type === MediaType.VIDEO ? "video" : clip.type === MediaType.AUDIO ? "audio" : "image",
+						type: (clip.type === MediaType.VIDEO ? "video" : clip.type === MediaType.AUDIO ? "audio" : "image") as
+							| "video"
+							| "audio"
+							| "image",
 						name: clip.name,
 						src: clip.src,
 						startTime: clip.startTime,
@@ -380,7 +667,14 @@ async function handleTimelineSync(ws: ServerWebSocket<WebSocketData>, msg: WSMes
 									speed: clip.properties.speed,
 									flipX: clip.properties.flipX,
 									flipY: clip.properties.flipY,
+									zoomX: clip.properties.zoomX,
+									zoomY: clip.properties.zoomY,
+									zoomLinked: clip.properties.zoomLinked,
+									freezeFrame: clip.properties.freezeFrame,
+									freezeFrameTime: clip.properties.freezeFrameTime,
 									volume: clip.properties.volume,
+									pan: clip.properties.pan,
+									pitch: clip.properties.pitch,
 									cropTop: clip.properties.cropTop,
 									cropBottom: clip.properties.cropBottom,
 									cropLeft: clip.properties.cropLeft,
@@ -391,6 +685,10 @@ async function handleTimelineSync(ws: ServerWebSocket<WebSocketData>, msg: WSMes
 				})),
 		  }
 		: null;
+
+	if (timelineJson) {
+		matchTimelines.set(matchId, timelineJson);
+	}
 
 	try {
 		const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
@@ -423,6 +721,52 @@ function handleClipSelection(ws: ServerWebSocket<WebSocketData>, msg: WSMessage)
 	}
 
 	broadcast(matchId, msg, ws.data.id);
+}
+
+function handleZoneSubscribe(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
+	if (msg.payload.case !== "zoneSubscribe" || !msg.payload.value) return;
+	const { matchId, startTime, endTime } = msg.payload.value;
+
+	if (ws.data.matchId !== matchId) {
+		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
+		return;
+	}
+
+	ws.data.zone = { startTime, endTime };
+
+	const timeline = matchTimelines.get(matchId);
+	if (timeline) {
+		const zoneStart = startTime - ZONE_BUFFER;
+		const zoneEnd = endTime + ZONE_BUFFER;
+
+		const zoneTracks: Track[] = timeline.tracks.map((track) => {
+			const mediaTypeMap = { video: MediaType.VIDEO, audio: MediaType.AUDIO, image: MediaType.IMAGE };
+			const filteredClips = track.clips.filter((clip) => {
+				const clipEnd = clip.startTime + clip.duration;
+				return clip.startTime < zoneEnd && clipEnd > zoneStart;
+			});
+			return createTrackProto({
+				id: track.id,
+				type: track.type,
+				clips: filteredClips.map((clip) =>
+					createClipDataProto({
+						id: clip.id,
+						type: clip.type,
+						name: clip.name,
+						src: clip.src,
+						startTime: clip.startTime,
+						duration: clip.duration,
+						sourceIn: clip.sourceIn,
+						sourceDuration: clip.sourceDuration,
+						thumbnail: clip.thumbnail,
+						properties: clip.properties,
+					})
+				),
+			});
+		});
+
+		ws.send(serializeMessage(createZoneClipsMessage(matchId, startTime, endTime, zoneTracks)));
+	}
 }
 
 function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | Buffer | ArrayBuffer) {
@@ -477,6 +821,11 @@ function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | 
 			return;
 		}
 
+		if (isClipSplitMessage(message)) {
+			handleClipSplit(ws, message);
+			return;
+		}
+
 		if (isTimelineSyncMessage(message)) {
 			handleTimelineSync(ws, message);
 			return;
@@ -484,6 +833,11 @@ function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | 
 
 		if (isClipSelectionMessage(message)) {
 			handleClipSelection(ws, message);
+			return;
+		}
+
+		if (isZoneSubscribeMessage(message)) {
+			handleZoneSubscribe(ws, message);
 			return;
 		}
 
@@ -519,6 +873,7 @@ function handleClose(ws: ServerWebSocket<WebSocketData>) {
 			players.delete(id);
 			if (players.size === 0) {
 				matchPlayers.delete(matchId);
+				cleanupMatchResources(matchId);
 			}
 		}
 
@@ -627,6 +982,7 @@ const server = Bun.serve({
 					subscribedToLobbies: false,
 					connectedAt: Date.now(),
 					lastPing: Date.now(),
+					zone: null,
 				} satisfies WebSocketData,
 			});
 
