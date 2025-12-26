@@ -1242,6 +1242,10 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 
 			setClipboard(clipsToClip);
 
+			selectedClips.forEach(({ clipId, trackId }) => {
+				onClipRemoved?.(trackId, clipId);
+			});
+
 			updateTimelineState((prev) => {
 				const newState = {
 					...prev,
@@ -1264,7 +1268,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			setSelectedClips([]);
 			setLastSelectedClip(null);
 			onClipSelect?.(null);
-		}, [selectedClips, timelineState, onClipSelect, updateTimelineState]);
+		}, [selectedClips, timelineState, onClipSelect, updateTimelineState, onClipRemoved]);
 
 		const handleCopyClips = useCallback(() => {
 			if (selectedClips.length === 0) return;
@@ -1288,6 +1292,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			const offset = currentTimeRef.current - minStartTime;
 
 			const newClipIds: Array<{ clipId: string; trackId: string }> = [];
+			const addedClips: Array<{ trackId: string; clip: Clip }> = [];
 
 			updateTimelineState((prev) => {
 				let newState = {
@@ -1316,37 +1321,104 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						newState.tracks[trackIndex].clips.push(newClip);
 						newState = handleClipPlacement(newClip, trackId, newState).state;
 						newClipIds.push({ clipId: newClip.id, trackId });
+						addedClips.push({ trackId, clip: newClip });
 					}
 				});
 
 				return newState;
 			});
 
+			addedClips.forEach(({ trackId, clip }) => {
+				onClipAdded?.(trackId, clip);
+			});
+
 			setSelectedClips(newClipIds);
 			if (newClipIds.length > 0) {
 				setLastSelectedClip(newClipIds[0]);
 			}
-		}, [clipboard, currentTimeRef, handleClipPlacement, updateTimelineState]);
+		}, [clipboard, currentTimeRef, handleClipPlacement, updateTimelineState, onClipAdded]);
 
 		const handleUndo = useCallback(() => {
+			const currentState = timelineStateRef.current;
 			const previousState = historyStore.undo();
 			if (previousState) {
+				const currentClipMap = new Map<string, { clip: Clip; trackId: string }>();
+				const previousClipMap = new Map<string, { clip: Clip; trackId: string }>();
+
+				currentState.tracks.forEach((track) => {
+					track.clips.forEach((clip) => {
+						currentClipMap.set(clip.id, { clip, trackId: track.id });
+					});
+				});
+
+				previousState.tracks.forEach((track) => {
+					track.clips.forEach((clip) => {
+						previousClipMap.set(clip.id, { clip, trackId: track.id });
+					});
+				});
+
+				currentClipMap.forEach(({ trackId }, clipId) => {
+					if (!previousClipMap.has(clipId)) {
+						onClipRemoved?.(trackId, clipId);
+					}
+				});
+
+				previousClipMap.forEach(({ clip, trackId }, clipId) => {
+					const currentEntry = currentClipMap.get(clipId);
+					if (!currentEntry) {
+						onClipAdded?.(trackId, clip);
+					} else if (JSON.stringify(currentEntry.clip) !== JSON.stringify(clip)) {
+						onClipUpdated?.(trackId, clip);
+					}
+				});
+
 				setTimelineState(previousState);
 				setSelectedClips([]);
 				setLastSelectedClip(null);
 				onClipSelect?.(null);
 			}
-		}, [onClipSelect]);
+		}, [onClipSelect, onClipAdded, onClipUpdated, onClipRemoved]);
 
 		const handleRedo = useCallback(() => {
+			const currentState = timelineStateRef.current;
 			const nextState = historyStore.redo();
 			if (nextState) {
+				const currentClipMap = new Map<string, { clip: Clip; trackId: string }>();
+				const nextClipMap = new Map<string, { clip: Clip; trackId: string }>();
+
+				currentState.tracks.forEach((track) => {
+					track.clips.forEach((clip) => {
+						currentClipMap.set(clip.id, { clip, trackId: track.id });
+					});
+				});
+
+				nextState.tracks.forEach((track) => {
+					track.clips.forEach((clip) => {
+						nextClipMap.set(clip.id, { clip, trackId: track.id });
+					});
+				});
+
+				currentClipMap.forEach(({ trackId }, clipId) => {
+					if (!nextClipMap.has(clipId)) {
+						onClipRemoved?.(trackId, clipId);
+					}
+				});
+
+				nextClipMap.forEach(({ clip, trackId }, clipId) => {
+					const currentEntry = currentClipMap.get(clipId);
+					if (!currentEntry) {
+						onClipAdded?.(trackId, clip);
+					} else if (JSON.stringify(currentEntry.clip) !== JSON.stringify(clip)) {
+						onClipUpdated?.(trackId, clip);
+					}
+				});
+
 				setTimelineState(nextState);
 				setSelectedClips([]);
 				setLastSelectedClip(null);
 				onClipSelect?.(null);
 			}
-		}, [onClipSelect]);
+		}, [onClipSelect, onClipAdded, onClipUpdated, onClipRemoved]);
 
 		const handleZoomIn = useCallback(() => {
 			setPixelsPerSecond((prev) => Math.min(prev + 10, 200));
