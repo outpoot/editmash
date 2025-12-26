@@ -1,6 +1,6 @@
 import { memo, useMemo } from "react";
 import { Track, Clip } from "../types/timeline";
-import TimelineClip from "./TimelineClip";
+import TimelineClip, { type ClipChangeNotification } from "./TimelineClip";
 import type { RemoteSelection } from "./MatchWS";
 
 interface TimelineTrackProps {
@@ -23,6 +23,7 @@ interface TimelineTrackProps {
 	dragPreview: { trackId: string; startTime: number; duration: number; type: "video" | "audio" } | null;
 	isLastTrack?: boolean;
 	remoteSelections?: Map<string, RemoteSelection>;
+	clipChangeNotifications?: Map<string, ClipChangeNotification[]>;
 }
 
 function TimelineTrack({
@@ -45,6 +46,7 @@ function TimelineTrack({
 	dragPreview,
 	isLastTrack,
 	remoteSelections,
+	clipChangeNotifications,
 }: TimelineTrackProps) {
 	const handleDragOver = (e: React.DragEvent) => {
 		onMediaDragOver(e, track.id);
@@ -126,6 +128,7 @@ function TimelineTrack({
 					onBladeClick={onBladeClick}
 					bladeCursorPosition={bladeCursorPosition}
 					remoteSelectors={clipRemoteSelectors.get(clip.id)}
+					changeNotifications={clipChangeNotifications?.get(clip.id)}
 				/>
 			))}
 		</div>

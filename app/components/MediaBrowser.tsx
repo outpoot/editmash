@@ -382,7 +382,7 @@ export default function MediaBrowser() {
 
 			{contextMenu && (
 				<div
-					className="fixed z-[9999] bg-popover border border-border rounded shadow-lg py-1 min-w-[160px]"
+					className="fixed z-9999 bg-popover border border-border rounded shadow-lg py-1 min-w-40"
 					style={{ left: contextMenu.x, top: contextMenu.y }}
 					onClick={(e) => e.stopPropagation()}
 				>

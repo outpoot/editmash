@@ -5,6 +5,7 @@ import { TimelineState, Clip, DragState, VideoClip, ImageClip, AudioClip } from 
 import TimelineTrack from "./TimelineTrack";
 import TimeRuler from "./TimeRuler";
 import type { RemoteSelection } from "./MatchWS";
+import type { ClipChangeNotification } from "./TimelineClip";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	SearchAddIcon,
@@ -251,6 +252,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		const [canRedo, setCanRedo] = useState(false);
 		const [transformMode, setTransformMode] = useState<"transform" | "crop" | null>(null);
 		const [showTransformMenu, setShowTransformMenu] = useState(false);
+		const [clipChangeNotifications, setClipChangeNotifications] = useState<Map<string, ClipChangeNotification[]>>(new Map());
 
 		const timelineRef = useRef<HTMLDivElement>(null);
 		const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -379,6 +381,122 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					});
 				},
 				updateRemoteClip: (trackId: string, clipId: string, updates: Partial<Clip>) => {
+					const notifications: string[] = [];
+					
+					let existingClip: Clip | undefined;
+					for (const track of timelineState.tracks) {
+						const found = track.clips.find((c) => c.id === clipId);
+						if (found) {
+							existingClip = found;
+							break;
+						}
+					}
+					
+					if (existingClip && updates.properties) {
+						const props = updates.properties as unknown as Record<string, unknown>;
+						const existingProps = existingClip.properties as unknown as Record<string, unknown>;
+						
+						// Audio properties
+						if (props.volume !== undefined && props.volume !== existingProps.volume) {
+							notifications.push(`volume ${Math.round((props.volume as number) * 100)}%`);
+						}
+						if (props.pan !== undefined && props.pan !== existingProps.pan) {
+							const pan = props.pan as number;
+							notifications.push(`pan ${pan < 0 ? 'L' : pan > 0 ? 'R' : 'C'}${Math.abs(Math.round(pan * 100))}%`);
+						}
+						if (props.pitch !== undefined && props.pitch !== existingProps.pitch) {
+							const pitch = props.pitch as number;
+							notifications.push(`pitch ${pitch > 0 ? '+' : ''}${pitch}`);
+						}
+						if (props.speed !== undefined && props.speed !== existingProps.speed) {
+							notifications.push(`speed ${Math.round((props.speed as number) * 100)}%`);
+						}
+						
+						// Video/Image properties
+						const existingPosition = existingProps.position as { x: number; y: number } | undefined;
+						const newPosition = props.position as { x: number; y: number } | undefined;
+						if (newPosition && existingPosition && (newPosition.x !== existingPosition.x || newPosition.y !== existingPosition.y)) {
+							notifications.push(`moved`);
+						}
+						
+						const existingSize = existingProps.size as { width: number; height: number } | undefined;
+						const newSize = props.size as { width: number; height: number } | undefined;
+						if (newSize && existingSize && (newSize.width !== existingSize.width || newSize.height !== existingSize.height)) {
+							notifications.push(`resized`);
+						}
+						
+						if (props.rotation !== undefined && props.rotation !== existingProps.rotation) {
+							notifications.push(`rotation ${props.rotation}°`);
+						}
+						
+						const existingZoom = existingProps.zoom as { x: number; y: number; linked?: boolean } | undefined;
+						const newZoom = props.zoom as { x: number; y: number; linked?: boolean } | undefined;
+						if (newZoom && existingZoom && (newZoom.x !== existingZoom.x || newZoom.y !== existingZoom.y)) {
+							notifications.push(`zoom ${Math.round(newZoom.x * 100)}%`);
+						}
+						
+						// Flip
+						const existingFlip = existingProps.flip as { horizontal: boolean; vertical: boolean } | undefined;
+						const newFlip = props.flip as { horizontal: boolean; vertical: boolean } | undefined;
+						if (newFlip && existingFlip) {
+							if (newFlip.horizontal !== existingFlip.horizontal) {
+								notifications.push(newFlip.horizontal ? 'flip H on' : 'flip H off');
+							}
+							if (newFlip.vertical !== existingFlip.vertical) {
+								notifications.push(newFlip.vertical ? 'flip V on' : 'flip V off');
+							}
+						}
+						
+						// Crop
+						const existingCrop = existingProps.crop as { left: number; right: number; top: number; bottom: number; softness: number } | undefined;
+						const newCrop = props.crop as { left: number; right: number; top: number; bottom: number; softness: number } | undefined;
+						if (newCrop && existingCrop) {
+							const cropChanged = newCrop.left !== existingCrop.left || 
+								newCrop.right !== existingCrop.right || 
+								newCrop.top !== existingCrop.top || 
+								newCrop.bottom !== existingCrop.bottom;
+							if (cropChanged) {
+								notifications.push('cropped');
+							}
+							if (newCrop.softness !== existingCrop.softness) {
+								notifications.push(`crop softness ${Math.round(newCrop.softness)}px`);
+							}
+						}
+						
+						// Freeze frame
+						if (props.freezeFrame !== undefined && props.freezeFrame !== existingProps.freezeFrame) {
+							notifications.push(props.freezeFrame ? 'freeze on' : 'freeze off');
+						}
+						if (props.freezeFrameTime !== undefined && props.freezeFrameTime !== existingProps.freezeFrameTime) {
+							notifications.push(`freeze at ${(props.freezeFrameTime as number).toFixed(2)}s`);
+						}
+					}
+					
+					// Timeline position changes
+					if (existingClip) {
+						if (updates.startTime !== undefined && updates.startTime !== existingClip.startTime) {
+							notifications.push(`moved to ${updates.startTime.toFixed(1)}s`);
+						}
+						if (updates.duration !== undefined && updates.duration !== existingClip.duration) {
+							notifications.push(`duration ${updates.duration.toFixed(1)}s`);
+						}
+					}
+					
+					if (notifications.length > 0) {
+						const newNotifications: ClipChangeNotification[] = notifications.map((msg) => ({
+							id: `${clipId}-${Date.now()}-${Math.random()}`,
+							message: msg,
+							timestamp: Date.now(),
+						}));
+						
+						setClipChangeNotifications((prev) => {
+							const next = new Map(prev);
+							const existing = next.get(clipId) || [];
+							next.set(clipId, [...existing, ...newNotifications]);
+							return next;
+						});
+					}
+
 					setTimelineState((prev) => {
 						const targetTrack = prev.tracks.find((t) => t.id === trackId);
 						const clipInTargetTrack = targetTrack?.clips.find((c) => c.id === clipId);
@@ -1947,6 +2065,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 											onMediaDragLeave={handleMediaDragLeave}
 											dragPreview={dragPreview}
 											remoteSelections={remoteSelections}
+											clipChangeNotifications={clipChangeNotifications}
 										/>
 									</div>
 								))}
