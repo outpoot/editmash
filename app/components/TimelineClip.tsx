@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState, useEffect, useCallback } from "react";
 import { Clip, VideoClip, ImageClip, AudioClip } from "../types/timeline";
 import { useVideoThumbnails } from "../hooks/useVideoThumbnails";
 import { useAudioWaveform } from "../hooks/useAudioWaveform";
@@ -12,6 +12,12 @@ interface RemoteSelector {
 	highlightColor: string;
 }
 
+export interface ClipChangeNotification {
+	id: string;
+	message: string;
+	timestamp: number;
+}
+
 interface TimelineClipProps {
 	clip: Clip;
 	trackId: string;
@@ -23,6 +29,27 @@ interface TimelineClipProps {
 	onBladeClick: (e: React.MouseEvent, trackId: string) => void;
 	bladeCursorPosition: number | null;
 	remoteSelectors?: RemoteSelector[];
+	changeNotifications?: ClipChangeNotification[];
+}
+
+function ChangeNotification({ message, onComplete }: { message: string; onComplete: () => void }) {
+	useEffect(() => {
+		const removeTimer = setTimeout(onComplete, 500);
+		return () => clearTimeout(removeTimer);
+	}, [onComplete]);
+
+	return (
+		<div
+			className="absolute left-1/2 text-[10px] text-white whitespace-nowrap"
+			style={{
+				textShadow: "0 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.6)",
+				top: "50%",
+				animation: "clipNotification 0.5s ease-out forwards",
+			}}
+		>
+			{message}
+		</div>
+	);
 }
 
 function TimelineClip({
@@ -36,7 +63,25 @@ function TimelineClip({
 	onBladeClick,
 	bladeCursorPosition,
 	remoteSelectors,
+	changeNotifications = [],
 }: TimelineClipProps) {
+	const [localNotifications, setLocalNotifications] = useState<ClipChangeNotification[]>([]);
+
+	useEffect(() => {
+		if (changeNotifications.length > 0) {
+			setLocalNotifications((prev) => {
+				const existingIds = new Set(prev.map((n) => n.id));
+				const newNotifications = changeNotifications.filter((n) => !existingIds.has(n.id));
+				if (newNotifications.length === 0) return prev;
+				return [...prev, ...newNotifications];
+			});
+		}
+	}, [changeNotifications]);
+
+	const removeNotification = useCallback((id: string) => {
+		setLocalNotifications((prev) => prev.filter((n) => n.id !== id));
+	}, []);
+
 	const left = clip.startTime * pixelsPerSecond;
 	const width = clip.duration * pixelsPerSecond;
 	const clipEnd = left + width;
@@ -285,6 +330,18 @@ function TimelineClip({
 					/>
 				)}
 			</div>
+
+			{localNotifications.length > 0 && (
+				<div className="absolute inset-0 pointer-events-none z-100">
+					{localNotifications.map((notification) => (
+						<ChangeNotification
+							key={notification.id}
+							message={notification.message}
+							onComplete={() => removeNotification(notification.id)}
+						/>
+					))}
+				</div>
+			)}
 		</div>
 	);
 }
