@@ -228,8 +228,12 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 	}, []);
 
 	const handleRemoteClipUpdated = useCallback(
-		(trackId: string, clipId: string, updates: Partial<ClipData>, updatedBy: { userId: string; username: string }) => {
-			mainLayoutRef.current?.updateRemoteClip(trackId, clipId, updates as Partial<Clip>);
+		(trackId: string, clipId: string, updates: Partial<ClipData>, updatedBy: { userId: string; username: string }, oldTrackId?: string) => {
+			if (oldTrackId && oldTrackId !== trackId) {
+				mainLayoutRef.current?.moveRemoteClip(oldTrackId, trackId, clipId, updates as Partial<Clip>);
+			} else {
+				mainLayoutRef.current?.updateRemoteClip(trackId, clipId, updates as Partial<Clip>);
+			}
 		},
 		[]
 	);

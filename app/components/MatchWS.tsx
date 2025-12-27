@@ -19,6 +19,8 @@ import {
 	isRequestTimelineSyncMessage,
 	isClipSelectionMessage,
 	isZoneClipsMessage,
+	isClipBatchUpdateMessage,
+	isClipIdMappingMessage,
 	createMediaUploadedMessage,
 	createMediaRemovedMessage,
 	createClipAddedMessage,
@@ -28,6 +30,9 @@ import {
 	createTimelineSyncMessage,
 	createClipSelectionMessage,
 	createZoneSubscribeMessage,
+	createClipBatchUpdateMessage,
+	createClipDeltaUpdate,
+	computeClipDelta,
 	createClipDataProto,
 	createTrackProto,
 	createTimelineDataProto,
@@ -36,6 +41,7 @@ import {
 	type TimelineData,
 	type MediaData,
 	type Track,
+	type ClipDeltaUpdate,
 } from "@/websocket/types";
 import type { Clip } from "@/app/types/timeline";
 
@@ -108,7 +114,8 @@ interface MatchWebSocketProviderProps {
 		trackId: string,
 		clipId: string,
 		updates: Partial<ClipData>,
-		updatedBy: { userId: string; username: string }
+		updatedBy: { userId: string; username: string },
+		oldTrackId?: string
 	) => void;
 	onRemoteClipRemoved?: (trackId: string, clipId: string, removedBy: { userId: string; username: string }) => void;
 	onRemoteClipSplit?: (trackId: string, originalClip: ClipData, newClip: ClipData, splitBy: { userId: string; username: string }) => void;
@@ -289,6 +296,40 @@ export function MatchWS({
 	const [currentZone, setCurrentZone] = useState<{ startTime: number; endTime: number } | null>(null);
 	const hasReceivedInitialCount = useRef(false);
 
+	const clipIdMapRef = useRef<{
+		fullToShort: Map<string, number>;
+		shortToFull: Map<number, { fullId: string; trackId: string; clipType: "video" | "audio" | "image" }>;
+	}>({
+		fullToShort: new Map(),
+		shortToFull: new Map(),
+	});
+
+	const BATCH_WINDOW_MS = 50; // ms
+	const pendingUpdatesRef = useRef<
+		Map<
+			string,
+			{
+				clip: Clip;
+				trackId: string;
+				previousState: { startTime: number; duration: number; sourceIn: number; properties: Record<string, unknown> };
+			}
+		>
+	>(new Map());
+	const batchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const flushPendingUpdatesRef = useRef<(() => void) | null>(null);
+
+	const clipStatesRef = useRef<
+		Map<
+			string,
+			{
+				startTime: number;
+				duration: number;
+				sourceIn: number;
+				properties: Record<string, unknown>;
+			}
+		>
+	>(new Map());
+
 	const callbacksRef = useRef({
 		onRemoteMediaUploaded,
 		onRemoteClipAdded,
@@ -322,6 +363,21 @@ export function MatchWS({
 	useEffect(() => {
 		setPlayersOnline(0);
 		hasReceivedInitialCount.current = false;
+	}, [matchId]);
+
+	useEffect(() => {
+		return () => {
+			try {
+				if (batchTimeoutRef.current) {
+					clearTimeout(batchTimeoutRef.current);
+				}
+				flushPendingUpdatesRef.current?.();
+			} catch (error) {
+				console.error("[MatchWS] Error flushing pending updates on cleanup:", error);
+				batchTimeoutRef.current = null;
+				pendingUpdatesRef.current.clear();
+			}
+		};
 	}, [matchId]);
 
 	useEffect(() => {
@@ -511,6 +567,69 @@ export function MatchWS({
 				callbacksRef.current.onZoneClipsReceived?.(startTime, endTime, clips);
 				return;
 			}
+
+			if (isClipIdMappingMessage(message) && message.payload.case === "clipIdMapping") {
+				const { mappings } = message.payload.value;
+				if (mappings) {
+					for (const mapping of mappings) {
+						const clipType = mapping.clipType === 1 ? "video" : mapping.clipType === 2 ? "audio" : "image";
+						clipIdMapRef.current.fullToShort.set(mapping.fullId, mapping.shortId);
+						clipIdMapRef.current.shortToFull.set(mapping.shortId, {
+							fullId: mapping.fullId,
+							trackId: mapping.trackId,
+							clipType,
+						});
+					}
+				}
+				return;
+			}
+
+			if (isClipBatchUpdateMessage(message) && message.payload.case === "clipBatchUpdate") {
+				const { updates, updatedBy } = message.payload.value;
+				if (updates && updatedBy && updatedBy.userId !== userId) {
+					for (const delta of updates) {
+						const clipInfo = clipIdMapRef.current.shortToFull.get(delta.shortId);
+						if (!clipInfo) {
+							console.warn(`[MatchWS] Unknown short clip ID ${delta.shortId} in batch update`);
+							continue;
+						}
+
+						const originalTrackId = clipInfo.trackId;
+						const newTrackId = delta.newTrackId;
+
+						if (newTrackId && newTrackId !== originalTrackId) {
+							clipIdMapRef.current.shortToFull.set(delta.shortId, {
+								...clipInfo,
+								trackId: newTrackId,
+							});
+						}
+
+						const partialUpdate: Partial<ClipData> = {
+							id: clipInfo.fullId,
+						};
+						if (delta.startTime !== undefined) partialUpdate.startTime = delta.startTime;
+						if (delta.duration !== undefined) partialUpdate.duration = delta.duration;
+						if (delta.sourceIn !== undefined) partialUpdate.sourceIn = delta.sourceIn;
+						if (delta.properties) {
+							partialUpdate.properties = flatPropertiesToNested(delta.properties as unknown as Record<string, unknown>, clipInfo.clipType);
+						}
+
+						const targetTrackId = newTrackId || originalTrackId;
+
+						callbacksRef.current.onRemoteClipUpdated?.(
+							targetTrackId,
+							clipInfo.fullId,
+							partialUpdate,
+							{
+								userId: updatedBy.userId,
+								username: updatedBy.username,
+							},
+							originalTrackId !== targetTrackId ? originalTrackId : undefined
+						);
+					}
+				}
+				return;
+			}
 		};
 
 		const handleStatus = (newStatus: ConnectionStatus) => {
@@ -560,28 +679,143 @@ export function MatchWS({
 			properties: flatProperties,
 		});
 		sendMessage(matchId, userId, createClipAddedMessage(matchId, trackId, clipData, { userId, username }));
-	}, []);
 
-	const broadcastClipUpdated = useCallback((trackId: string, clip: Clip) => {
-		const { matchId, userId, username } = propsRef.current;
-		const flatProperties = nestedPropertiesToFlat(clip.properties as unknown as Record<string, unknown>, clip.type);
-		const updateData = createClipDataProto({
-			id: clip.id,
-			type: clip.type,
-			name: clip.name,
-			src: clip.src,
+		clipStatesRef.current.set(clip.id, {
 			startTime: clip.startTime,
 			duration: clip.duration,
 			sourceIn: clip.sourceIn,
-			sourceDuration: clip.sourceDuration,
 			properties: flatProperties,
 		});
-		sendMessage(matchId, userId, createClipUpdatedMessage(matchId, trackId, clip.id, updateData, { userId, username }));
 	}, []);
+
+	const flushPendingUpdates = useCallback(() => {
+		const { matchId, userId, username } = propsRef.current;
+		const pendingUpdates = pendingUpdatesRef.current;
+
+		if (pendingUpdates.size === 0) return;
+
+		const deltaUpdates: ClipDeltaUpdate[] = [];
+
+		for (const [clipId, { clip, trackId, previousState }] of pendingUpdates) {
+			const shortId = clipIdMapRef.current.fullToShort.get(clipId);
+			if (shortId === undefined) {
+				const flatProperties = nestedPropertiesToFlat(clip.properties as unknown as Record<string, unknown>, clip.type);
+				const updateData = createClipDataProto({
+					id: clip.id,
+					type: clip.type,
+					name: clip.name,
+					src: clip.src,
+					startTime: clip.startTime,
+					duration: clip.duration,
+					sourceIn: clip.sourceIn,
+					sourceDuration: clip.sourceDuration,
+					properties: flatProperties,
+				});
+				sendMessage(matchId, userId, createClipUpdatedMessage(matchId, trackId, clip.id, updateData, { userId, username }));
+				continue;
+			}
+
+			const clipInfo = clipIdMapRef.current.shortToFull.get(shortId);
+			const previousTrackId = clipInfo?.trackId;
+			const newTrackId = previousTrackId && previousTrackId !== trackId ? trackId : undefined;
+
+			if (newTrackId && clipInfo) {
+				clipIdMapRef.current.shortToFull.set(shortId, {
+					...clipInfo,
+					trackId: newTrackId,
+				});
+			}
+
+			const currentFlatProps = nestedPropertiesToFlat(clip.properties as unknown as Record<string, unknown>, clip.type);
+			const delta = computeClipDelta(previousState, {
+				startTime: clip.startTime,
+				duration: clip.duration,
+				sourceIn: clip.sourceIn,
+				properties: currentFlatProps,
+			});
+
+			if (delta || newTrackId) {
+				deltaUpdates.push(
+					createClipDeltaUpdate(shortId, {
+						...delta,
+						newTrackId,
+					})
+				);
+			}
+
+			clipStatesRef.current.set(clipId, {
+				startTime: clip.startTime,
+				duration: clip.duration,
+				sourceIn: clip.sourceIn,
+				properties: currentFlatProps,
+			});
+		}
+
+		if (deltaUpdates.length > 0) {
+			sendMessage(matchId, userId, createClipBatchUpdateMessage(matchId, deltaUpdates, { userId, username }));
+		}
+
+		pendingUpdatesRef.current.clear();
+		batchTimeoutRef.current = null;
+	}, []);
+
+	flushPendingUpdatesRef.current = flushPendingUpdates;
+
+	const broadcastClipUpdated = useCallback(
+		(trackId: string, clip: Clip) => {
+			const { matchId, userId, username } = propsRef.current;
+
+			const previousState = clipStatesRef.current.get(clip.id);
+
+			if (!previousState) {
+				const flatProperties = nestedPropertiesToFlat(clip.properties as unknown as Record<string, unknown>, clip.type);
+				const updateData = createClipDataProto({
+					id: clip.id,
+					type: clip.type,
+					name: clip.name,
+					src: clip.src,
+					startTime: clip.startTime,
+					duration: clip.duration,
+					sourceIn: clip.sourceIn,
+					sourceDuration: clip.sourceDuration,
+					properties: flatProperties,
+				});
+				sendMessage(matchId, userId, createClipUpdatedMessage(matchId, trackId, clip.id, updateData, { userId, username }));
+
+				clipStatesRef.current.set(clip.id, {
+					startTime: clip.startTime,
+					duration: clip.duration,
+					sourceIn: clip.sourceIn,
+					properties: flatProperties,
+				});
+				return;
+			}
+
+			pendingUpdatesRef.current.set(clip.id, {
+				clip,
+				trackId,
+				previousState,
+			});
+
+			if (!batchTimeoutRef.current) {
+				batchTimeoutRef.current = setTimeout(flushPendingUpdates, BATCH_WINDOW_MS);
+			}
+		},
+		[flushPendingUpdates]
+	);
 
 	const broadcastClipRemoved = useCallback((trackId: string, clipId: string) => {
 		const { matchId, userId, username } = propsRef.current;
 		sendMessage(matchId, userId, createClipRemovedMessage(matchId, trackId, clipId, { userId, username }));
+
+		clipStatesRef.current.delete(clipId);
+		pendingUpdatesRef.current.delete(clipId);
+
+		const shortId = clipIdMapRef.current.fullToShort.get(clipId);
+		if (shortId !== undefined) {
+			clipIdMapRef.current.fullToShort.delete(clipId);
+			clipIdMapRef.current.shortToFull.delete(shortId);
+		}
 	}, []);
 
 	const broadcastClipSplit = useCallback((trackId: string, originalClip: Clip, newClip: Clip) => {

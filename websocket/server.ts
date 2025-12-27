@@ -22,6 +22,7 @@ import {
 	isUnsubscribeLobbiesMessage,
 	isClipSelectionMessage,
 	isZoneSubscribeMessage,
+	isClipBatchUpdateMessage,
 	createLeaveMatchMessage,
 	createPlayerJoinedMessage,
 	createPlayerLeftMessage,
@@ -32,10 +33,15 @@ import {
 	createErrorMessage,
 	createPongMessage,
 	createZoneClipsMessage,
+	createClipIdMappingMessage,
+	createClipBatchUpdateMessage,
+	createClipDeltaUpdate,
+	applyClipDelta,
 	toLobbyInfoProto,
 	createTrackProto,
 	createClipDataProto,
 	type Track,
+	type ClipDeltaUpdate,
 } from "./types";
 
 interface ClientZone {
@@ -84,6 +90,142 @@ const matchTimelines = new Map<
 const pendingTimelineSyncs = new Map<string, ReturnType<typeof setTimeout>>();
 const TIMELINE_SYNC_DELAY = 3000; // 3 second debounce for timeline sync to DB
 const ZONE_BUFFER = 2; // zone boundaries to ensure clips near zone edges are included for seamless playback
+
+interface ClipIdMap {
+	fullToShort: Map<string, number>;
+	shortToFull: Map<number, { fullId: string; trackId: string }>;
+	nextShortId: number;
+}
+
+const matchClipIdMaps = new Map<string, ClipIdMap>();
+
+function getOrCreateClipIdMap(matchId: string): ClipIdMap {
+	let map = matchClipIdMaps.get(matchId);
+	if (!map) {
+		map = {
+			fullToShort: new Map(),
+			shortToFull: new Map(),
+			nextShortId: 1,
+		};
+		matchClipIdMaps.set(matchId, map);
+	}
+	return map;
+}
+
+function getShortClipId(matchId: string, fullId: string, trackId: string): number {
+	const map = getOrCreateClipIdMap(matchId);
+	let shortId = map.fullToShort.get(fullId);
+	if (shortId === undefined) {
+		shortId = map.nextShortId++;
+		map.fullToShort.set(fullId, shortId);
+		map.shortToFull.set(shortId, { fullId, trackId });
+	}
+	return shortId;
+}
+
+function getFullClipId(matchId: string, shortId: number): { fullId: string; trackId: string } | null {
+	const map = matchClipIdMaps.get(matchId);
+	return map?.shortToFull.get(shortId) ?? null;
+}
+
+function removeClipIdMapping(matchId: string, fullId: string): void {
+	const map = matchClipIdMaps.get(matchId);
+	if (!map) return;
+	const shortId = map.fullToShort.get(fullId);
+	if (shortId !== undefined) {
+		map.fullToShort.delete(fullId);
+		map.shortToFull.delete(shortId);
+	}
+}
+
+const BATCH_WINDOW_MS = 50; // ms
+const pendingBatches = new Map<
+	string,
+	{
+		updates: Map<string, { shortId: number; trackId: string; changes: Partial<TimelineClip> }>;
+		timeout: ReturnType<typeof setTimeout>;
+		userId: string;
+		username: string;
+	}
+>();
+
+function flushBatch(matchId: string, connId: string) {
+	const key = `${matchId}:${connId}`;
+	const batch = pendingBatches.get(key);
+	if (!batch || batch.updates.size === 0) {
+		pendingBatches.delete(key);
+		return;
+	}
+
+	const deltaUpdates: ClipDeltaUpdate[] = [];
+	for (const [clipId, update] of batch.updates) {
+		const clipInfo = getFullClipId(matchId, update.shortId);
+		const originalTrackId = clipInfo?.trackId;
+		const newTrackId = originalTrackId && originalTrackId !== update.trackId ? update.trackId : undefined;
+
+		if (newTrackId && clipInfo) {
+			const map = matchClipIdMaps.get(matchId);
+			if (map) {
+				map.shortToFull.set(update.shortId, { fullId: clipInfo.fullId, trackId: newTrackId });
+			}
+		}
+
+		const delta = createClipDeltaUpdate(update.shortId, {
+			startTime: update.changes.startTime,
+			duration: update.changes.duration,
+			sourceIn: update.changes.sourceIn,
+			properties: update.changes.properties as Record<string, unknown> | undefined,
+			newTrackId,
+		});
+		deltaUpdates.push(delta);
+	}
+
+	if (deltaUpdates.length > 0) {
+		const batchMsg = createClipBatchUpdateMessage(matchId, deltaUpdates, {
+			userId: batch.userId,
+			username: batch.username,
+		});
+		broadcast(matchId, batchMsg, connId);
+	}
+
+	pendingBatches.delete(key);
+}
+
+function queueClipUpdate(
+	matchId: string,
+	connId: string,
+	clipId: string,
+	trackId: string,
+	changes: Partial<TimelineClip>,
+	userId: string,
+	username: string
+): void {
+	const key = `${matchId}:${connId}`;
+	let batch = pendingBatches.get(key);
+
+	if (!batch) {
+		batch = {
+			updates: new Map(),
+			timeout: setTimeout(() => flushBatch(matchId, connId), BATCH_WINDOW_MS),
+			userId,
+			username,
+		};
+		pendingBatches.set(key, batch);
+	}
+
+	const shortId = getShortClipId(matchId, clipId, trackId);
+
+	const existing = batch.updates.get(clipId);
+	if (existing) {
+		batch.updates.set(clipId, {
+			shortId,
+			trackId,
+			changes: { ...existing.changes, ...changes },
+		});
+	} else {
+		batch.updates.set(clipId, { shortId, trackId, changes });
+	}
+}
 
 type TimelineClip = {
 	id: string;
@@ -196,7 +338,14 @@ function cleanupMatchResources(matchId: string) {
 		pendingTimelineSyncs.delete(matchId);
 	}
 	matchTimelines.delete(matchId);
-	console.log(`[WS] Cleaned up resources for match ${matchId}`);
+	matchClipIdMaps.delete(matchId);
+
+	for (const [key, batch] of pendingBatches.entries()) {
+		if (key.startsWith(`${matchId}:`)) {
+			clearTimeout(batch.timeout);
+			pendingBatches.delete(key);
+		}
+	}
 }
 
 const PORT = parseInt(process.env.WS_PORT || "3001", 10);
@@ -461,16 +610,11 @@ function handleMediaUploaded(ws: ServerWebSocket<WebSocketData>, msg: WSMessage)
 	const { matchId, media } = msg.payload.value;
 
 	if (ws.data.matchId !== matchId) {
-		console.log(`[WS] Media upload rejected - connection matchId: ${ws.data.matchId}, message matchId: ${matchId}`);
 		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
 		return;
 	}
-	const players = matchPlayers.get(matchId);
-	console.log(`[WS] Broadcasting media to ${players?.size ?? 0} players in match ${matchId} (excluding sender)`);
 
 	broadcast(matchId, msg, ws.data.id);
-
-	console.log(`[WS] Media uploaded in match ${matchId}: ${media?.name} by ${media?.uploadedBy?.username}`);
 }
 
 function handleMediaRemoved(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
@@ -514,6 +658,20 @@ function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
 			thumbnail: clip.thumbnail,
 			properties: clip.properties ? ({ ...clip.properties } as Record<string, unknown>) : {},
 		});
+
+		const clipType = mediaTypeMap[clip.type] || "video";
+		const shortId = getShortClipId(matchId, clip.id, trackId);
+
+		const idMappingBytes = serializeMessage(createClipIdMappingMessage(matchId, [{ shortId, fullId: clip.id, trackId, clipType }]));
+		const players = matchPlayers.get(matchId);
+		if (players) {
+			for (const connId of players) {
+				const playerWs = connections.get(connId);
+				if (playerWs && playerWs.readyState === 1) {
+					playerWs.send(idMappingBytes);
+				}
+			}
+		}
 	}
 
 	const clipStartTime = clip?.startTime;
@@ -548,24 +706,7 @@ function handleClipUpdated(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
 		});
 	}
 
-	let clipStartTime = updates?.startTime;
-	let clipDuration = updates?.duration;
-
-	if (clipStartTime === undefined || clipDuration === undefined) {
-		const cached = getCachedClipTiming(matchId, clipId);
-		if (cached) {
-			clipStartTime = clipStartTime ?? cached.startTime;
-			clipDuration = clipDuration ?? cached.duration;
-		} else {
-			console.warn(`[WS] Cache miss for clip ${clipId} in match ${matchId}, broadcasting to all clients`);
-			broadcast(matchId, msg, ws.data.id);
-			requestTimelineSync(matchId);
-			return;
-		}
-	}
-
-	broadcastClipMessage(matchId, msg, clipStartTime, clipDuration, ws.data.id);
-
+	broadcast(matchId, msg, ws.data.id);
 	requestTimelineSync(matchId);
 }
 
@@ -578,11 +719,45 @@ function handleClipRemoved(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
 		return;
 	}
 
-	// Update server cache
 	updateCacheClipRemoved(matchId, trackId, clipId);
-
+	removeClipIdMapping(matchId, clipId);
 	broadcast(matchId, msg, ws.data.id);
+	requestTimelineSync(matchId);
+}
 
+function handleClipBatchUpdate(ws: ServerWebSocket<WebSocketData>, msg: WSMessage) {
+	if (msg.payload.case !== "clipBatchUpdate" || !msg.payload.value) return;
+	const { matchId, updates, updatedBy } = msg.payload.value;
+
+	if (ws.data.matchId !== matchId) {
+		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
+		return;
+	}
+
+	if (!updates || updates.length === 0) return;
+
+	for (const delta of updates) {
+		const clipInfo = getFullClipId(matchId, delta.shortId);
+		if (!clipInfo) {
+			console.warn(`[WS] Unknown short clip ID ${delta.shortId} in batch update for match ${matchId}`);
+			continue;
+		}
+
+		const { fullId: clipId, trackId } = clipInfo;
+
+		const timeline = matchTimelines.get(matchId);
+		if (timeline) {
+			for (const track of timeline.tracks) {
+				const clip = track.clips.find((c) => c.id === clipId);
+				if (clip) {
+					applyClipDelta(clip, delta);
+					break;
+				}
+			}
+		}
+	}
+
+	broadcastClipMessage(matchId, msg, undefined, undefined, ws.data.id);
 	requestTimelineSync(matchId);
 }
 
@@ -835,6 +1010,11 @@ function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | 
 
 		if (isClipSplitMessage(message)) {
 			handleClipSplit(ws, message);
+			return;
+		}
+
+		if (isClipBatchUpdateMessage(message)) {
+			handleClipBatchUpdate(ws, message);
 			return;
 		}
 

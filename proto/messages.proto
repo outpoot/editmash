@@ -28,6 +28,8 @@ message WSMessage {
     ZoneSubscribePayload zone_subscribe = 36;
     ZoneClipsPayload zone_clips = 37;
     ClipSplitPayload clip_split = 38;
+    ClipBatchUpdate clip_batch_update = 39;
+    ClipIdMappingResponse clip_id_mapping = 60;
     
     // Lobby messages
     SubscribeLobbiesPayload subscribe_lobbies = 40;
@@ -73,6 +75,8 @@ enum MessageType {
   MESSAGE_TYPE_ZONE_SUBSCRIBE = 25;
   MESSAGE_TYPE_ZONE_CLIPS = 26;
   MESSAGE_TYPE_CLIP_SPLIT = 27;
+  MESSAGE_TYPE_CLIP_BATCH_UPDATE = 28;
+  MESSAGE_TYPE_CLIP_ID_MAPPING = 29;
 }
 
 message UserInfo {
@@ -172,6 +176,33 @@ message ClipProperties {
   optional double crop_bottom = 31;
   optional double crop_left = 32;
   optional double crop_right = 33;
+}
+
+message ClipDeltaUpdate {
+  uint32 short_id = 1;
+  optional double start_time = 2;
+  optional double duration = 3;
+  optional double source_in = 4;
+  optional ClipProperties properties = 5;
+  optional string new_track_id = 6;
+}
+
+message ClipBatchUpdate {
+  string match_id = 1;
+  repeated ClipDeltaUpdate updates = 2;
+  UserInfo updated_by = 3;
+}
+
+message ClipIdMapping {
+  uint32 short_id = 1;
+  string full_id = 2;
+  string track_id = 3;
+  MediaType clip_type = 4;
+}
+
+message ClipIdMappingResponse {
+  string match_id = 1;
+  repeated ClipIdMapping mappings = 2;
 }
 
 message ClipData {

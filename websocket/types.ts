@@ -77,6 +77,14 @@ import {
 	MatchConfigSchema,
 	type PlayerInfo,
 	PlayerInfoSchema,
+	type ClipDeltaUpdate,
+	ClipDeltaUpdateSchema,
+	type ClipBatchUpdate,
+	ClipBatchUpdateSchema,
+	type ClipIdMapping,
+	ClipIdMappingSchema,
+	type ClipIdMappingResponse,
+	ClipIdMappingResponseSchema,
 } from "../src/gen/messages_pb";
 
 export {
@@ -120,6 +128,14 @@ export {
 	type LobbyInfoProto,
 	type MatchConfig,
 	type PlayerInfo,
+	type ClipDeltaUpdate,
+	ClipDeltaUpdateSchema,
+	type ClipBatchUpdate,
+	ClipBatchUpdateSchema,
+	type ClipIdMapping,
+	ClipIdMappingSchema,
+	type ClipIdMappingResponse,
+	ClipIdMappingResponseSchema,
 };
 
 export type WSMessage = WSMessageProto;
@@ -707,4 +723,222 @@ export function createZoneClipsMessage(matchId: string, startTime: number, endTi
 			value: create(ZoneClipsPayloadSchema, { matchId, startTime, endTime, tracks }),
 		},
 	});
+}
+
+export function isClipBatchUpdateMessage(msg: WSMessageProto): msg is WSMessageProto & { payload: { case: "clipBatchUpdate" } } {
+	return msg.type === MessageType.CLIP_BATCH_UPDATE && msg.payload?.case === "clipBatchUpdate";
+}
+
+export function isClipIdMappingMessage(msg: WSMessageProto): msg is WSMessageProto & { payload: { case: "clipIdMapping" } } {
+	return msg.type === MessageType.CLIP_ID_MAPPING && msg.payload?.case === "clipIdMapping";
+}
+
+export function createClipDeltaUpdate(
+	shortId: number,
+	changes: {
+		startTime?: number;
+		duration?: number;
+		sourceIn?: number;
+		properties?: Partial<ClipProperties>;
+		newTrackId?: string;
+	}
+): ClipDeltaUpdate {
+	return create(ClipDeltaUpdateSchema, {
+		shortId,
+		startTime: changes.startTime,
+		duration: changes.duration,
+		sourceIn: changes.sourceIn,
+		properties: changes.properties ? create(ClipPropertiesSchema, changes.properties) : undefined,
+		newTrackId: changes.newTrackId,
+	});
+}
+
+export function createClipBatchUpdateMessage(
+	matchId: string,
+	updates: ClipDeltaUpdate[],
+	updatedBy: { userId: string; username: string }
+): WSMessageProto {
+	return create(WSMessageSchema, {
+		type: MessageType.CLIP_BATCH_UPDATE,
+		timestamp: BigInt(Date.now()),
+		payload: {
+			case: "clipBatchUpdate",
+			value: create(ClipBatchUpdateSchema, {
+				matchId,
+				updates,
+				updatedBy: create(UserInfoSchema, updatedBy),
+			}),
+		},
+	});
+}
+
+export function createClipIdMappingMessage(
+	matchId: string,
+	mappings: Array<{ shortId: number; fullId: string; trackId: string; clipType: "video" | "audio" | "image" }>
+): WSMessageProto {
+	const mediaTypeMap = { video: MediaType.VIDEO, audio: MediaType.AUDIO, image: MediaType.IMAGE };
+	return create(WSMessageSchema, {
+		type: MessageType.CLIP_ID_MAPPING,
+		timestamp: BigInt(Date.now()),
+		payload: {
+			case: "clipIdMapping",
+			value: create(ClipIdMappingResponseSchema, {
+				matchId,
+				mappings: mappings.map((m) =>
+					create(ClipIdMappingSchema, {
+						shortId: m.shortId,
+						fullId: m.fullId,
+						trackId: m.trackId,
+						clipType: mediaTypeMap[m.clipType],
+					})
+				),
+			}),
+		},
+	});
+}
+
+export function computeClipDelta(
+	previous: { startTime: number; duration: number; sourceIn: number; properties?: Record<string, unknown> },
+	current: { startTime: number; duration: number; sourceIn: number; properties?: Record<string, unknown> }
+): { startTime?: number; duration?: number; sourceIn?: number; properties?: Partial<ClipProperties> } | null {
+	const delta: { startTime?: number; duration?: number; sourceIn?: number; properties?: Partial<ClipProperties> } = {};
+	let hasChanges = false;
+
+	if (Math.abs(previous.startTime - current.startTime) > 0.001) {
+		delta.startTime = current.startTime;
+		hasChanges = true;
+	}
+	if (Math.abs(previous.duration - current.duration) > 0.001) {
+		delta.duration = current.duration;
+		hasChanges = true;
+	}
+	if (Math.abs(previous.sourceIn - current.sourceIn) > 0.001) {
+		delta.sourceIn = current.sourceIn;
+		hasChanges = true;
+	}
+
+	// Compare properties if either side has them
+	if (previous.properties || current.properties) {
+		const propDelta: Partial<ClipProperties> = {};
+		let hasPropertyChanges = false;
+
+		const prevProps = previous.properties ?? {};
+		const currProps = current.properties ?? {};
+
+		const numericKeys = new Set([
+			"x",
+			"y",
+			"width",
+			"height",
+			"opacity",
+			"rotation",
+			"scale",
+			"speed",
+			"volume",
+			"pan",
+			"pitch",
+			"cropTop",
+			"cropBottom",
+			"cropLeft",
+			"cropRight",
+			"zoomX",
+			"zoomY",
+			"freezeFrameTime",
+		]);
+
+		const propKeys = [
+			"x",
+			"y",
+			"width",
+			"height",
+			"opacity",
+			"rotation",
+			"scale",
+			"speed",
+			"flipX",
+			"flipY",
+			"zoomX",
+			"zoomY",
+			"zoomLinked",
+			"freezeFrame",
+			"freezeFrameTime",
+			"volume",
+			"pan",
+			"pitch",
+			"cropTop",
+			"cropBottom",
+			"cropLeft",
+			"cropRight",
+		] as const;
+
+		for (const key of propKeys) {
+			const prevVal = prevProps[key];
+			const currVal = currProps[key];
+
+			let isDifferent = false;
+
+			if (numericKeys.has(key)) {
+				const prevNum = typeof prevVal === "number" ? prevVal : NaN;
+				const currNum = typeof currVal === "number" ? currVal : NaN;
+
+				if (Number.isNaN(prevNum) !== Number.isNaN(currNum)) {
+					isDifferent = true;
+				} else if (!Number.isNaN(prevNum) && !Number.isNaN(currNum)) {
+					isDifferent = Math.abs(prevNum - currNum) > 0.001;
+				}
+			} else {
+				isDifferent = prevVal !== currVal;
+			}
+
+			if (isDifferent) {
+				(propDelta as Record<string, unknown>)[key] = currVal;
+				hasPropertyChanges = true;
+			}
+		}
+
+		if (hasPropertyChanges) {
+			delta.properties = propDelta;
+			hasChanges = true;
+		}
+	}
+
+	return hasChanges ? delta : null;
+}
+
+export function applyClipDelta(
+	current: { startTime: number; duration: number; sourceIn: number; properties?: Record<string, unknown> },
+	delta: ClipDeltaUpdate
+): void {
+	if (delta.startTime !== undefined) current.startTime = delta.startTime;
+	if (delta.duration !== undefined) current.duration = delta.duration;
+	if (delta.sourceIn !== undefined) current.sourceIn = delta.sourceIn;
+
+	if (delta.properties) {
+		if (!current.properties) {
+			current.properties = {};
+		}
+		const props = delta.properties;
+		if (props.x !== undefined) current.properties.x = props.x;
+		if (props.y !== undefined) current.properties.y = props.y;
+		if (props.width !== undefined) current.properties.width = props.width;
+		if (props.height !== undefined) current.properties.height = props.height;
+		if (props.opacity !== undefined) current.properties.opacity = props.opacity;
+		if (props.rotation !== undefined) current.properties.rotation = props.rotation;
+		if (props.scale !== undefined) current.properties.scale = props.scale;
+		if (props.speed !== undefined) current.properties.speed = props.speed;
+		if (props.flipX !== undefined) current.properties.flipX = props.flipX;
+		if (props.flipY !== undefined) current.properties.flipY = props.flipY;
+		if (props.zoomX !== undefined) current.properties.zoomX = props.zoomX;
+		if (props.zoomY !== undefined) current.properties.zoomY = props.zoomY;
+		if (props.zoomLinked !== undefined) current.properties.zoomLinked = props.zoomLinked;
+		if (props.freezeFrame !== undefined) current.properties.freezeFrame = props.freezeFrame;
+		if (props.freezeFrameTime !== undefined) current.properties.freezeFrameTime = props.freezeFrameTime;
+		if (props.volume !== undefined) current.properties.volume = props.volume;
+		if (props.pan !== undefined) current.properties.pan = props.pan;
+		if (props.pitch !== undefined) current.properties.pitch = props.pitch;
+		if (props.cropTop !== undefined) current.properties.cropTop = props.cropTop;
+		if (props.cropBottom !== undefined) current.properties.cropBottom = props.cropBottom;
+		if (props.cropLeft !== undefined) current.properties.cropLeft = props.cropLeft;
+		if (props.cropRight !== undefined) current.properties.cropRight = props.cropRight;
+	}
 }

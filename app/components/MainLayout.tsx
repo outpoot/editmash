@@ -29,6 +29,7 @@ export interface MainLayoutRef {
 	addRemoteClip: (trackId: string, clip: Clip) => void;
 	removeRemoteClip: (trackId: string, clipId: string) => void;
 	updateRemoteClip: (trackId: string, clipId: string, updates: Partial<Clip>) => void;
+	moveRemoteClip: (oldTrackId: string, newTrackId: string, clipId: string, updates: Partial<Clip>) => void;
 	splitRemoteClip: (trackId: string, originalClip: Clip, newClip: Clip) => void;
 	syncZoneClips: (clips: Array<{ trackId: string; clip: Clip }>) => void;
 	getTimelineState: () => TimelineState | null;
@@ -158,6 +159,9 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 				},
 				updateRemoteClip: (trackId: string, clipId: string, updates: Partial<Clip>) => {
 					timelineRef.current?.updateRemoteClip(trackId, clipId, updates);
+				},
+				moveRemoteClip: (oldTrackId: string, newTrackId: string, clipId: string, updates: Partial<Clip>) => {
+					timelineRef.current?.moveRemoteClip(oldTrackId, newTrackId, clipId, updates);
 				},
 				splitRemoteClip: (trackId: string, originalClip: Clip, newClip: Clip) => {
 					timelineRef.current?.splitRemoteClip(trackId, originalClip, newClip);
