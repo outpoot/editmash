@@ -7,7 +7,7 @@ import * as Tone from "tone";
 interface VideoPreviewProps {
 	timelineState: TimelineState | null;
 	currentTime: number;
-	currentTimeRef: React.MutableRefObject<number>;
+	currentTimeRef: React.RefObject<number>;
 	isPlaying: boolean;
 	onPlayPause: () => void;
 	transformMode?: "transform" | "crop" | null;
