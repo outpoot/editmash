@@ -106,7 +106,7 @@ export default function MatchmakingPage() {
 								timelineDuration: l.matchConfig.timelineDuration,
 								matchDuration: l.matchConfig.matchDuration,
 								maxPlayers: l.matchConfig.maxPlayers,
-								audioMaxVolume: l.matchConfig.audioMaxVolume,
+								audioMaxDb: l.matchConfig.audioMaxDb,
 								clipSizeMin: l.matchConfig.clipSizeMin,
 								clipSizeMax: l.matchConfig.clipSizeMax,
 								maxVideoTracks: l.matchConfig.maxVideoTracks,
@@ -336,14 +336,17 @@ export default function MatchmakingPage() {
 									<div className="space-y-2">
 										<div className="flex justify-between">
 											<Label>Max Volume</Label>
-											<span className="text-sm text-muted-foreground">{(matchConfig.audioMaxVolume * 100).toFixed(0)}%</span>
+											<span className="text-sm text-muted-foreground">
+												{matchConfig.audioMaxDb > 0 ? "+" : ""}
+												{matchConfig.audioMaxDb} dB
+											</span>
 										</div>
 										<Slider
-											value={[matchConfig.audioMaxVolume * 100]}
-											onValueChange={([v]) => setMatchConfig({ ...matchConfig, audioMaxVolume: v / 100 })}
-											min={50}
-											max={200}
-											step={10}
+											value={[matchConfig.audioMaxDb]}
+											onValueChange={([v]) => setMatchConfig({ ...matchConfig, audioMaxDb: v })}
+											min={-12}
+											max={12}
+											step={1}
 										/>
 									</div>
 

@@ -44,6 +44,22 @@ export interface ClipIdMap {
 	nextShortId: number;
 }
 
+export interface MatchConfigCache {
+	timelineDuration: number;
+	clipSizeMin: number;
+	clipSizeMax: number;
+	audioMaxDb: number;
+	maxVideoTracks: number;
+	maxAudioTracks: number;
+	maxClipsPerUser: number;
+	constraints: string[];
+}
+
+export interface PlayerClipCount {
+	userId: string;
+	clipCount: number;
+}
+
 export const PORT = parseInt(process.env.WS_PORT || "3001", 10);
 export const IDLE_TIMEOUT = 120; // seconds
 export const WS_API_KEY = process.env.WS_API_KEY;
@@ -62,6 +78,10 @@ export const matchTimelines = new Map<string, CachedTimeline>();
 export const pendingTimelineSyncs = new Map<string, ReturnType<typeof setTimeout>>();
 
 export const matchClipIdMaps = new Map<string, ClipIdMap>();
+
+export const matchConfigs = new Map<string, MatchConfigCache>();
+
+export const matchPlayerClipCounts = new Map<string, Map<string, number>>();
 
 export const pendingBatches = new Map<
 	string,

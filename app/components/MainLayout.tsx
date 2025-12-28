@@ -22,6 +22,10 @@ interface MainLayoutProps {
 	onSelectionChange?: (selectedClips: Array<{ clipId: string; trackId: string }>) => void;
 	remoteSelections?: Map<string, RemoteSelection>;
 	onCurrentTimeChange?: (time: number) => void;
+	canAddClip?: () => { allowed: boolean; reason?: string };
+	canSplitClip?: () => { allowed: boolean; reason?: string };
+	clipSizeMin?: number;
+	clipSizeMax?: number;
 }
 
 export interface MainLayoutRef {
@@ -51,6 +55,10 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 			onSelectionChange,
 			remoteSelections,
 			onCurrentTimeChange,
+			canAddClip,
+			canSplitClip,
+			clipSizeMin,
+			clipSizeMax,
 		},
 		ref
 	) => {
@@ -231,6 +239,10 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 									onClipRemoved={handleClipRemoved}
 									onClipSplit={handleClipSplit}
 									remoteSelections={remoteSelections}
+									canAddClip={canAddClip}
+									canSplitClip={canSplitClip}
+									clipSizeMin={clipSizeMin}
+									clipSizeMax={clipSizeMax}
 								/>
 							</ResizablePanel>
 						</ResizablePanelGroup>

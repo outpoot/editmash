@@ -7,7 +7,7 @@ import TopBar from "@/app/components/TopBar";
 import MainLayout, { MainLayoutRef } from "@/app/components/MainLayout";
 import { MatchWS, useMatchWebSocketOptional, flatPropertiesToNested } from "@/app/components/MatchWS";
 import { TimelineState, Clip, VideoClip, AudioClip, ImageClip, Track } from "@/app/types/timeline";
-import { Match, MatchStatus, DEFAULT_MATCH_CONFIG } from "@/app/types/match";
+import { Match, MatchStatus, MatchConfig, DEFAULT_MATCH_CONFIG } from "@/app/types/match";
 import { mediaStore } from "@/app/store/mediaStore";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { WifiOff02Icon } from "@hugeicons/core-free-icons";
@@ -377,6 +377,7 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 			username={stablePlayerRef.current.username}
 			userImage={userImage}
 			highlightColor={highlightColor}
+			matchConfig={match?.config}
 			onRemoteMediaUploaded={handleRemoteMediaUploaded}
 			onRemoteClipAdded={handleRemoteClipAdded}
 			onRemoteClipUpdated={handleRemoteClipUpdated}
@@ -395,6 +396,7 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 				localTimeRemaining={localTimeRemaining}
 				mainLayoutRef={mainLayoutRef}
 				maxClipsPerUser={maxClipsPerUser}
+				matchConfig={match?.config}
 				initialTimeline={match?.timeline ? transformTimelineFromApi(match.timeline) : undefined}
 			/>
 		</MatchWS>
@@ -407,6 +409,7 @@ interface MatchContentProps {
 	localTimeRemaining: number | null;
 	mainLayoutRef: React.RefObject<MainLayoutRef | null>;
 	maxClipsPerUser: number;
+	matchConfig?: MatchConfig;
 	initialTimeline?: TimelineState;
 }
 
@@ -416,6 +419,7 @@ function MatchContent({
 	localTimeRemaining,
 	mainLayoutRef,
 	maxClipsPerUser,
+	matchConfig,
 	initialTimeline,
 }: MatchContentProps) {
 	const ws = useMatchWebSocketOptional();
@@ -433,8 +437,7 @@ function MatchContent({
 	const loadTimeline = useCallback(() => {
 		if (initialLoadDoneRef.current) return;
 
-		const totalClips = initialTimeline?.tracks?.reduce((acc, t) => acc + t.clips.length, 0) ?? 0;
-		if (!initialTimeline || !initialTimeline.tracks || totalClips === 0) return;
+		if (!initialTimeline || !initialTimeline.tracks) return;
 
 		if (mainLayoutRef.current) {
 			mainLayoutRef.current.loadTimeline(initialTimeline);
@@ -461,9 +464,27 @@ function MatchContent({
 
 	const handleClipAdded = useCallback(
 		(trackId: string, clip: Clip) => {
-			ws?.broadcastClipAdded(trackId, clip);
+			const timelineState = mainLayoutRef.current?.getTimelineState();
+			if (!timelineState) return;
+
+			const timeline = {
+				duration: timelineState.duration,
+				tracks: timelineState.tracks.map((track) => ({
+					id: track.id,
+					type: track.type,
+					clips: track.clips.map((c) => ({
+						id: c.id,
+						type: c.type,
+						startTime: c.startTime,
+						duration: c.duration,
+						properties: c.type === "audio" ? { volume: ((c as AudioClip).properties as { volume?: number }).volume } : undefined,
+					})),
+				})),
+			};
+
+			ws?.broadcastClipAdded(trackId, clip, timeline);
 		},
-		[ws]
+		[ws, mainLayoutRef]
 	);
 
 	const handleClipUpdated = useCallback(
@@ -482,9 +503,27 @@ function MatchContent({
 
 	const handleClipSplit = useCallback(
 		(trackId: string, originalClip: Clip, newClip: Clip) => {
-			ws?.broadcastClipSplit(trackId, originalClip, newClip);
+			const timelineState = mainLayoutRef.current?.getTimelineState();
+			if (!timelineState) return;
+
+			const timeline = {
+				duration: timelineState.duration,
+				tracks: timelineState.tracks.map((track) => ({
+					id: track.id,
+					type: track.type,
+					clips: track.clips.map((c) => ({
+						id: c.id,
+						type: c.type,
+						startTime: c.startTime,
+						duration: c.duration,
+						properties: c.type === "audio" ? { volume: ((c as AudioClip).properties as { volume?: number }).volume } : undefined,
+					})),
+				})),
+			};
+
+			ws?.broadcastClipSplit(trackId, originalClip, newClip, timeline);
 		},
-		[ws]
+		[ws, mainLayoutRef]
 	);
 
 	const handleSelectionChange = useCallback(
@@ -527,6 +566,42 @@ function MatchContent({
 		}
 	}, [ws?.status, ws?.subscribeToZone]);
 
+	const canAddClip = useCallback(() => {
+		const config = ws?.matchConfig;
+		const clipCount = ws?.playerClipCount ?? 0;
+
+		if (!config || config.maxClipsPerUser === 0) {
+			return { allowed: true };
+		}
+
+		if (clipCount >= config.maxClipsPerUser) {
+			return {
+				allowed: false,
+				reason: `You've reached the maximum clip limit (${config.maxClipsPerUser} clips)`,
+			};
+		}
+
+		return { allowed: true };
+	}, [ws?.matchConfig, ws?.playerClipCount]);
+
+	const canSplitClip = useCallback(() => {
+		const config = ws?.matchConfig;
+		const clipCount = ws?.playerClipCount ?? 0;
+
+		if (!config || config.maxClipsPerUser === 0) {
+			return { allowed: true };
+		}
+
+		if (clipCount >= config.maxClipsPerUser) {
+			return {
+				allowed: false,
+				reason: `You've reached the maximum clip limit (${config.maxClipsPerUser} clips). Delete a clip to split.`,
+			};
+		}
+
+		return { allowed: true };
+	}, [ws?.matchConfig, ws?.playerClipCount]);
+
 	return (
 		<div className="h-screen flex flex-col relative">
 			<TopBar
@@ -534,6 +609,8 @@ function MatchContent({
 				onToggleEffects={() => setShowEffects(!showEffects)}
 				timeRemaining={localTimeRemaining}
 				playersOnline={ws?.playersOnline}
+				playerClipCount={ws?.playerClipCount}
+				maxClipsPerUser={matchConfig?.maxClipsPerUser}
 			/>
 			<MainLayout
 				ref={mainLayoutCallbackRef}
@@ -546,6 +623,10 @@ function MatchContent({
 				onSelectionChange={handleSelectionChange}
 				remoteSelections={ws?.remoteSelections}
 				onCurrentTimeChange={handleCurrentTimeChange}
+				canAddClip={canAddClip}
+				canSplitClip={canSplitClip}
+				clipSizeMin={matchConfig?.clipSizeMin}
+				clipSizeMax={matchConfig?.clipSizeMax}
 			/>
 
 			{isFailed && (

@@ -292,7 +292,7 @@ message MatchConfig {
   double timeline_duration = 1;
   double match_duration = 2;
   int32 max_players = 3;
-  double audio_max_volume = 4;
+  double audio_max_db = 4;
   double clip_size_min = 5;
   double clip_size_max = 6;
   int32 max_video_tracks = 7;

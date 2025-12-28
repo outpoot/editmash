@@ -5,10 +5,13 @@ import {
 	lobbySubscribers,
 	matchTimelines,
 	matchClipIdMaps,
+	matchConfigs,
+	matchPlayerClipCounts,
 	WS_API_KEY,
 	ZONE_BUFFER,
 	type WebSocketData,
 	type TimelineClip,
+	type MatchConfigCache,
 } from "./state";
 import {
 	type WSMessage,
@@ -37,6 +40,14 @@ import {
 	cleanupMatchResources,
 } from "./timelineCache";
 import { broadcast, broadcastClipMessage, requestTimelineSync } from "./broadcast";
+import {
+	validateClipConstraints,
+	validateClipUpdate,
+	validateClipSplit,
+	validatePlayerClipLimit,
+	type ClipForValidation,
+	type TimelineForValidation,
+} from "../lib/clipConstraints";
 
 export async function fetchLobbies() {
 	try {
@@ -61,7 +72,7 @@ export async function fetchLobbies() {
 				timelineDuration: number;
 				matchDuration: number;
 				maxPlayers: number;
-				audioMaxVolume: number;
+				audioMaxDb: number;
 				clipSizeMin: number;
 				clipSizeMax: number;
 				maxVideoTracks: number;
@@ -119,6 +130,83 @@ export async function fetchLobbies() {
 	}
 }
 
+async function fetchMatchConfig(matchId: string): Promise<MatchConfigCache | null> {
+	const cached = matchConfigs.get(matchId);
+	if (cached) return cached;
+
+	try {
+		const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+		const response = await fetch(`${apiUrl}/api/matches/${matchId}`);
+		if (!response.ok) return null;
+
+		const data = await response.json();
+		const config = data.match?.config;
+		if (!config) return null;
+
+		const configCache: MatchConfigCache = {
+			timelineDuration: config.timelineDuration ?? 30,
+			clipSizeMin: config.clipSizeMin ?? 0.5,
+			clipSizeMax: config.clipSizeMax ?? 10,
+			audioMaxDb: config.audioMaxDb ?? 6,
+			maxVideoTracks: config.maxVideoTracks ?? 20,
+			maxAudioTracks: config.maxAudioTracks ?? 20,
+			maxClipsPerUser: config.maxClipsPerUser ?? 10,
+			constraints: config.constraints ?? [],
+		};
+
+		matchConfigs.set(matchId, configCache);
+		return configCache;
+	} catch (error) {
+		console.error(`[WS] Failed to fetch match config for ${matchId}:`, error);
+		return null;
+	}
+}
+
+function getTimelineForValidation(matchId: string): TimelineForValidation {
+	const timeline = matchTimelines.get(matchId);
+	if (!timeline) {
+		return { duration: 30, tracks: [] };
+	}
+	return {
+		duration: timeline.duration,
+		tracks: timeline.tracks.map((track) => ({
+			id: track.id,
+			type: track.type,
+			clips: track.clips.map((clip) => ({
+				id: clip.id,
+				type: clip.type,
+				startTime: clip.startTime,
+				duration: clip.duration,
+				properties: clip.properties as { volume?: number; [key: string]: unknown },
+			})),
+		})),
+	};
+}
+
+function getPlayerClipCount(matchId: string, userId: string): number {
+	const playerCounts = matchPlayerClipCounts.get(matchId);
+	if (!playerCounts) return 0;
+	return playerCounts.get(userId) ?? 0;
+}
+
+function incrementPlayerClipCount(matchId: string, userId: string): void {
+	if (!matchPlayerClipCounts.has(matchId)) {
+		matchPlayerClipCounts.set(matchId, new Map());
+	}
+	const playerCounts = matchPlayerClipCounts.get(matchId)!;
+	const current = playerCounts.get(userId) ?? 0;
+	playerCounts.set(userId, current + 1);
+}
+
+function decrementPlayerClipCount(matchId: string, userId: string): void {
+	const playerCounts = matchPlayerClipCounts.get(matchId);
+	if (!playerCounts) return;
+	const current = playerCounts.get(userId) ?? 0;
+	if (current > 0) {
+		playerCounts.set(userId, current - 1);
+	}
+}
+
 export function handleSubscribeLobbies(ws: ServerWebSocket<WebSocketData>): void {
 	ws.data.subscribedToLobbies = true;
 	lobbySubscribers.add(ws.data.id);
@@ -138,7 +226,7 @@ export function handleUnsubscribeLobbies(ws: ServerWebSocket<WebSocketData>): vo
 	console.log(`[WS] Connection ${ws.data.id} unsubscribed from lobbies`);
 }
 
-export function handleJoinMatch(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
+export async function handleJoinMatch(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): Promise<void> {
 	if (msg.payload.case !== "joinMatch" || !msg.payload.value) return;
 	const { matchId, userId, username } = msg.payload.value;
 
@@ -156,6 +244,8 @@ export function handleJoinMatch(ws: ServerWebSocket<WebSocketData>, msg: WSMessa
 		matchPlayers.set(matchId, new Set());
 	}
 	matchPlayers.get(matchId)!.add(ws.data.id);
+
+	await fetchMatchConfig(matchId);
 
 	const playerCount = matchPlayers.get(matchId)!.size;
 	ws.send(serializeMessage(createPlayerCountMessage(matchId, playerCount)));
@@ -214,9 +304,10 @@ export function handleMediaRemoved(ws: ServerWebSocket<WebSocketData>, msg: WSMe
 
 const mediaTypeMap: Record<number, "video" | "audio" | "image"> = { 1: "video", 2: "audio", 3: "image" };
 
-export function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
+export async function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): Promise<void> {
 	if (msg.payload.case !== "clipAdded" || !msg.payload.value) return;
-	const { matchId, trackId, clip } = msg.payload.value;
+	const { matchId, trackId, clip, addedBy } = msg.payload.value;
+	const userId = addedBy?.userId || ws.data.userId;
 
 	if (ws.data.matchId !== matchId) {
 		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
@@ -225,6 +316,34 @@ export function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: WSMessa
 
 	if (!clip || clip.startTime === undefined || clip.duration === undefined) {
 		console.warn(`[WS] clipAdded missing clip timing data for match ${matchId}, will broadcast to all clients`);
+	}
+
+	const config = await fetchMatchConfig(matchId);
+	if (config && clip) {
+		if (userId) {
+			const playerClipCount = getPlayerClipCount(matchId, userId);
+			const limitResult = validatePlayerClipLimit(config, playerClipCount);
+			if (!limitResult.valid) {
+				ws.send(serializeMessage(createErrorMessage("CONSTRAINT_VIOLATION", limitResult.reason || "Clip limit reached")));
+				return;
+			}
+		}
+
+		const clipForValidation: ClipForValidation = {
+			id: clip.id,
+			type: mediaTypeMap[clip.type] || "video",
+			startTime: clip.startTime,
+			duration: clip.duration,
+			properties: clip.properties ? { volume: clip.properties.volume } : undefined,
+		};
+
+		const timeline = getTimelineForValidation(matchId);
+		const validationResult = validateClipConstraints(clipForValidation, config, timeline, trackId);
+
+		if (!validationResult.valid) {
+			ws.send(serializeMessage(createErrorMessage("CONSTRAINT_VIOLATION", validationResult.reason || "Invalid clip")));
+			return;
+		}
 	}
 
 	if (clip) {
@@ -254,6 +373,10 @@ export function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: WSMessa
 				}
 			}
 		}
+
+		if (userId) {
+			incrementPlayerClipCount(matchId, userId);
+		}
 	}
 
 	const clipStartTime = clip?.startTime;
@@ -263,13 +386,31 @@ export function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: WSMessa
 	requestTimelineSync(matchId);
 }
 
-export function handleClipUpdated(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
+export async function handleClipUpdated(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): Promise<void> {
 	if (msg.payload.case !== "clipUpdated" || !msg.payload.value) return;
 	const { matchId, trackId, clipId, updates } = msg.payload.value;
 
 	if (ws.data.matchId !== matchId) {
 		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
 		return;
+	}
+
+	const config = await fetchMatchConfig(matchId);
+	if (config && updates) {
+		const updateForValidation: Partial<ClipForValidation> = {
+			...(updates.startTime !== undefined && { startTime: updates.startTime }),
+			...(updates.duration !== undefined && { duration: updates.duration }),
+			...(updates.type && { type: mediaTypeMap[updates.type] || "video" }),
+			...(updates.properties && { properties: { volume: updates.properties.volume } }),
+		};
+
+		const timeline = getTimelineForValidation(matchId);
+		const validationResult = validateClipUpdate(clipId, updateForValidation, config, timeline, trackId);
+
+		if (!validationResult.valid) {
+			ws.send(serializeMessage(createErrorMessage("CONSTRAINT_VIOLATION", validationResult.reason || "Invalid clip update")));
+			return;
+		}
 	}
 
 	if (updates) {
@@ -293,7 +434,8 @@ export function handleClipUpdated(ws: ServerWebSocket<WebSocketData>, msg: WSMes
 
 export function handleClipRemoved(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
 	if (msg.payload.case !== "clipRemoved" || !msg.payload.value) return;
-	const { matchId, trackId, clipId } = msg.payload.value;
+	const { matchId, trackId, clipId, removedBy } = msg.payload.value;
+	const userId = removedBy?.userId || ws.data.userId;
 
 	if (ws.data.matchId !== matchId) {
 		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
@@ -302,11 +444,16 @@ export function handleClipRemoved(ws: ServerWebSocket<WebSocketData>, msg: WSMes
 
 	updateCacheClipRemoved(matchId, trackId, clipId);
 	removeClipIdMapping(matchId, clipId);
+
+	if (userId) {
+		decrementPlayerClipCount(matchId, userId);
+	}
+
 	broadcast(matchId, msg, ws.data.id);
 	requestTimelineSync(matchId);
 }
 
-export function handleClipBatchUpdate(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
+export async function handleClipBatchUpdate(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): Promise<void> {
 	if (msg.payload.case !== "clipBatchUpdate" || !msg.payload.value) return;
 	const { matchId, updates } = msg.payload.value;
 
@@ -317,6 +464,9 @@ export function handleClipBatchUpdate(ws: ServerWebSocket<WebSocketData>, msg: W
 
 	if (!updates || updates.length === 0) return;
 
+	const config = await fetchMatchConfig(matchId);
+	const timeline = getTimelineForValidation(matchId);
+
 	for (const delta of updates) {
 		const clipInfo = getFullClipId(matchId, delta.shortId);
 		if (!clipInfo) {
@@ -324,11 +474,26 @@ export function handleClipBatchUpdate(ws: ServerWebSocket<WebSocketData>, msg: W
 			continue;
 		}
 
-		const { fullId: clipId } = clipInfo;
+		const { fullId: clipId, trackId } = clipInfo;
 
-		const timeline = matchTimelines.get(matchId);
-		if (timeline) {
-			for (const track of timeline.tracks) {
+		if (config) {
+			const updateForValidation: Partial<ClipForValidation> = {
+				...(delta.startTime !== undefined && { startTime: delta.startTime }),
+				...(delta.duration !== undefined && { duration: delta.duration }),
+				...(delta.properties && { properties: { volume: delta.properties.volume } }),
+			};
+
+			const validationResult = validateClipUpdate(clipId, updateForValidation, config, timeline, delta.newTrackId || trackId);
+			if (!validationResult.valid) {
+				ws.send(serializeMessage(createErrorMessage("CONSTRAINT_VIOLATION", validationResult.reason || "Invalid clip update")));
+				console.log(`[WS] Batch update rejected in match ${matchId}: ${validationResult.reason}`);
+				return;
+			}
+		}
+
+		const cachedTimeline = matchTimelines.get(matchId);
+		if (cachedTimeline) {
+			for (const track of cachedTimeline.tracks) {
 				const clip = track.clips.find((c) => c.id === clipId);
 				if (clip) {
 					applyClipDelta(clip, delta);
@@ -342,9 +507,10 @@ export function handleClipBatchUpdate(ws: ServerWebSocket<WebSocketData>, msg: W
 	requestTimelineSync(matchId);
 }
 
-export function handleClipSplit(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
+export async function handleClipSplit(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): Promise<void> {
 	if (msg.payload.case !== "clipSplit" || !msg.payload.value) return;
-	const { matchId, trackId, originalClip, newClip } = msg.payload.value;
+	const { matchId, trackId, originalClip, newClip, splitBy } = msg.payload.value;
+	const userId = splitBy?.userId || ws.data.userId;
 
 	if (ws.data.matchId !== matchId) {
 		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
@@ -354,6 +520,42 @@ export function handleClipSplit(ws: ServerWebSocket<WebSocketData>, msg: WSMessa
 	if (!originalClip || !newClip) {
 		ws.send(serializeMessage(createErrorMessage("INVALID_PAYLOAD", "Missing clip data in split message")));
 		return;
+	}
+
+	const config = await fetchMatchConfig(matchId);
+	if (config) {
+		if (userId) {
+			const playerClipCount = getPlayerClipCount(matchId, userId);
+			const limitResult = validatePlayerClipLimit(config, playerClipCount);
+			if (!limitResult.valid) {
+				ws.send(serializeMessage(createErrorMessage("CONSTRAINT_VIOLATION", limitResult.reason || "Clip limit reached")));
+				return;
+			}
+		}
+
+		const originalForValidation: ClipForValidation = {
+			id: originalClip.id,
+			type: mediaTypeMap[originalClip.type] || "video",
+			startTime: originalClip.startTime,
+			duration: originalClip.duration,
+			properties: originalClip.properties ? { volume: originalClip.properties.volume } : undefined,
+		};
+
+		const newForValidation: ClipForValidation = {
+			id: newClip.id,
+			type: mediaTypeMap[newClip.type] || "video",
+			startTime: newClip.startTime,
+			duration: newClip.duration,
+			properties: newClip.properties ? { volume: newClip.properties.volume } : undefined,
+		};
+
+		const timeline = getTimelineForValidation(matchId);
+		const validationResult = validateClipSplit(originalForValidation, newForValidation, config, timeline, trackId);
+
+		if (!validationResult.valid) {
+			ws.send(serializeMessage(createErrorMessage("CONSTRAINT_VIOLATION", validationResult.reason || "Invalid split")));
+			return;
+		}
 	}
 
 	updateCacheClipSplit(
@@ -384,6 +586,10 @@ export function handleClipSplit(ws: ServerWebSocket<WebSocketData>, msg: WSMessa
 			properties: newClip.properties ? ({ ...newClip.properties } as Record<string, unknown>) : {},
 		}
 	);
+
+	if (userId) {
+		incrementPlayerClipCount(matchId, userId);
+	}
 
 	const splitSpanDuration = newClip.startTime + newClip.duration - originalClip.startTime;
 	broadcastClipMessage(matchId, msg, originalClip.startTime, splitSpanDuration, ws.data.id);

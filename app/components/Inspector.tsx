@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Checkbox } from "@/components/ui/checkbox";
 import DragNumberInput from "./DragNumberInput";
+import { useMatchWebSocketOptional } from "./MatchWS";
 
 const DEFAULT_VIDEO_PROPERTIES: VideoClipProperties = {
 	position: { x: 0, y: 0 },
@@ -48,6 +49,9 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 	const [speedExpanded, setSpeedExpanded] = useState(true);
 	const [audioExpanded, setAudioExpanded] = useState(true);
 	const [activeTab, setActiveTab] = useState<string>("video");
+
+	const matchWs = useMatchWebSocketOptional();
+	const audioMaxDb = matchWs?.matchConfig?.audioMaxDb ?? 30;
 
 	const clip = selectedClips?.[selectedClips.length - 1]?.clip;
 	const trackId = selectedClips?.[selectedClips.length - 1]?.trackId;
@@ -618,26 +622,28 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 													<Slider
 														value={[audio.volume <= 0 ? -60 : 20 * Math.log10(audio.volume)]}
 														onValueChange={([value]) => {
-															const linearVolume = value <= -60 ? 0 : Math.pow(10, value / 20);
+															const clampedDb = Math.min(value, audioMaxDb);
+															const linearVolume = clampedDb <= -60 ? 0 : Math.pow(10, clampedDb / 20);
 															updateAudioProperty({
-																volume: Math.max(0, Math.min(31.62, linearVolume)),
+																volume: Math.max(0, linearVolume),
 															});
 														}}
 														min={-60}
-														max={30}
+														max={audioMaxDb}
 														step={1}
 														className="flex-1"
 													/>
 													<DragNumberInput
 														value={audio.volume <= 0 ? -60.0 : Number((20 * Math.log10(audio.volume)).toFixed(1))}
 														onChange={(newValue) => {
-															const linearVolume = newValue <= -60 ? 0 : Math.pow(10, newValue / 20);
+															const clampedDb = Math.min(newValue, audioMaxDb);
+															const linearVolume = clampedDb <= -60 ? 0 : Math.pow(10, clampedDb / 20);
 															updateAudioProperty({
-																volume: Math.max(0, Math.min(31.62, linearVolume)),
+																volume: Math.max(0, linearVolume),
 															});
 														}}
 														min={-60}
-														max={30}
+														max={audioMaxDb}
 														step={0.1}
 														className="w-14"
 													/>

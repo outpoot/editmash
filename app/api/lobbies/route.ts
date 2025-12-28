@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createLobby, listLobbies, ensureSystemLobbiesExist, cleanupStaleMatches } from "@/lib/storage";
-import { validateMatchConfig } from "@/lib/constraints";
+import { validateMatchConfig } from "@/lib/clipConstraints";
 import { DEFAULT_MATCH_CONFIG, MatchConfig } from "@/app/types/match";
 import { CreateLobbyRequest, CreateLobbyResponse, LobbyListResponse, LobbyStatus } from "@/app/types/lobby";
 import { getServerSession } from "@/lib/auth";

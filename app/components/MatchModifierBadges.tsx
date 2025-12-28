@@ -70,11 +70,12 @@ export function MatchModifierBadges({ matchConfig, showMaxPlayers = false, verti
 					<TooltipTrigger asChild>
 						<Badge variant="secondary" className="gap-1 text-xs cursor-default w-fit">
 							<HugeiconsIcon icon={VolumeHighIcon} className="w-3 h-3" />
-							{(matchConfig.audioMaxVolume * 100).toFixed(0)}%
+							{matchConfig.audioMaxDb > 0 ? "+" : ""}
+							{matchConfig.audioMaxDb} dB
 						</Badge>
 					</TooltipTrigger>
 					<TooltipContent>
-						<p>Max volume is {(matchConfig.audioMaxVolume * 100).toFixed(0)}%.</p>
+						<p>Max volume is {matchConfig.audioMaxDb > 0 ? "+" : ""}{matchConfig.audioMaxDb} dB.</p>
 					</TooltipContent>
 				</Tooltip>
 

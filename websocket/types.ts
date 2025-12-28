@@ -606,7 +606,7 @@ export function toLobbyInfoProto(lobby: {
 		timelineDuration: number;
 		matchDuration: number;
 		maxPlayers: number;
-		audioMaxVolume: number;
+		audioMaxDb: number;
 		clipSizeMin: number;
 		clipSizeMax: number;
 		maxVideoTracks: number;

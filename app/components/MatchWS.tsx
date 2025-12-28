@@ -21,6 +21,7 @@ import {
 	isZoneClipsMessage,
 	isClipBatchUpdateMessage,
 	isClipIdMappingMessage,
+	isErrorMessage,
 	createMediaUploadedMessage,
 	createMediaRemovedMessage,
 	createClipAddedMessage,
@@ -44,6 +45,17 @@ import {
 	type ClipDeltaUpdate,
 } from "@/websocket/types";
 import type { Clip } from "@/app/types/timeline";
+import type { MatchConfig } from "@/app/types/match";
+import {
+	validateClipConstraints,
+	validatePlayerClipLimit,
+	validateClipSplit as validateClipSplitConstraints,
+	clampAudioVolume,
+	type ClipForValidation,
+	type TimelineForValidation,
+	type ClipConstraintConfig,
+} from "@/lib/clipConstraints";
+import { toast } from "sonner";
 
 type ConnectionStatus = "connecting" | "connected" | "disconnected" | "failed";
 
@@ -87,16 +99,25 @@ interface MatchWebSocketContextValue {
 	playersOnline: number;
 	matchId: string;
 	remoteSelections: Map<string, RemoteSelection>;
+	matchConfig: ClipConstraintConfig | null;
+	playerClipCount: number;
 	broadcastMediaUploaded: (media: MediaItem) => void;
 	broadcastMediaRemoved: (mediaId: string) => void;
-	broadcastClipAdded: (trackId: string, clip: Clip) => void;
+	broadcastClipAdded: (trackId: string, clip: Clip, timeline: TimelineForValidation) => boolean;
 	broadcastClipUpdated: (trackId: string, clip: Clip) => void;
 	broadcastClipRemoved: (trackId: string, clipId: string) => void;
-	broadcastClipSplit: (trackId: string, originalClip: Clip, newClip: Clip) => void;
+	broadcastClipSplit: (trackId: string, originalClip: Clip, newClip: Clip, timeline: TimelineForValidation) => boolean;
 	broadcastClipSelection: (selectedClips: Array<{ clipId: string; trackId: string }>) => void;
 	sendTimelineSync: (timeline: TimelineData) => void;
 	subscribeToZone: (startTime: number, endTime: number) => void;
 	currentZone: { startTime: number; endTime: number } | null;
+	validateClipAdd: (clip: Clip, trackId: string, timeline: TimelineForValidation) => { valid: boolean; reason?: string };
+	validateClipSplitOp: (
+		originalClip: Clip,
+		newClip: Clip,
+		trackId: string,
+		timeline: TimelineForValidation
+	) => { valid: boolean; reason?: string };
 }
 
 const MatchWebSocketContext = createContext<MatchWebSocketContextValue | null>(null);
@@ -108,6 +129,7 @@ interface MatchWebSocketProviderProps {
 	username: string;
 	userImage?: string;
 	highlightColor?: string;
+	matchConfig?: MatchConfig;
 	onRemoteMediaUploaded?: (media: MediaData) => void;
 	onRemoteClipAdded?: (trackId: string, clip: ClipData, addedBy: { userId: string; username: string }) => void;
 	onRemoteClipUpdated?: (
@@ -125,6 +147,7 @@ interface MatchWebSocketProviderProps {
 	onConnectionFailed?: () => void;
 	onMatchStatusChange?: (status: string) => void;
 	onTimelineSyncRequested?: () => TimelineData | null;
+	onConstraintViolation?: (reason: string) => void;
 }
 
 function mediaTypeToString(type: MediaType): "video" | "audio" | "image" {
@@ -184,6 +207,69 @@ export function flatPropertiesToNested(
 		freezeFrame: flat.freezeFrame ?? false,
 		freezeFrameTime: flat.freezeFrameTime ?? 0,
 	};
+}
+
+export function flatPropertiesToNestedPartial(
+	flat: Record<string, unknown> | undefined,
+	clipType: "video" | "audio" | "image"
+): Record<string, unknown> {
+	if (!flat) return {};
+
+	const result: Record<string, unknown> = {};
+
+	if (clipType === "audio") {
+		if (flat.volume !== undefined) result.volume = flat.volume;
+		if (flat.pan !== undefined) result.pan = flat.pan;
+		if (flat.pitch !== undefined) result.pitch = flat.pitch;
+		if (flat.speed !== undefined) result.speed = flat.speed;
+		return result;
+	}
+
+	if (flat.x !== undefined || flat.y !== undefined) {
+		result.position = {
+			...(flat.x !== undefined && { x: flat.x }),
+			...(flat.y !== undefined && { y: flat.y }),
+		};
+	}
+
+	if (flat.width !== undefined || flat.height !== undefined) {
+		result.size = {
+			...(flat.width !== undefined && { width: flat.width }),
+			...(flat.height !== undefined && { height: flat.height }),
+		};
+	}
+
+	if (flat.zoomX !== undefined || flat.zoomY !== undefined || flat.zoomLinked !== undefined) {
+		result.zoom = {
+			...(flat.zoomX !== undefined && { x: flat.zoomX }),
+			...(flat.zoomY !== undefined && { y: flat.zoomY }),
+			...(flat.zoomLinked !== undefined && { linked: flat.zoomLinked }),
+		};
+	}
+
+	if (flat.rotation !== undefined) result.rotation = flat.rotation;
+
+	if (flat.flipX !== undefined || flat.flipY !== undefined) {
+		result.flip = {
+			...(flat.flipX !== undefined && { horizontal: flat.flipX }),
+			...(flat.flipY !== undefined && { vertical: flat.flipY }),
+		};
+	}
+
+	if (flat.cropLeft !== undefined || flat.cropRight !== undefined || flat.cropTop !== undefined || flat.cropBottom !== undefined) {
+		result.crop = {
+			...(flat.cropLeft !== undefined && { left: flat.cropLeft }),
+			...(flat.cropRight !== undefined && { right: flat.cropRight }),
+			...(flat.cropTop !== undefined && { top: flat.cropTop }),
+			...(flat.cropBottom !== undefined && { bottom: flat.cropBottom }),
+		};
+	}
+
+	if (flat.speed !== undefined) result.speed = flat.speed;
+	if (flat.freezeFrame !== undefined) result.freezeFrame = flat.freezeFrame;
+	if (flat.freezeFrameTime !== undefined) result.freezeFrameTime = flat.freezeFrameTime;
+
+	return result;
 }
 
 export function nestedPropertiesToFlat(
@@ -278,6 +364,7 @@ export function MatchWS({
 	username,
 	userImage,
 	highlightColor = "#3b82f6",
+	matchConfig,
 	onRemoteMediaUploaded,
 	onRemoteClipAdded,
 	onRemoteClipUpdated,
@@ -289,12 +376,27 @@ export function MatchWS({
 	onConnectionFailed,
 	onMatchStatusChange,
 	onTimelineSyncRequested,
+	onConstraintViolation,
 }: MatchWebSocketProviderProps) {
 	const [status, setStatus] = useState<ConnectionStatus>("disconnected");
 	const [playersOnline, setPlayersOnline] = useState(0);
 	const [remoteSelections, setRemoteSelections] = useState<Map<string, RemoteSelection>>(new Map());
 	const [currentZone, setCurrentZone] = useState<{ startTime: number; endTime: number } | null>(null);
+	const [playerClipCount, setPlayerClipCount] = useState(0);
 	const hasReceivedInitialCount = useRef(false);
+
+	const constraintConfig: ClipConstraintConfig | null = matchConfig
+		? {
+				timelineDuration: matchConfig.timelineDuration,
+				clipSizeMin: matchConfig.clipSizeMin,
+				clipSizeMax: matchConfig.clipSizeMax,
+				audioMaxDb: matchConfig.audioMaxDb,
+				maxVideoTracks: matchConfig.maxVideoTracks,
+				maxAudioTracks: matchConfig.maxAudioTracks,
+				maxClipsPerUser: matchConfig.maxClipsPerUser,
+				constraints: matchConfig.constraints,
+		  }
+		: null;
 
 	const clipIdMapRef = useRef<{
 		fullToShort: Map<string, number>;
@@ -342,6 +444,7 @@ export function MatchWS({
 		onConnectionFailed,
 		onMatchStatusChange,
 		onTimelineSyncRequested,
+		onConstraintViolation,
 	});
 	callbacksRef.current = {
 		onRemoteMediaUploaded,
@@ -355,6 +458,7 @@ export function MatchWS({
 		onConnectionFailed,
 		onMatchStatusChange,
 		onTimelineSyncRequested,
+		onConstraintViolation,
 	};
 
 	const propsRef = useRef({ matchId, userId, username, userImage, highlightColor });
@@ -611,7 +715,7 @@ export function MatchWS({
 						if (delta.duration !== undefined) partialUpdate.duration = delta.duration;
 						if (delta.sourceIn !== undefined) partialUpdate.sourceIn = delta.sourceIn;
 						if (delta.properties) {
-							partialUpdate.properties = flatPropertiesToNested(delta.properties as unknown as Record<string, unknown>, clipInfo.clipType);
+							partialUpdate.properties = flatPropertiesToNestedPartial(delta.properties as unknown as Record<string, unknown>, clipInfo.clipType);
 						}
 
 						const targetTrackId = newTrackId || originalTrackId;
@@ -627,6 +731,15 @@ export function MatchWS({
 							originalTrackId !== targetTrackId ? originalTrackId : undefined
 						);
 					}
+				}
+				return;
+			}
+
+			if (isErrorMessage(message) && message.payload.case === "error") {
+				const { code, message: errorMessage } = message.payload.value;
+				if (code === "CONSTRAINT_VIOLATION") {
+					toast.error(errorMessage || "Clip operation rejected");
+					callbacksRef.current.onConstraintViolation?.(errorMessage);
 				}
 				return;
 			}
@@ -664,29 +777,59 @@ export function MatchWS({
 		sendMessage(matchId, userId, createMediaRemovedMessage(matchId, mediaId, userId));
 	}, []);
 
-	const broadcastClipAdded = useCallback((trackId: string, clip: Clip) => {
-		const { matchId, userId, username } = propsRef.current;
-		const flatProperties = nestedPropertiesToFlat(clip.properties as unknown as Record<string, unknown>, clip.type);
-		const clipData = createClipDataProto({
-			id: clip.id,
-			type: clip.type,
-			name: clip.name,
-			src: clip.src,
-			startTime: clip.startTime,
-			duration: clip.duration,
-			sourceIn: clip.sourceIn,
-			sourceDuration: clip.sourceDuration,
-			properties: flatProperties,
-		});
-		sendMessage(matchId, userId, createClipAddedMessage(matchId, trackId, clipData, { userId, username }));
+	const broadcastClipAdded = useCallback(
+		(trackId: string, clip: Clip, timeline: TimelineForValidation): boolean => {
+			const { matchId, userId, username } = propsRef.current;
 
-		clipStatesRef.current.set(clip.id, {
-			startTime: clip.startTime,
-			duration: clip.duration,
-			sourceIn: clip.sourceIn,
-			properties: flatProperties,
-		});
-	}, []);
+			if (constraintConfig) {
+				const limitResult = validatePlayerClipLimit(constraintConfig, playerClipCount);
+				if (!limitResult.valid) {
+					toast.error(limitResult.reason || "Clip limit reached");
+					return false;
+				}
+
+				const clipForValidation: ClipForValidation = {
+					id: clip.id,
+					type: clip.type,
+					startTime: clip.startTime,
+					duration: clip.duration,
+					properties: clip.type === "audio" ? { volume: (clip.properties as { volume?: number }).volume } : undefined,
+				};
+
+				const validationResult = validateClipConstraints(clipForValidation, constraintConfig, timeline, trackId);
+				if (!validationResult.valid) {
+					toast.error(validationResult.reason || "Invalid clip");
+					return false;
+				}
+			}
+
+			const flatProperties = nestedPropertiesToFlat(clip.properties as unknown as Record<string, unknown>, clip.type);
+			const clipData = createClipDataProto({
+				id: clip.id,
+				type: clip.type,
+				name: clip.name,
+				src: clip.src,
+				startTime: clip.startTime,
+				duration: clip.duration,
+				sourceIn: clip.sourceIn,
+				sourceDuration: clip.sourceDuration,
+				properties: flatProperties,
+			});
+			sendMessage(matchId, userId, createClipAddedMessage(matchId, trackId, clipData, { userId, username }));
+
+			setPlayerClipCount((count) => count + 1);
+
+			clipStatesRef.current.set(clip.id, {
+				startTime: clip.startTime,
+				duration: clip.duration,
+				sourceIn: clip.sourceIn,
+				properties: flatProperties,
+			});
+
+			return true;
+		},
+		[constraintConfig, playerClipCount]
+	);
 
 	const flushPendingUpdates = useCallback(() => {
 		const { matchId, userId, username } = propsRef.current;
@@ -808,6 +951,8 @@ export function MatchWS({
 		const { matchId, userId, username } = propsRef.current;
 		sendMessage(matchId, userId, createClipRemovedMessage(matchId, trackId, clipId, { userId, username }));
 
+		setPlayerClipCount((count) => Math.max(0, count - 1));
+
 		clipStatesRef.current.delete(clipId);
 		pendingUpdatesRef.current.delete(clipId);
 
@@ -818,36 +963,74 @@ export function MatchWS({
 		}
 	}, []);
 
-	const broadcastClipSplit = useCallback((trackId: string, originalClip: Clip, newClip: Clip) => {
-		const { matchId, userId, username } = propsRef.current;
-		const originalFlatProps = nestedPropertiesToFlat(originalClip.properties as unknown as Record<string, unknown>, originalClip.type);
-		const originalData = createClipDataProto({
-			id: originalClip.id,
-			type: originalClip.type,
-			name: originalClip.name,
-			src: originalClip.src,
-			startTime: originalClip.startTime,
-			duration: originalClip.duration,
-			sourceIn: originalClip.sourceIn,
-			sourceDuration: originalClip.sourceDuration,
-			properties: originalFlatProps,
-		});
+	const broadcastClipSplit = useCallback(
+		(trackId: string, originalClip: Clip, newClip: Clip, timeline: TimelineForValidation): boolean => {
+			const { matchId, userId, username } = propsRef.current;
 
-		const newFlatProps = nestedPropertiesToFlat(newClip.properties as unknown as Record<string, unknown>, newClip.type);
-		const newClipData = createClipDataProto({
-			id: newClip.id,
-			type: newClip.type,
-			name: newClip.name,
-			src: newClip.src,
-			startTime: newClip.startTime,
-			duration: newClip.duration,
-			sourceIn: newClip.sourceIn,
-			sourceDuration: newClip.sourceDuration,
-			properties: newFlatProps,
-		});
+			if (constraintConfig) {
+				const limitResult = validatePlayerClipLimit(constraintConfig, playerClipCount);
+				if (!limitResult.valid) {
+					toast.error(limitResult.reason || "Clip limit reached");
+					return false;
+				}
 
-		sendMessage(matchId, userId, createClipSplitMessage(matchId, trackId, originalData, newClipData, { userId, username }));
-	}, []);
+				const originalForValidation: ClipForValidation = {
+					id: originalClip.id,
+					type: originalClip.type,
+					startTime: originalClip.startTime,
+					duration: originalClip.duration,
+					properties: originalClip.type === "audio" ? { volume: (originalClip.properties as { volume?: number }).volume } : undefined,
+				};
+
+				const newForValidation: ClipForValidation = {
+					id: newClip.id,
+					type: newClip.type,
+					startTime: newClip.startTime,
+					duration: newClip.duration,
+					properties: newClip.type === "audio" ? { volume: (newClip.properties as { volume?: number }).volume } : undefined,
+				};
+
+				const validationResult = validateClipSplitConstraints(originalForValidation, newForValidation, constraintConfig, timeline, trackId);
+				if (!validationResult.valid) {
+					toast.error(validationResult.reason || "Invalid split");
+					return false;
+				}
+			}
+
+			const originalFlatProps = nestedPropertiesToFlat(originalClip.properties as unknown as Record<string, unknown>, originalClip.type);
+			const originalData = createClipDataProto({
+				id: originalClip.id,
+				type: originalClip.type,
+				name: originalClip.name,
+				src: originalClip.src,
+				startTime: originalClip.startTime,
+				duration: originalClip.duration,
+				sourceIn: originalClip.sourceIn,
+				sourceDuration: originalClip.sourceDuration,
+				properties: originalFlatProps,
+			});
+
+			const newFlatProps = nestedPropertiesToFlat(newClip.properties as unknown as Record<string, unknown>, newClip.type);
+			const newClipData = createClipDataProto({
+				id: newClip.id,
+				type: newClip.type,
+				name: newClip.name,
+				src: newClip.src,
+				startTime: newClip.startTime,
+				duration: newClip.duration,
+				sourceIn: newClip.sourceIn,
+				sourceDuration: newClip.sourceDuration,
+				properties: newFlatProps,
+			});
+
+			sendMessage(matchId, userId, createClipSplitMessage(matchId, trackId, originalData, newClipData, { userId, username }));
+
+			setPlayerClipCount((count) => count + 1);
+
+			return true;
+		},
+		[constraintConfig, playerClipCount]
+	);
 
 	const broadcastClipSelection = useCallback((selectedClips: Array<{ clipId: string; trackId: string }>) => {
 		const { matchId, userId, username, userImage, highlightColor } = propsRef.current;
@@ -865,11 +1048,69 @@ export function MatchWS({
 		sendMessage(matchId, userId, createZoneSubscribeMessage(matchId, startTime, endTime));
 	}, []);
 
+	const validateClipAdd = useCallback(
+		(clip: Clip, trackId: string, timeline: TimelineForValidation): { valid: boolean; reason?: string } => {
+			if (!constraintConfig) {
+				return { valid: true };
+			}
+
+			const limitResult = validatePlayerClipLimit(constraintConfig, playerClipCount);
+			if (!limitResult.valid) {
+				return limitResult;
+			}
+
+			const clipForValidation: ClipForValidation = {
+				id: clip.id,
+				type: clip.type,
+				startTime: clip.startTime,
+				duration: clip.duration,
+				properties: clip.type === "audio" ? { volume: (clip.properties as { volume?: number }).volume } : undefined,
+			};
+
+			return validateClipConstraints(clipForValidation, constraintConfig, timeline, trackId);
+		},
+		[constraintConfig, playerClipCount]
+	);
+
+	const validateClipSplitOp = useCallback(
+		(originalClip: Clip, newClip: Clip, trackId: string, timeline: TimelineForValidation): { valid: boolean; reason?: string } => {
+			if (!constraintConfig) {
+				return { valid: true };
+			}
+
+			const limitResult = validatePlayerClipLimit(constraintConfig, playerClipCount);
+			if (!limitResult.valid) {
+				return limitResult;
+			}
+
+			const originalForValidation: ClipForValidation = {
+				id: originalClip.id,
+				type: originalClip.type,
+				startTime: originalClip.startTime,
+				duration: originalClip.duration,
+				properties: originalClip.type === "audio" ? { volume: (originalClip.properties as { volume?: number }).volume } : undefined,
+			};
+
+			const newForValidation: ClipForValidation = {
+				id: newClip.id,
+				type: newClip.type,
+				startTime: newClip.startTime,
+				duration: newClip.duration,
+				properties: newClip.type === "audio" ? { volume: (newClip.properties as { volume?: number }).volume } : undefined,
+			};
+
+			return validateClipSplitConstraints(originalForValidation, newForValidation, constraintConfig, timeline, trackId);
+		},
+		[constraintConfig, playerClipCount]
+	);
+
 	const value: MatchWebSocketContextValue = {
 		status,
 		playersOnline,
 		matchId,
 		remoteSelections,
+		matchConfig: constraintConfig,
+		playerClipCount,
 		broadcastMediaUploaded,
 		broadcastMediaRemoved,
 		broadcastClipAdded,
@@ -880,6 +1121,8 @@ export function MatchWS({
 		sendTimelineSync,
 		subscribeToZone,
 		currentZone,
+		validateClipAdd,
+		validateClipSplitOp,
 	};
 
 	return <MatchWebSocketContext.Provider value={value}>{children}</MatchWebSocketContext.Provider>;

@@ -1,28 +1,52 @@
-import { Clip, TimelineState, AudioClip } from "../app/types/timeline";
-import { MatchConfig } from "../app/types/match";
+export interface ClipConstraintConfig {
+	timelineDuration: number;
+	clipSizeMin: number;
+	clipSizeMax: number;
+	audioMaxDb: number;
+	maxVideoTracks: number;
+	maxAudioTracks: number;
+	maxClipsPerUser: number;
+	constraints: string[];
+}
+
+export interface ClipForValidation {
+	id: string;
+	type: "video" | "audio" | "image";
+	startTime: number;
+	duration: number;
+	properties?: {
+		volume?: number;
+		[key: string]: unknown;
+	};
+}
+
+export interface TrackForValidation {
+	id: string;
+	type: "video" | "audio";
+	clips: ClipForValidation[];
+}
+
+export interface TimelineForValidation {
+	duration: number;
+	tracks: TrackForValidation[];
+}
 
 export interface ValidationResult {
 	valid: boolean;
 	reason?: string;
+	code?: string;
 }
 
 export interface ConstraintContext {
-	clip: Clip;
+	clip: ClipForValidation;
 	trackId: string;
-	config: MatchConfig;
-	timeline: TimelineState;
+	config: ClipConstraintConfig;
+	timeline: TimelineForValidation;
 	existingClipId?: string;
-}
-
-export interface PlayerConstraintContext extends ConstraintContext {
-	playerClipCount: number;
 }
 
 type ConstraintValidator = (context: ConstraintContext) => ValidationResult;
 
-/**
- * Format: "type:param1:param2:..."
- */
 function parseConstraint(constraint: string): { type: string; params: string[] } {
 	const parts = constraint.split(":");
 	return {
@@ -38,6 +62,7 @@ function validateClipDuration(context: ConstraintContext): ValidationResult {
 		return {
 			valid: false,
 			reason: `Clip duration (${clip.duration.toFixed(2)}s) is shorter than minimum allowed (${config.clipSizeMin}s)`,
+			code: "CLIP_TOO_SHORT",
 		};
 	}
 
@@ -45,6 +70,7 @@ function validateClipDuration(context: ConstraintContext): ValidationResult {
 		return {
 			valid: false,
 			reason: `Clip duration (${clip.duration.toFixed(2)}s) exceeds maximum allowed (${config.clipSizeMax}s)`,
+			code: "CLIP_TOO_LONG",
 		};
 	}
 
@@ -59,6 +85,7 @@ function validateTimelineBounds(context: ConstraintContext): ValidationResult {
 		return {
 			valid: false,
 			reason: "Clip cannot start before timeline beginning",
+			code: "CLIP_BEFORE_START",
 		};
 	}
 
@@ -66,6 +93,7 @@ function validateTimelineBounds(context: ConstraintContext): ValidationResult {
 		return {
 			valid: false,
 			reason: `Clip extends beyond timeline duration (ends at ${clipEnd.toFixed(2)}s, timeline is ${config.timelineDuration}s)`,
+			code: "CLIP_BEYOND_END",
 		};
 	}
 
@@ -79,31 +107,37 @@ function validateAudioVolume(context: ConstraintContext): ValidationResult {
 		return { valid: true };
 	}
 
-	const audioClip = clip as AudioClip;
-	if (audioClip.properties.volume > config.audioMaxVolume) {
-		return {
-			valid: false,
-			reason: `Audio volume (${audioClip.properties.volume.toFixed(2)}) exceeds maximum allowed (${config.audioMaxVolume})`,
-		};
+	const volume = clip.properties?.volume;
+	if (volume !== undefined && volume > 0) {
+		const volumeDb = 20 * Math.log10(volume);
+		const epsilon = 0.01;
+		if (volumeDb > config.audioMaxDb + epsilon) {
+			return {
+				valid: false,
+				reason: `Audio volume (${volumeDb.toFixed(1)} dB) exceeds maximum allowed (${config.audioMaxDb} dB)`,
+				code: "VOLUME_TOO_HIGH",
+			};
+		}
 	}
 
 	return { valid: true };
 }
 
 function validateTrackCount(context: ConstraintContext): ValidationResult {
-	const { trackId, config, timeline } = context;
+	const { trackId, config, timeline, clip } = context;
 
 	const track = timeline.tracks.find((t) => t.id === trackId);
 	if (!track) {
 		const videoTrackCount = timeline.tracks.filter((t) => t.type === "video").length;
 		const audioTrackCount = timeline.tracks.filter((t) => t.type === "audio").length;
 
-		const isVideo = context.clip.type === "video" || context.clip.type === "image";
+		const isVideo = clip.type === "video" || clip.type === "image";
 
 		if (isVideo && videoTrackCount >= config.maxVideoTracks) {
 			return {
 				valid: false,
 				reason: `Maximum video track limit reached (${config.maxVideoTracks})`,
+				code: "MAX_VIDEO_TRACKS",
 			};
 		}
 
@@ -111,6 +145,7 @@ function validateTrackCount(context: ConstraintContext): ValidationResult {
 			return {
 				valid: false,
 				reason: `Maximum audio track limit reached (${config.maxAudioTracks})`,
+				code: "MAX_AUDIO_TRACKS",
 			};
 		}
 	}
@@ -118,9 +153,6 @@ function validateTrackCount(context: ConstraintContext): ValidationResult {
 	return { valid: true };
 }
 
-/**
- * Format: "fixedClipDuration:Xs" (e.g., "fixedClipDuration:3s")
- */
 function validateFixedDuration(context: ConstraintContext, params: string[]): ValidationResult {
 	const { clip } = context;
 
@@ -131,20 +163,18 @@ function validateFixedDuration(context: ConstraintContext, params: string[]): Va
 	const durationStr = params[0];
 	const fixedDuration = parseFloat(durationStr.replace("s", ""));
 
-	const tolerance = 0.01; // 10ms tolerance
+	const tolerance = 0.01; // 10ms
 	if (Math.abs(clip.duration - fixedDuration) > tolerance) {
 		return {
 			valid: false,
 			reason: `Clip duration must be exactly ${fixedDuration}s (got ${clip.duration.toFixed(2)}s)`,
+			code: "FIXED_DURATION_MISMATCH",
 		};
 	}
 
 	return { valid: true };
 }
 
-/**
- * Format: "allowedTypes:video,audio" or "allowedTypes:image"
- */
 function validateAllowedTypes(context: ConstraintContext, params: string[]): ValidationResult {
 	const { clip } = context;
 
@@ -158,6 +188,7 @@ function validateAllowedTypes(context: ConstraintContext, params: string[]): Val
 		return {
 			valid: false,
 			reason: `Clip type "${clip.type}" is not allowed. Allowed types: ${allowedTypes.join(", ")}`,
+			code: "TYPE_NOT_ALLOWED",
 		};
 	}
 
@@ -193,20 +224,21 @@ function validateCustomConstraints(context: ConstraintContext): ValidationResult
 
 const coreValidators: ConstraintValidator[] = [validateClipDuration, validateTimelineBounds, validateAudioVolume, validateTrackCount];
 
-export function validatePlayerClipLimit(config: MatchConfig, playerClipCount: number): ValidationResult {
+export function validatePlayerClipLimit(config: ClipConstraintConfig, playerClipCount: number): ValidationResult {
 	if (config.maxClipsPerUser > 0 && playerClipCount >= config.maxClipsPerUser) {
 		return {
 			valid: false,
 			reason: `You have reached the maximum clip limit (${config.maxClipsPerUser} clips per player)`,
+			code: "MAX_CLIPS_PER_USER",
 		};
 	}
 	return { valid: true };
 }
 
-export function validateClip(
-	clip: Clip,
-	config: MatchConfig,
-	timeline: TimelineState,
+export function validateClipConstraints(
+	clip: ClipForValidation,
+	config: ClipConstraintConfig,
+	timeline: TimelineForValidation,
 	trackId: string,
 	existingClipId?: string
 ): ValidationResult {
@@ -233,37 +265,109 @@ export function validateClip(
 	return { valid: true };
 }
 
-export function validateTimeline(timeline: TimelineState, config: MatchConfig): ValidationResult {
-	const videoTrackCount = timeline.tracks.filter((t) => t.type === "video").length;
-	const audioTrackCount = timeline.tracks.filter((t) => t.type === "audio").length;
-
-	if (videoTrackCount > config.maxVideoTracks) {
-		return {
-			valid: false,
-			reason: `Too many video tracks (${videoTrackCount}), maximum is ${config.maxVideoTracks}`,
-		};
-	}
-
-	if (audioTrackCount > config.maxAudioTracks) {
-		return {
-			valid: false,
-			reason: `Too many audio tracks (${audioTrackCount}), maximum is ${config.maxAudioTracks}`,
-		};
-	}
-
+export function validateClipUpdate(
+	clipId: string,
+	updates: Partial<ClipForValidation>,
+	config: ClipConstraintConfig,
+	timeline: TimelineForValidation,
+	trackId: string
+): ValidationResult {
+	let existingClip: ClipForValidation | undefined;
 	for (const track of timeline.tracks) {
-		for (const clip of track.clips) {
-			const result = validateClip(clip, config, timeline, track.id, clip.id);
-			if (!result.valid) {
-				return result;
-			}
+		const found = track.clips.find((c) => c.id === clipId);
+		if (found) {
+			existingClip = found;
+			break;
 		}
+	}
+
+	if (!existingClip) {
+		return {
+			valid: false,
+			reason: "Clip not found",
+			code: "CLIP_NOT_FOUND",
+		};
+	}
+
+	const mergedClip: ClipForValidation = {
+		...existingClip,
+		...updates,
+		properties: {
+			...existingClip.properties,
+			...updates.properties,
+		},
+	};
+
+	return validateClipConstraints(mergedClip, config, timeline, trackId, clipId);
+}
+
+export function validateClipSplit(
+	originalClip: ClipForValidation,
+	newClip: ClipForValidation,
+	config: ClipConstraintConfig,
+	timeline: TimelineForValidation,
+	trackId: string
+): ValidationResult {
+	const originalResult = validateClipConstraints(originalClip, config, timeline, trackId, originalClip.id);
+	if (!originalResult.valid) {
+		return {
+			valid: false,
+			reason: `Original clip after split: ${originalResult.reason}`,
+			code: originalResult.code,
+		};
+	}
+
+	const newResult = validateClipConstraints(newClip, config, timeline, trackId);
+	if (!newResult.valid) {
+		return {
+			valid: false,
+			reason: `New clip from split: ${newResult.reason}`,
+			code: newResult.code,
+		};
 	}
 
 	return { valid: true };
 }
 
-export function validateMatchConfig(config: Partial<MatchConfig>): ValidationResult {
+export function clampAudioVolume(volume: number, maxDb: number): number {
+	const maxLinear = Math.pow(10, maxDb / 20);
+	return Math.min(volume, maxLinear);
+}
+
+export function linearToDb(volume: number): number {
+	if (volume <= 0) return -Infinity;
+	return 20 * Math.log10(volume);
+}
+
+export function dbToLinear(db: number): number {
+	return Math.pow(10, db / 20);
+}
+
+export function clampClipDuration(duration: number, minDuration: number, maxDuration: number): number {
+	return Math.max(minDuration, Math.min(duration, maxDuration));
+}
+
+export function clampClipToTimeline(
+	startTime: number,
+	duration: number,
+	timelineDuration: number
+): { startTime: number; duration: number } {
+	let clampedStart = Math.max(0, startTime);
+	let clampedDuration = duration;
+
+	if (clampedStart + clampedDuration > timelineDuration) {
+		clampedDuration = timelineDuration - clampedStart;
+	}
+
+	if (clampedDuration <= 0) {
+		clampedStart = Math.max(0, timelineDuration - duration);
+		clampedDuration = Math.min(duration, timelineDuration);
+	}
+
+	return { startTime: clampedStart, duration: clampedDuration };
+}
+
+export function validateMatchConfig(config: Partial<ClipConstraintConfig>): ValidationResult {
 	if (config.timelineDuration !== undefined) {
 		if (config.timelineDuration <= 0) {
 			return { valid: false, reason: "Timeline duration must be positive" };
@@ -271,19 +375,6 @@ export function validateMatchConfig(config: Partial<MatchConfig>): ValidationRes
 		if (config.timelineDuration > 60) {
 			return { valid: false, reason: "Timeline duration cannot exceed 60 seconds" };
 		}
-	}
-
-	if (config.matchDuration !== undefined) {
-		if (config.matchDuration <= 0) {
-			return { valid: false, reason: "Match duration must be positive" };
-		}
-		if (config.matchDuration > 10) {
-			return { valid: false, reason: "Match duration cannot exceed 10 minutes" };
-		}
-	}
-
-	if (config.maxPlayers !== undefined && config.maxPlayers < 1) {
-		return { valid: false, reason: "Max players must be at least 1" };
 	}
 
 	if (config.clipSizeMin !== undefined && config.clipSizeMin < 0) {
@@ -296,8 +387,8 @@ export function validateMatchConfig(config: Partial<MatchConfig>): ValidationRes
 		}
 	}
 
-	if (config.audioMaxVolume !== undefined && config.audioMaxVolume < 0) {
-		return { valid: false, reason: "Audio max volume cannot be negative" };
+	if (config.audioMaxDb !== undefined && config.audioMaxDb < -60) {
+		return { valid: false, reason: "Audio max dB cannot be below -60 dB" };
 	}
 
 	if (config.maxVideoTracks !== undefined && config.maxVideoTracks < 1) {

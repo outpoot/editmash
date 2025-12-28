@@ -18,6 +18,8 @@ interface UseTimelineDragOptions {
 	onClipUpdated?: (trackId: string, clip: Clip) => void;
 	onClipRemoved?: (trackId: string, clipId: string) => void;
 	onClipAdded?: (trackId: string, clip: Clip) => void;
+	clipSizeMin?: number;
+	clipSizeMax?: number;
 }
 
 interface UseTimelineDragReturn {
@@ -44,6 +46,8 @@ export function useTimelineDrag({
 	onClipUpdated,
 	onClipRemoved,
 	onClipAdded,
+	clipSizeMin,
+	clipSizeMax,
 }: UseTimelineDragOptions): UseTimelineDragReturn {
 	const [dragState, setDragState] = useState<DragState | null>(null);
 	const [hoveredTrackId, setHoveredTrackId] = useState<string | null>(null);
@@ -210,12 +214,29 @@ export function useTimelineDrag({
 							const trimAmount = clip.startTime - latestDragState.startTime;
 							clip.duration = latestDragState.startDuration - trimAmount;
 
-							const newSourceIn = originalSourceIn + trimAmount * speed;
+							const minDuration = clipSizeMin ?? 0.1;
+							const maxDuration = clipSizeMax ?? Infinity;
+
+							if (clip.duration < minDuration) {
+								clip.duration = minDuration;
+								clip.startTime = latestDragState.startTime + latestDragState.startDuration - minDuration;
+							}
+							if (clip.duration > maxDuration) {
+								clip.duration = maxDuration;
+								clip.startTime = latestDragState.startTime + latestDragState.startDuration - maxDuration;
+							}
+
+							const finalTrimAmount = clip.startTime - latestDragState.startTime;
+							const newSourceIn = originalSourceIn + finalTrimAmount * speed;
 
 							if (newSourceIn < 0) {
 								const maxTrimBack = originalSourceIn / speed;
 								clip.startTime = latestDragState.startTime - maxTrimBack;
 								clip.duration = latestDragState.startDuration + maxTrimBack;
+								if (clipSizeMax && clip.duration > clipSizeMax) {
+									clip.duration = clipSizeMax;
+									clip.startTime = latestDragState.startTime + latestDragState.startDuration - clipSizeMax;
+								}
 								clip.sourceIn = 0;
 							} else {
 								clip.sourceIn = newSourceIn;
@@ -223,13 +244,21 @@ export function useTimelineDrag({
 
 							newState.tracks[sourceTrackIndex].clips[clipIndex] = clip;
 						} else if (latestDragState.type === "trim-end") {
-							const speed = clip.type === "video" ? clip.properties.speed : clip.type === "audio" ? clip.properties.speed : 1;
-							const newDuration = Math.max(0.1, latestDragState.startDuration + deltaTime);
+							const minDuration = clipSizeMin ?? 0.1;
 							const maxTimelineDuration = prev.duration - clip.startTime;
 
-							const maxSourceDuration = (clip.sourceDuration - clip.sourceIn) / speed;
+							let maxDuration = maxTimelineDuration;
+							if (clip.type !== "image") {
+								const speed = clip.type === "video" ? clip.properties.speed : clip.type === "audio" ? clip.properties.speed : 1;
+								const maxSourceDuration = (clip.sourceDuration - clip.sourceIn) / speed;
+								maxDuration = Math.min(maxTimelineDuration, maxSourceDuration);
+							}
 
-							const maxDuration = Math.min(maxTimelineDuration, maxSourceDuration);
+							if (clipSizeMax) {
+								maxDuration = Math.min(maxDuration, clipSizeMax);
+							}
+
+							const newDuration = Math.max(minDuration, latestDragState.startDuration + deltaTime);
 							clip.duration = Math.min(newDuration, maxDuration);
 							newState.tracks[sourceTrackIndex].clips[clipIndex] = clip;
 						}

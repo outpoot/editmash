@@ -8,7 +8,7 @@ export interface MatchConfig {
 	maxPlayers: number;
 	clipSizeMin: number;
 	clipSizeMax: number;
-	audioMaxVolume: number;
+	audioMaxDb: number;
 	maxVideoTracks: number;
 	maxAudioTracks: number;
 	maxClipsPerUser: number;
@@ -21,7 +21,7 @@ export const DEFAULT_MATCH_CONFIG: MatchConfig = {
 	maxPlayers: 100,
 	clipSizeMin: 0.5,
 	clipSizeMax: 10,
-	audioMaxVolume: 1.5,
+	audioMaxDb: 6,
 	maxVideoTracks: 20,
 	maxAudioTracks: 20,
 	maxClipsPerUser: 10,

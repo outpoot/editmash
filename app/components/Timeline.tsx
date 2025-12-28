@@ -8,6 +8,7 @@ import type { RemoteSelection } from "./MatchWS";
 import type { ClipChangeNotification } from "./TimelineClip";
 import { getCurrentDragItem } from "./MediaCardDock";
 import { historyStore } from "../store/historyStore";
+import { toast } from "sonner";
 
 import {
 	initialTimelineState,
@@ -23,6 +24,27 @@ import { useTimelineSelection } from "../hooks/useTimelineSelection";
 import { useTimelineKeyboard } from "../hooks/useTimelineKeyboard";
 import { useTimelineClipboard } from "../hooks/useTimelineClipboard";
 
+function deepMergeProperties(existing: Record<string, unknown>, updates: Record<string, unknown>): Record<string, unknown> {
+	const result = { ...existing };
+	for (const key of Object.keys(updates)) {
+		const updateValue = updates[key];
+		const existingValue = existing[key];
+		if (
+			updateValue !== null &&
+			typeof updateValue === "object" &&
+			!Array.isArray(updateValue) &&
+			existingValue !== null &&
+			typeof existingValue === "object" &&
+			!Array.isArray(existingValue)
+		) {
+			result[key] = deepMergeProperties(existingValue as Record<string, unknown>, updateValue as Record<string, unknown>);
+		} else if (updateValue !== undefined) {
+			result[key] = updateValue;
+		}
+	}
+	return result;
+}
+
 interface TimelineProps {
 	onClipSelect?: (selection: { clip: Clip; trackId: string }[] | null) => void;
 	currentTime: number;
@@ -37,6 +59,10 @@ interface TimelineProps {
 	onClipRemoved?: (trackId: string, clipId: string) => void;
 	onClipSplit?: (trackId: string, originalClip: Clip, newClip: Clip) => void;
 	remoteSelections?: Map<string, RemoteSelection>;
+	canAddClip?: () => { allowed: boolean; reason?: string };
+	canSplitClip?: () => { allowed: boolean; reason?: string };
+	clipSizeMin?: number;
+	clipSizeMax?: number;
 }
 
 export interface TimelineRef {
@@ -67,6 +93,10 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			onClipRemoved,
 			onClipSplit,
 			remoteSelections,
+			canAddClip,
+			canSplitClip,
+			clipSizeMin,
+			clipSizeMax,
 		},
 		ref
 	) => {
@@ -100,6 +130,8 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		const lastStateUpdateRef = useRef<number>(0);
 		const lastDragPreviewRef = useRef<{ trackId: string; startTime: number; duration: number } | null>(null);
 		const lastBladeCursorRef = useRef<{ x: number; trackId: string } | null>(null);
+		const timelineStateRef = useRef<TimelineState>(timelineState);
+		timelineStateRef.current = timelineState;
 
 		// Snap points cache
 		const snapPointsCache = useMemo(() => {
@@ -145,6 +177,8 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			onClipUpdated,
 			onClipRemoved,
 			onClipAdded,
+			clipSizeMin,
+			clipSizeMax,
 		});
 
 		// Clipboard hook
@@ -158,6 +192,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			onClipSelect,
 			onClipAdded,
 			onClipRemoved,
+			canAddClip,
 		});
 
 		// Undo/Redo handlers
@@ -347,9 +382,8 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					});
 				},
 				updateRemoteClip: (trackId: string, clipId: string, updates: Partial<Clip>) => {
-					// Generate notifications for property changes
 					let existingClip: Clip | undefined;
-					for (const track of timelineState.tracks) {
+					for (const track of timelineStateRef.current.tracks) {
 						const found = track.clips.find((c) => c.id === clipId);
 						if (found) {
 							existingClip = found;
@@ -358,6 +392,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					}
 
 					const notifications: string[] = [];
+
 					if (existingClip && updates.properties) {
 						const props = updates.properties as unknown as Record<string, unknown>;
 						const existingProps = existingClip.properties as unknown as Record<string, unknown>;
@@ -365,8 +400,86 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						if (props.volume !== undefined && props.volume !== existingProps.volume) {
 							notifications.push(`volume ${Math.round((props.volume as number) * 100)}%`);
 						}
+						if (props.pan !== undefined && props.pan !== existingProps.pan) {
+							const pan = props.pan as number;
+							notifications.push(`pan ${pan < 0 ? "L" : pan > 0 ? "R" : "C"}${Math.abs(Math.round(pan * 100))}%`);
+						}
+						if (props.pitch !== undefined && props.pitch !== existingProps.pitch) {
+							const pitch = props.pitch as number;
+							notifications.push(`pitch ${pitch > 0 ? "+" : ""}${pitch}`);
+						}
 						if (props.speed !== undefined && props.speed !== existingProps.speed) {
 							notifications.push(`speed ${Math.round((props.speed as number) * 100)}%`);
+						}
+
+						const existingPosition = existingProps.position as { x: number; y: number } | undefined;
+						const newPosition = props.position as { x: number; y: number } | undefined;
+						if (newPosition && existingPosition && (newPosition.x !== existingPosition.x || newPosition.y !== existingPosition.y)) {
+							notifications.push(`moved`);
+						}
+
+						const existingSize = existingProps.size as { width: number; height: number } | undefined;
+						const newSize = props.size as { width: number; height: number } | undefined;
+						if (newSize && existingSize && (newSize.width !== existingSize.width || newSize.height !== existingSize.height)) {
+							notifications.push(`resized`);
+						}
+
+						if (props.rotation !== undefined && props.rotation !== existingProps.rotation) {
+							notifications.push(`rotation ${props.rotation}°`);
+						}
+
+						const existingZoom = existingProps.zoom as { x: number; y: number; linked?: boolean } | undefined;
+						const newZoom = props.zoom as { x: number; y: number; linked?: boolean } | undefined;
+						if (newZoom && existingZoom && (newZoom.x !== existingZoom.x || newZoom.y !== existingZoom.y)) {
+							notifications.push(`zoom ${Math.round(newZoom.x * 100)}%`);
+						}
+
+						const existingFlip = existingProps.flip as { horizontal?: boolean; vertical?: boolean } | undefined;
+						const newFlip = props.flip as { horizontal?: boolean; vertical?: boolean } | undefined;
+						if (newFlip && existingFlip) {
+							if (newFlip.horizontal !== undefined && newFlip.horizontal !== existingFlip.horizontal) {
+								notifications.push(newFlip.horizontal ? "flip H on" : "flip H off");
+							}
+							if (newFlip.vertical !== undefined && newFlip.vertical !== existingFlip.vertical) {
+								notifications.push(newFlip.vertical ? "flip V on" : "flip V off");
+							}
+						}
+
+						const existingCrop = existingProps.crop as
+							| { left: number; right: number; top: number; bottom: number; softness: number }
+							| undefined;
+						const newCrop = props.crop as { left: number; right: number; top: number; bottom: number; softness: number } | undefined;
+						if (newCrop && existingCrop) {
+							const cropChanged =
+								newCrop.left !== existingCrop.left ||
+								newCrop.right !== existingCrop.right ||
+								newCrop.top !== existingCrop.top ||
+								newCrop.bottom !== existingCrop.bottom;
+							if (cropChanged) {
+								notifications.push("cropped");
+							}
+							if (newCrop.softness !== existingCrop.softness) {
+								notifications.push(`crop softness ${Math.round(newCrop.softness)}px`);
+							}
+						}
+
+						if (props.freezeFrame !== undefined && props.freezeFrame !== existingProps.freezeFrame) {
+							notifications.push(props.freezeFrame ? "freeze on" : "freeze off");
+						}
+						if (props.freezeFrameTime !== undefined && props.freezeFrameTime !== existingProps.freezeFrameTime) {
+							notifications.push(`freeze at ${(props.freezeFrameTime as number).toFixed(2)}s`);
+						}
+					}
+
+					if (existingClip) {
+						const props = updates.properties as unknown as Record<string, unknown> | undefined;
+						const speedChanged = props?.speed !== undefined;
+
+						if (updates.startTime !== undefined && updates.startTime !== existingClip.startTime) {
+							notifications.push(`moved to ${updates.startTime.toFixed(1)}s`);
+						}
+						if (updates.duration !== undefined && updates.duration !== existingClip.duration && !speedChanged) {
+							notifications.push(`duration ${updates.duration.toFixed(1)}s`);
 						}
 					}
 
@@ -376,8 +489,8 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 							message: msg,
 							timestamp: Date.now(),
 						}));
-						setClipChangeNotifications((prev) => {
-							const next = new Map(prev);
+						setClipChangeNotifications((prevNotifs) => {
+							const next = new Map(prevNotifs);
 							const existing = next.get(clipId) || [];
 							next.set(clipId, [...existing, ...newNotifications]);
 							return next;
@@ -385,13 +498,38 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					}
 
 					setTimelineState((prev) => {
+						let clipToUpdate: Clip | undefined;
+						let sourceTrackId: string | null = null;
+						for (const track of prev.tracks) {
+							const found = track.clips.find((c) => c.id === clipId);
+							if (found) {
+								clipToUpdate = found;
+								sourceTrackId = track.id;
+								break;
+							}
+						}
+
+						if (!clipToUpdate) return prev;
+
+						const mergedProperties = updates.properties
+							? deepMergeProperties(
+									clipToUpdate.properties as unknown as Record<string, unknown>,
+									updates.properties as unknown as Record<string, unknown>
+							  )
+							: clipToUpdate.properties;
+
 						const targetTrack = prev.tracks.find((t) => t.id === trackId);
 						const clipInTargetTrack = targetTrack?.clips.find((c) => c.id === clipId);
 						let intermediateState: TimelineState;
 						let updatedClip: Clip;
 
 						if (clipInTargetTrack) {
-							updatedClip = { ...clipInTargetTrack, ...updates, thumbnail: updates.thumbnail || clipInTargetTrack.thumbnail } as Clip;
+							updatedClip = {
+								...clipInTargetTrack,
+								...updates,
+								properties: mergedProperties,
+								thumbnail: updates.thumbnail || clipInTargetTrack.thumbnail,
+							} as Clip;
 							intermediateState = {
 								...prev,
 								tracks: prev.tracks.map((t) =>
@@ -399,18 +537,12 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 								),
 							};
 						} else {
-							let sourceTrackId: string | null = null;
-							let originalClip: Clip | null = null;
-							for (const track of prev.tracks) {
-								const found = track.clips.find((c) => c.id === clipId);
-								if (found) {
-									sourceTrackId = track.id;
-									originalClip = found;
-									break;
-								}
-							}
-							if (!sourceTrackId || !originalClip) return prev;
-							updatedClip = { ...originalClip, ...updates, thumbnail: updates.thumbnail || originalClip.thumbnail } as Clip;
+							updatedClip = {
+								...clipToUpdate,
+								...updates,
+								properties: mergedProperties,
+								thumbnail: updates.thumbnail || clipToUpdate.thumbnail,
+							} as Clip;
 							intermediateState = {
 								...prev,
 								tracks: prev.tracks.map((t) => {
@@ -700,6 +832,19 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		const handleMediaDragOver = useCallback(
 			(e: React.DragEvent, trackId: string) => {
 				e.preventDefault();
+
+				if (canAddClip) {
+					const check = canAddClip();
+					if (!check.allowed) {
+						e.dataTransfer.dropEffect = "none";
+						if (lastDragPreviewRef.current !== null) {
+							lastDragPreviewRef.current = null;
+							setDragPreview(null);
+						}
+						return;
+					}
+				}
+
 				e.dataTransfer.dropEffect = "copy";
 				const mediaItem = getCurrentDragItem();
 				if (!mediaItem) return;
@@ -732,7 +877,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					setDragPreview(newPreview);
 				}
 			},
-			[pixelsPerSecond, timelineState.duration]
+			[pixelsPerSecond, timelineState.duration, canAddClip]
 		);
 
 		// media drop handler
@@ -740,6 +885,14 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			(e: React.DragEvent, trackId: string) => {
 				setDragPreview(null);
 				try {
+					if (canAddClip) {
+						const check = canAddClip();
+						if (!check.allowed) {
+							toast.error(check.reason || "Cannot add clip");
+							return;
+						}
+					}
+
 					const mediaItemData = e.dataTransfer.getData("application/media-item");
 					if (!mediaItemData) return;
 					const mediaItem = JSON.parse(mediaItemData);
@@ -772,7 +925,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					console.error("Error handling media drop:", err);
 				}
 			},
-			[pixelsPerSecond, timelineState.duration, updateTimelineState, onClipAdded]
+			[pixelsPerSecond, timelineState.duration, updateTimelineState, onClipAdded, canAddClip]
 		);
 
 		const handleMediaDragLeave = useCallback(() => {
@@ -785,6 +938,15 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			(e: React.MouseEvent, trackId: string) => {
 				if (toolMode !== "blade") return;
 				e.stopPropagation();
+
+				if (canSplitClip) {
+					const check = canSplitClip();
+					if (!check.allowed) {
+						toast.error(check.reason || "Cannot split clip");
+						return;
+					}
+				}
+
 				const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
 				const rect = timelineRef.current?.getBoundingClientRect();
 				if (!rect) return;
@@ -830,7 +992,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					onClipSplit?.(trackId, leftPartResult, rightPartResult);
 				}
 			},
-			[toolMode, pixelsPerSecond, updateTimelineState, onClipSplit]
+			[toolMode, pixelsPerSecond, updateTimelineState, onClipSplit, canSplitClip]
 		);
 
 		const timelineWidth = timelineState.duration * pixelsPerSecond;
