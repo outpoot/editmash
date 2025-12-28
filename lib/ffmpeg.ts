@@ -322,19 +322,23 @@ function calculateOverlayPosition(clip: VideoClip | ImageClip): { x: string; y: 
 
 	const hasCropX = crop.left + crop.right > 0;
 	const hasCropY = crop.top + crop.bottom > 0;
+	const cropAsymmetryX = crop.left - crop.right;
+	const cropAsymmetryY = crop.top - crop.bottom;
 
 	let xExpr: string;
-	if (hasCropX) {
-		const cropOffsetX = ((crop.left - crop.right) * zoom.x) / 2;
-		xExpr = `${centerX}-w/2+${cropOffsetX}`;
+	if (hasCropX && cropAsymmetryX !== 0) {
+		const targetW = size.width * zoom.x;
+		const cropTotal = crop.left + crop.right;
+		xExpr = `${centerX}-w/2+(${cropAsymmetryX})*(${targetW}-w)/(2*${cropTotal})`;
 	} else {
 		xExpr = `${centerX}-w/2`;
 	}
 
 	let yExpr: string;
-	if (hasCropY) {
-		const cropOffsetY = ((crop.top - crop.bottom) * zoom.y) / 2;
-		yExpr = `${centerY}-h/2+${cropOffsetY}`;
+	if (hasCropY && cropAsymmetryY !== 0) {
+		const targetH = size.height * zoom.y;
+		const cropTotal = crop.top + crop.bottom;
+		yExpr = `${centerY}-h/2+(${cropAsymmetryY})*(${targetH}-h)/(2*${cropTotal})`;
 	} else {
 		yExpr = `${centerY}-h/2`;
 	}
