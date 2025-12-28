@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { matches, videoLikes, matchPlayers } from "@/lib/db/schema";
-import { eq, desc, sql, and } from "drizzle-orm";
+import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
 						playerCount: sql<number>`count(*)::int`,
 					})
 					.from(matchPlayers)
-					.where(sql`${matchPlayers.matchId} IN ${matchIds}`)
+					.where(inArray(matchPlayers.matchId, matchIds))
 					.groupBy(matchPlayers.matchId)
 			: [];
 
