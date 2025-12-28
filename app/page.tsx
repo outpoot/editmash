@@ -245,9 +245,17 @@ export default function MatchmakingPage() {
 		<div className="min-h-screen bg-background">
 			<header className="border-b bg-card">
 				<div className="container mx-auto px-4 py-4 flex items-center justify-between">
-					<div className="flex items-center gap-2">
-						<img src="/editmash.svg" alt="EditMash Logo" className="w-6 h-6" />
-						<h1 className="text-xl font-extrabold">EditMash</h1>
+					<div className="flex items-center gap-4">
+						<div className="flex items-center gap-2">
+							<img src="/editmash.svg" alt="EditMash Logo" className="w-6 h-6" />
+							<h1 className="text-xl font-extrabold">EditMash</h1>
+						</div>
+						<button
+							onClick={() => router.push("/library")}
+							className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+						>
+							Library
+						</button>
 					</div>
 
 					<UserMenu />

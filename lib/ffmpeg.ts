@@ -481,9 +481,9 @@ export async function renderTimeline(
 
 			command
 				.input(`color=c=black:s=1920x1080:r=60:d=${timeline.duration || 1}`)
-				.inputFormat("lavfi")
+				.inputOptions(["-f", "lavfi"])
 				.input(`anullsrc=channel_layout=stereo:sample_rate=48000:d=${timeline.duration || 1}`)
-				.inputFormat("lavfi")
+				.inputOptions(["-f", "lavfi"])
 				.outputOptions(["-c:v libx264", "-preset medium", "-crf 23", "-c:a aac", "-b:a 192k", "-pix_fmt yuv420p", "-shortest"])
 				.output(outputPath);
 
