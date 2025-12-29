@@ -6,7 +6,6 @@ CREATE TABLE "video_likes" (
 	CONSTRAINT "video_likes_unique_idx" UNIQUE("match_id","user_id")
 );
 --> statement-breakpoint
-ALTER TABLE "user" ADD COLUMN "highlight_color" text DEFAULT '#3b82f6';--> statement-breakpoint
 ALTER TABLE "user" ADD COLUMN "tutorial_completed" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "video_likes" ADD CONSTRAINT "video_likes_match_id_matches_id_fk" FOREIGN KEY ("match_id") REFERENCES "public"."matches"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "video_likes" ADD CONSTRAINT "video_likes_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
