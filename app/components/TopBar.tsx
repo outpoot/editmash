@@ -1,57 +1,133 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Tick01Icon, Download01Icon, Upload01Icon, UserGroupIcon } from "@hugeicons/core-free-icons";
+import { UserGroupIcon, Tick01Icon } from "@hugeicons/core-free-icons";
+import { useRouter } from "next/navigation";
+import { historyStore } from "../store/historyStore";
+import { viewSettingsStore } from "../store/viewSettingsStore";
 
-interface TopBarProps {
-	showEffects: boolean;
-	onToggleEffects: () => void;
-	onSaveTimeline?: () => void;
-	onImportTimeline?: (file: File) => void;
-	timeRemaining?: number | null;
-	playersOnline?: number;
-	playerClipCount?: number;
-	maxClipsPerUser?: number;
+export interface ViewSettings {
+	showShineEffect: boolean;
+	showChat: boolean;
+	showRemoteSelections: boolean;
+	showRemoteClipNotifications: boolean;
 }
 
-export default function TopBar({
-	showEffects,
-	onToggleEffects,
-	onSaveTimeline,
-	onImportTimeline,
-	timeRemaining,
-	playersOnline,
-	playerClipCount,
-	maxClipsPerUser,
-}: TopBarProps) {
+interface TopBarProps {
+	timeRemaining?: number | null;
+	playersOnline?: number;
+	onUndo?: () => void;
+	onRedo?: () => void;
+}
+
+export default function TopBar({ timeRemaining, playersOnline, onUndo, onRedo }: TopBarProps) {
 	const [activeMenu, setActiveMenu] = useState<string | null>(null);
-	const fileInputRef = useRef<HTMLInputElement>(null);
-	const isDev = process.env.NODE_ENV === "development";
+	const [canUndo, setCanUndo] = useState(false);
+	const [canRedo, setCanRedo] = useState(false);
+	const [viewSettings, setViewSettings] = useState<ViewSettings>(viewSettingsStore.getSettings());
+	const router = useRouter();
 
-	const menuItems = ["EditMash", "File", "Edit", "View", "Playback", "Help"];
+	useEffect(() => {
+		const updateHistoryState = () => {
+			setCanUndo(historyStore.canUndo());
+			setCanRedo(historyStore.canRedo());
+		};
 
-	const getMenuContent = (item: string) => {
+		updateHistoryState();
+		const unsubscribe = historyStore.subscribe(updateHistoryState);
+		return () => {
+			unsubscribe();
+		};
+	}, []);
+
+	useEffect(() => {
+		const updateViewSettings = () => {
+			setViewSettings(viewSettingsStore.getSettings());
+		};
+
+		const unsubscribe = viewSettingsStore.subscribe(updateViewSettings);
+		return () => {
+			unsubscribe();
+		};
+	}, []);
+
+	const menuItems = ["EditMash", "File", "Edit", "View", "Help"];
+
+	const handleMenuClick = useCallback(
+		(item: string) => {
+			if (item === "EditMash") {
+				router.push("/");
+			}
+		},
+		[router]
+	);
+
+	const toggleViewSetting = useCallback(
+		(key: keyof ViewSettings) => {
+			viewSettingsStore.updateSetting(key, !viewSettings[key]);
+		},
+		[viewSettings]
+	);
+
+	const getMenuContent = (
+		item: string
+	): Array<{
+		label?: string;
+		action?: () => void;
+		type?: string;
+		disabled?: boolean;
+		shortcut?: string;
+		checked?: boolean;
+	}> | null => {
 		switch (item) {
-			case "View":
-				return [{ label: "Effects Library", action: onToggleEffects, checked: showEffects, type: "checkbox" }];
 			case "File":
-				return [
-					{ label: "New Project", action: () => {} },
-					{ label: "Open Project...", action: () => {} },
-					{ label: "Save Project", action: () => {} },
-					{ type: "separator" },
-					{ label: "Import Media...", action: () => {} },
-					{ label: "Export", action: () => {} },
-				];
+				return [{ label: "Leave match", action: () => router.push("/") }];
 			case "Edit":
 				return [
-					{ label: "Undo", action: () => {} },
-					{ label: "Redo", action: () => {} },
+					{ label: "Undo", action: onUndo, disabled: !canUndo, shortcut: "Ctrl+Z" },
+					{ label: "Redo", action: onRedo, disabled: !canRedo, shortcut: "Ctrl+Y" },
 					{ type: "separator" },
-					{ label: "Cut", action: () => {} },
-					{ label: "Copy", action: () => {} },
-					{ label: "Paste", action: () => {} },
+					{ label: "Cut", shortcut: "Ctrl+X" },
+					{ label: "Copy", shortcut: "Ctrl+C" },
+					{ label: "Paste", shortcut: "Ctrl+V" },
+					{ type: "separator" },
+					{ label: "Delete", shortcut: "Del" },
+					{ label: "Clear selection", shortcut: "Esc" },
+					{ type: "separator" },
+					{ label: "Select tool", shortcut: "A" },
+					{ label: "Blade tool", shortcut: "B" },
+					{ label: "Toggle snapping", shortcut: "N" },
+					{ label: "Transform mode", shortcut: "T" },
+					{ label: "Crop mode", shortcut: "C" },
+					{ type: "separator" },
+					{ label: "Play/Pause", shortcut: "Space" },
+					{ label: "Focus chat", shortcut: "/" },
+					{ type: "separator" },
+					{ label: "Zoom in", shortcut: "Ctrl++" },
+					{ label: "Zoom out", shortcut: "Ctrl+-" },
+				];
+			case "View":
+				return [
+					{
+						label: "Shine on media card",
+						type: "checkbox",
+						checked: viewSettings.showShineEffect,
+						action: () => toggleViewSetting("showShineEffect"),
+					},
+					{ label: "Chat", type: "checkbox", checked: viewSettings.showChat, action: () => toggleViewSetting("showChat") },
+					{
+						label: "Remote clip selections",
+						type: "checkbox",
+						checked: viewSettings.showRemoteSelections,
+						action: () => toggleViewSetting("showRemoteSelections"),
+					},
+					{
+						label: "Remote clip notifications",
+						type: "checkbox",
+						checked: viewSettings.showRemoteClipNotifications,
+						action: () => toggleViewSetting("showRemoteClipNotifications"),
+					},
 				];
 			default:
 				return null;
@@ -67,7 +143,13 @@ export default function TopBar({
 						return (
 							<div key={item} className="relative">
 								<button
-									onMouseEnter={() => setActiveMenu(item)}
+									onClick={() => handleMenuClick(item)}
+									onMouseEnter={() => activeMenu && setActiveMenu(item)}
+									onMouseDown={() => {
+										if (menuContent) {
+											setActiveMenu(activeMenu === item ? null : item);
+										}
+									}}
 									className={`px-3 py-1 transition-colors ${activeMenu === item ? "bg-accent" : "hover:bg-accent"} ${
 										index === 0 ? "font-medium" : ""
 									}`}
@@ -77,13 +159,12 @@ export default function TopBar({
 
 								{activeMenu === item && menuContent && (
 									<div
-										className="absolute top-full left-0 mt-0 bg-popover border border-border rounded shadow-lg min-w-[180px] py-1 z-50"
-										onMouseEnter={() => setActiveMenu(item)}
+										className="absolute top-full left-0 mt-0.5 bg-popover border border-border rounded-md shadow-md min-w-[220px] p-1 z-50"
 										onMouseLeave={() => setActiveMenu(null)}
 									>
 										{menuContent.map((menuItem, idx) => {
 											if (menuItem.type === "separator") {
-												return <div key={idx} className="h-px bg-border my-1" />;
+												return <div key={idx} className="-mx-1 my-1 h-px bg-muted" />;
 											} else if (menuItem.type === "checkbox" && "checked" in menuItem) {
 												return (
 													<button
@@ -91,25 +172,34 @@ export default function TopBar({
 														onClick={() => {
 															menuItem.action?.();
 														}}
-														className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors flex items-center gap-2"
+														className="w-full text-left px-2 py-1.5 text-sm text-foreground hover:bg-accent rounded-sm transition-colors flex items-center gap-2"
 													>
-														<span className="w-3 h-3 border border-muted-foreground rounded-sm flex items-center justify-center">
-															{menuItem.checked && <HugeiconsIcon icon={Tick01Icon} size={10} strokeWidth={2} />}
+														<span className="w-3.5 h-3.5 flex items-center justify-center">
+															{menuItem.checked && <HugeiconsIcon icon={Tick01Icon} size={16} />}
 														</span>
 														{menuItem.label}
 													</button>
 												);
 											} else if ("label" in menuItem) {
+												const isDisabled = "disabled" in menuItem && menuItem.disabled;
 												return (
 													<button
 														key={idx}
 														onClick={() => {
-															menuItem.action?.();
-															setActiveMenu(null);
+															if (!isDisabled) {
+																menuItem.action?.();
+																setActiveMenu(null);
+															}
 														}}
-														className="w-full text-left px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors"
+														disabled={isDisabled}
+														className={`w-full text-left px-2 py-1.5 text-sm rounded-sm transition-colors flex items-center justify-between ${
+															isDisabled ? "text-muted-foreground cursor-not-allowed" : "text-foreground hover:bg-accent"
+														}`}
 													>
-														{menuItem.label}
+														<span>{menuItem.label}</span>
+														{"shortcut" in menuItem && menuItem.shortcut && (
+															<span className="ml-auto text-xs tracking-widest opacity-60">{menuItem.shortcut}</span>
+														)}
 													</button>
 												);
 											}
@@ -121,43 +211,6 @@ export default function TopBar({
 						);
 					})}
 				</div>
-
-				{isDev && onSaveTimeline && (
-					<button
-						onClick={onSaveTimeline}
-						className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors text-xs font-medium"
-						title="Save timeline state as JSON (dev only)"
-					>
-						<HugeiconsIcon icon={Download01Icon} size={14} />
-						Save Timeline
-					</button>
-				)}
-
-				{isDev && onImportTimeline && (
-					<>
-						<input
-							ref={fileInputRef}
-							type="file"
-							accept=".json"
-							className="hidden"
-							onChange={(e) => {
-								const file = e.target.files?.[0];
-								if (file) {
-									onImportTimeline(file);
-									e.target.value = "";
-								}
-							}}
-						/>
-						<button
-							onClick={() => fileInputRef.current?.click()}
-							className="flex items-center gap-1.5 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded transition-colors text-xs font-medium"
-							title="Import timeline from JSON (dev only)"
-						>
-							<HugeiconsIcon icon={Upload01Icon} size={14} />
-							Import Timeline
-						</button>
-					</>
-				)}
 			</div>
 
 			<div className="flex items-center gap-2">

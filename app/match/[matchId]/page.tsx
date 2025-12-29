@@ -79,8 +79,6 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 	const mainLayoutRef = useRef<MainLayoutRef>(null);
 	const lastServerSyncRef = useRef<number>(Date.now());
 
-	const [showEffects, setShowEffects] = useState(false);
-
 	const fetchMatch = useCallback(async () => {
 		try {
 			const response = await fetch(`/api/matches/${matchId}`);
@@ -185,7 +183,12 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 	}, [serverTimeRemaining]);
 
 	useEffect(() => {
+		mediaStore.cleanup();
 		fetchMatch();
+		
+		return () => {
+			mediaStore.cleanup();
+		};
 	}, [fetchMatch]);
 
 	useEffect(() => {
@@ -392,8 +395,6 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 			onTimelineSyncRequested={handleTimelineSyncRequested}
 		>
 			<MatchContent
-				showEffects={showEffects}
-				setShowEffects={setShowEffects}
 				localTimeRemaining={localTimeRemaining}
 				mainLayoutRef={mainLayoutRef}
 				maxClipsPerUser={maxClipsPerUser}
@@ -405,8 +406,6 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 }
 
 interface MatchContentProps {
-	showEffects: boolean;
-	setShowEffects: (show: boolean) => void;
 	localTimeRemaining: number | null;
 	mainLayoutRef: React.RefObject<MainLayoutRef | null>;
 	maxClipsPerUser: number;
@@ -415,8 +414,6 @@ interface MatchContentProps {
 }
 
 function MatchContent({
-	showEffects,
-	setShowEffects,
 	localTimeRemaining,
 	mainLayoutRef,
 	maxClipsPerUser,
@@ -606,16 +603,11 @@ function MatchContent({
 	return (
 		<div className="h-screen flex flex-col relative">
 			<TopBar
-				showEffects={showEffects}
-				onToggleEffects={() => setShowEffects(!showEffects)}
 				timeRemaining={localTimeRemaining}
 				playersOnline={ws?.playersOnline}
-				playerClipCount={ws?.playerClipCount}
-				maxClipsPerUser={matchConfig?.maxClipsPerUser}
 			/>
 			<MainLayout
 				ref={mainLayoutCallbackRef}
-				showEffects={showEffects}
 				maxClipsPerUser={maxClipsPerUser}
 				onClipAdded={handleClipAdded}
 				onClipUpdated={handleClipUpdated}

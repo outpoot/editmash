@@ -327,6 +327,23 @@ export async function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: W
 		console.warn(`[WS] clipAdded missing clip timing data for match ${matchId}, will broadcast to all clients`);
 	}
 
+	if (clip) {
+		const timeline = matchTimelines.get(matchId);
+		if (timeline) {
+			const track = timeline.tracks.find((t) => t.id === trackId);
+			if (track) {
+				const clipType = mediaTypeMap[clip.type] || "video";
+				const isVideoClip = clipType === "video" || clipType === "image";
+				const isAudioClip = clipType === "audio";
+				
+				if ((track.type === "video" && isAudioClip) || (track.type === "audio" && isVideoClip)) {
+					ws.send(serializeMessage(createErrorMessage("TRACK_TYPE_MISMATCH", `Cannot place ${clipType} clip on ${track.type} track`)));
+					return;
+				}
+			}
+		}
+	}
+
 	const config = await fetchMatchConfig(matchId);
 	if (config && clip) {
 		if (userId) {

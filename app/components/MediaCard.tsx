@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { MediaItem } from "../store/mediaStore";
+import { viewSettingsStore } from "../store/viewSettingsStore";
 import { useAudioWaveform } from "../hooks/useAudioWaveform";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Video01Icon, Image01Icon, MusicNote01Icon } from "@hugeicons/core-free-icons";
@@ -72,6 +73,14 @@ export default function MediaCard({ item, index = 0, totalCards = 1, onDragStart
 	const [pointer, setPointer] = useState({ x: 50, y: 50 });
 	const [background, setBackground] = useState({ x: 50, y: 50 });
 	const [rotation, setRotation] = useState({ x: 0, y: 0 });
+	const [showShineEffect, setShowShineEffect] = useState(viewSettingsStore.getSettings().showShineEffect);
+
+	useEffect(() => {
+		const unsubscribe = viewSettingsStore.subscribe(() => {
+			setShowShineEffect(viewSettingsStore.getSettings().showShineEffect);
+		});
+		return () => { unsubscribe(); };
+	}, []);
 
 	const randomSeed = useMemo(() => ({ x: Math.random(), y: Math.random() }), []);
 
@@ -224,7 +233,7 @@ export default function MediaCard({ item, index = 0, totalCards = 1, onDragStart
 								{fileExt && <span className="media-card__ext">.{fileExt}</span>}
 							</div>
 						</div>
-						<div className="media-card__shine" />
+						{showShineEffect && <div className="media-card__shine" />}
 
 						<div className="media-card__glare" />
 

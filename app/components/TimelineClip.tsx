@@ -2,6 +2,7 @@ import { memo, useState, useEffect, useCallback } from "react";
 import { Clip, VideoClip, ImageClip, AudioClip } from "../types/timeline";
 import { useVideoThumbnails } from "../hooks/useVideoThumbnails";
 import { useAudioWaveform } from "../hooks/useAudioWaveform";
+import { viewSettingsStore } from "../store/viewSettingsStore";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { SnowIcon } from "@hugeicons/core-free-icons";
 
@@ -66,9 +67,20 @@ function TimelineClip({
 	changeNotifications = [],
 }: TimelineClipProps) {
 	const [localNotifications, setLocalNotifications] = useState<ClipChangeNotification[]>([]);
+	const [showRemoteSelections, setShowRemoteSelections] = useState(viewSettingsStore.getSettings().showRemoteSelections);
+	const [showRemoteNotifications, setShowRemoteNotifications] = useState(viewSettingsStore.getSettings().showRemoteClipNotifications);
 
 	useEffect(() => {
-		if (changeNotifications.length > 0) {
+		const unsubscribe = viewSettingsStore.subscribe(() => {
+			const settings = viewSettingsStore.getSettings();
+			setShowRemoteSelections(settings.showRemoteSelections);
+			setShowRemoteNotifications(settings.showRemoteClipNotifications);
+		});
+		return () => { unsubscribe(); };
+	}, []);
+
+	useEffect(() => {
+		if (changeNotifications.length > 0 && showRemoteNotifications) {
 			setLocalNotifications((prev) => {
 				const existingIds = new Set(prev.map((n) => n.id));
 				const newNotifications = changeNotifications.filter((n) => !existingIds.has(n.id));
@@ -76,7 +88,7 @@ function TimelineClip({
 				return [...prev, ...newNotifications];
 			});
 		}
-	}, [changeNotifications]);
+	}, [changeNotifications, showRemoteNotifications]);
 
 	const removeNotification = useCallback((id: string) => {
 		setLocalNotifications((prev) => prev.filter((n) => n.id !== id));
@@ -158,7 +170,7 @@ function TimelineClip({
 			}}
 		>
 			{/* selection avatars */}
-			{remoteSelectors && remoteSelectors.length > 0 && (
+			{showRemoteSelections && remoteSelectors && remoteSelectors.length > 0 && (
 				<div className="absolute -top-1 -right-1 flex flex-row-reverse gap-0.5 pointer-events-none z-10">
 					{remoteSelectors.slice(0, 5).map((selector) => (
 						<div
@@ -321,7 +333,7 @@ function TimelineClip({
 				)}
 
 				{/* Remote user selection border highlight */}
-				{remoteSelectors && remoteSelectors.length > 0 && (
+				{showRemoteSelections && remoteSelectors && remoteSelectors.length > 0 && (
 					<div
 						className="absolute inset-0 pointer-events-none rounded border-2"
 						style={{
@@ -331,7 +343,7 @@ function TimelineClip({
 				)}
 			</div>
 
-			{localNotifications.length > 0 && (
+			{showRemoteNotifications && localNotifications.length > 0 && (
 				<div className="absolute inset-0 pointer-events-none z-100">
 					{localNotifications.map((notification) => (
 						<ChangeNotification

@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useRef, memo, useCallback, useImperativeHandle, forwardRef } from "react";
+import { useState, useRef, useCallback, useImperativeHandle, forwardRef } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import EffectsBrowser from "./EffectsBrowser";
 import VideoPreview from "./VideoPreview";
 import Inspector from "./Inspector";
 import Timeline, { TimelineRef } from "./Timeline";
@@ -12,7 +11,6 @@ import type { RemoteSelection } from "./MatchWS";
 import { useDebouncedCallback } from "@/lib/utils";
 
 interface MainLayoutProps {
-	showEffects: boolean;
 	onTimelineStateChange?: (timelineState: TimelineState | null) => void;
 	maxClipsPerUser?: number;
 	onClipAdded?: (trackId: string, clip: Clip) => void;
@@ -39,13 +37,9 @@ export interface MainLayoutRef {
 	getTimelineState: () => TimelineState | null;
 }
 
-// components that don't need playback state
-const MemoizedEffectsBrowser = memo(EffectsBrowser);
-
 const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 	(
 		{
-			showEffects,
 			onTimelineStateChange,
 			maxClipsPerUser = 10,
 			onClipAdded,
@@ -187,16 +181,7 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 		return (
 			<div className="flex-1 h-full pt-8 bg-background relative">
 				<ResizablePanelGroup direction="horizontal" className="h-full">
-					{showEffects && (
-						<>
-							<ResizablePanel defaultSize={25} minSize={20} maxSize={60}>
-								<MemoizedEffectsBrowser />
-							</ResizablePanel>
-							<ResizableHandle />
-						</>
-					)}
-
-					<ResizablePanel defaultSize={showEffects ? 75 : 100} minSize={40}>
+					<ResizablePanel defaultSize={100} minSize={40}>
 						<ResizablePanelGroup direction="vertical">
 							<ResizablePanel defaultSize={60} minSize={30}>
 								<ResizablePanelGroup direction="horizontal">

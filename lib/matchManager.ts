@@ -2,6 +2,7 @@ import { MatchStatus } from "../app/types/match";
 import { validateMatchConfig } from "./clipConstraints";
 import * as storage from "./storage";
 import { renderTimeline, downloadMediaFiles, cleanupTempFiles } from "./ffmpeg";
+import { uploadToB2 } from "./b2";
 import { getRedis } from "./redis";
 import { notifyWsServer } from "./wsNotify";
 import path from "path";
@@ -213,15 +214,23 @@ async function triggerRender(matchId: string): Promise<void> {
 		}
 	}
 
-	if (Object.keys(mediaUrls).length === 0) {
-		const outputDir = path.join(os.tmpdir(), "editmash", "renders");
-		await fs.mkdir(outputDir, { recursive: true });
-		const outputPath = path.join(outputDir, `${matchId}.mp4`);
+	const outputDir = path.join(os.tmpdir(), "editmash", "renders");
+	await fs.mkdir(outputDir, { recursive: true });
+	const outputFileName = `render_${matchId}.mp4`;
+	const outputPath = path.join(outputDir, outputFileName);
 
+	if (Object.keys(mediaUrls).length === 0) {
 		await renderTimeline(match.timeline, new Map(), outputPath);
 
-		await storage.updateMatchRender(matchId, undefined, outputPath);
+		const outputBuffer = await fs.readFile(outputPath);
+		const b2FileName = `renders/${outputFileName}`;
+		const uploadedFile = await uploadToB2(outputBuffer, b2FileName, "video/mp4");
+		
+		const proxiedUrl = `/api/media/${encodeURIComponent(uploadedFile.fileName)}`;
+		await storage.updateMatchRender(matchId, undefined, proxiedUrl);
 		await storage.updateMatchStatus(matchId, "completed");
+
+		await fs.unlink(outputPath).catch(() => {});
 
 		await storage.deleteMatchMedia(matchId);
 		return;
@@ -231,18 +240,23 @@ async function triggerRender(matchId: string): Promise<void> {
 	try {
 		fileMap = await downloadMediaFiles(mediaUrls);
 
-		const outputDir = path.join(os.tmpdir(), "editmash", "renders");
-		await fs.mkdir(outputDir, { recursive: true });
-		const outputPath = path.join(outputDir, `${matchId}.mp4`);
-
 		await storage.updateMatchRender(matchId, matchId);
 
 		await renderTimeline(match.timeline, fileMap, outputPath, (progress) => {
 			console.log(`[Match ${matchId}] Render progress: ${progress.toFixed(1)}%`);
 		});
 
-		await storage.updateMatchRender(matchId, matchId, outputPath);
+		const outputBuffer = await fs.readFile(outputPath);
+		const b2FileName = `renders/${outputFileName}`;
+		const uploadedFile = await uploadToB2(outputBuffer, b2FileName, "video/mp4", (uploadProgress) => {
+			console.log(`[Match ${matchId}] Upload progress: ${uploadProgress.toFixed(1)}%`);
+		});
+
+		const proxiedUrl = `/api/media/${encodeURIComponent(uploadedFile.fileName)}`;
+		await storage.updateMatchRender(matchId, matchId, proxiedUrl);
 		await storage.updateMatchStatus(matchId, "completed");
+
+		await fs.unlink(outputPath).catch(() => {});
 
 		await storage.deleteMatchMedia(matchId);
 
@@ -251,6 +265,7 @@ async function triggerRender(matchId: string): Promise<void> {
 		console.error(`[Match ${matchId}] Render failed:`, error);
 		await storage.updateMatchRender(matchId, undefined, undefined, String(error));
 		await storage.updateMatchStatus(matchId, "failed");
+		await fs.unlink(outputPath).catch(() => {});
 		throw error;
 	} finally {
 		if (fileMap) {

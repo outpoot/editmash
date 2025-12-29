@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useMatchWebSocketOptional } from "./MatchWS";
+import { viewSettingsStore } from "../store/viewSettingsStore";
 import type { ChatMessageData } from "@/websocket/types";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -20,6 +21,7 @@ export function Chat({ className = "" }: ChatProps) {
 	const [inputValue, setInputValue] = useState("");
 	const [isActive, setIsActive] = useState(false);
 	const [isHovered, setIsHovered] = useState(false);
+	const [showChat, setShowChat] = useState(viewSettingsStore.getSettings().showChat);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -27,6 +29,13 @@ export function Chat({ className = "" }: ChatProps) {
 	const messageTimestampsRef = useRef<Map<string, number>>(new Map());
 	const rafRef = useRef<number | null>(null);
 	const [, forceUpdate] = useState(0);
+
+	useEffect(() => {
+		const unsubscribe = viewSettingsStore.subscribe(() => {
+			setShowChat(viewSettingsStore.getSettings().showChat);
+		});
+		return () => { unsubscribe(); };
+	}, []);
 
 	const isFocused = isActive || isHovered;
 
@@ -189,7 +198,7 @@ export function Chat({ className = "" }: ChatProps) {
 			.slice(0, 2);
 	};
 
-	if (!ws) return null;
+	if (!ws || !showChat) return null;
 
 	const visibleMessages = chatMessages.filter((msg) => getMessageOpacity(msg.messageId) > 0);
 
