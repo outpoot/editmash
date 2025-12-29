@@ -78,6 +78,8 @@ export const BATCH_WINDOW_MS = 50; // ms for batching clip updates
 
 export const matchPlayers = new Map<string, Set<string>>();
 
+export const userConnections = new Map<string, Set<string>>();
+
 export const connections = new Map<string, ServerWebSocket<WebSocketData>>();
 
 export const lobbySubscribers = new Set<string>();

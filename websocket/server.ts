@@ -4,6 +4,7 @@ import {
 	connections,
 	matchPlayers,
 	lobbySubscribers,
+	userConnections,
 	PORT,
 	IDLE_TIMEOUT,
 	WS_API_KEY,
@@ -174,6 +175,16 @@ function handleClose(ws: ServerWebSocket<WebSocketData>): void {
 
 	if (subscribedToLobbies) {
 		lobbySubscribers.delete(id);
+	}
+
+	if (userId) {
+		const userConns = userConnections.get(userId);
+		if (userConns) {
+			userConns.delete(id);
+			if (userConns.size === 0) {
+				userConnections.delete(userId);
+			}
+		}
 	}
 
 	if (matchId && userId) {

@@ -91,36 +91,47 @@ export default function MatchmakingPage() {
 				const message = deserializeMessage(event.data);
 				if (isLobbiesUpdateMessage(message) && message.payload.case === "lobbiesUpdate") {
 					const lobbies = message.payload.value.lobbies;
+					const now = Date.now();
 					setLobbies(
-						lobbies.map((l) => ({
-							id: l.id,
-							name: l.name,
-							joinCode: l.joinCode,
-							hostUsername: l.hostUsername,
-							playerCount: l.playerCount,
-							maxPlayers: l.maxPlayers,
-							status: l.status as LobbyStatus,
-							isSystemLobby: l.isSystemLobby ?? false,
-							createdAt: new Date(l.createdAt),
-							matchConfig: l.matchConfig ? {
-								timelineDuration: l.matchConfig.timelineDuration,
-								matchDuration: l.matchConfig.matchDuration,
-								maxPlayers: l.matchConfig.maxPlayers,
-								audioMaxDb: l.matchConfig.audioMaxDb,
-								clipSizeMin: l.matchConfig.clipSizeMin,
-								clipSizeMax: l.matchConfig.clipSizeMax,
-								maxVideoTracks: l.matchConfig.maxVideoTracks,
-								maxAudioTracks: l.matchConfig.maxAudioTracks,
-								maxClipsPerUser: l.matchConfig.maxClipsPerUser,
-								constraints: l.matchConfig.constraints,
-							} : DEFAULT_MATCH_CONFIG,
-							players: l.players?.map((p) => ({
-								id: p.id,
-								username: p.username,
-								image: p.image,
-							})) ?? [],
-							matchEndsAt: l.matchEndsAt ? new Date(l.matchEndsAt) : null,
-						}))
+						lobbies
+							.map((l) => ({
+								id: l.id,
+								name: l.name,
+								joinCode: l.joinCode,
+								hostUsername: l.hostUsername,
+								playerCount: l.playerCount,
+								maxPlayers: l.maxPlayers,
+								status: l.status as LobbyStatus,
+								isSystemLobby: l.isSystemLobby ?? false,
+								createdAt: new Date(l.createdAt),
+								matchConfig: l.matchConfig
+									? {
+											timelineDuration: l.matchConfig.timelineDuration,
+											matchDuration: l.matchConfig.matchDuration,
+											maxPlayers: l.matchConfig.maxPlayers,
+											audioMaxDb: l.matchConfig.audioMaxDb,
+											clipSizeMin: l.matchConfig.clipSizeMin,
+											clipSizeMax: l.matchConfig.clipSizeMax,
+											maxVideoTracks: l.matchConfig.maxVideoTracks,
+											maxAudioTracks: l.matchConfig.maxAudioTracks,
+											maxClipsPerUser: l.matchConfig.maxClipsPerUser,
+											constraints: l.matchConfig.constraints,
+									  }
+									: DEFAULT_MATCH_CONFIG,
+								players:
+									l.players?.map((p) => ({
+										id: p.id,
+										username: p.username,
+										image: p.image,
+									})) ?? [],
+								matchEndsAt: l.matchEndsAt ? new Date(l.matchEndsAt) : null,
+							}))
+							.filter((lobby) => {
+								if (lobby.status === "in_match" && lobby.matchEndsAt) {
+									return lobby.matchEndsAt.getTime() > now;
+								}
+								return true;
+							})
 					);
 				}
 			} catch (e) {

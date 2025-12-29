@@ -9,6 +9,7 @@ import {
 	matchPlayerClipCounts,
 	matchPlayerInfos,
 	chatRateLimits,
+	userConnections,
 	WS_API_KEY,
 	ZONE_BUFFER,
 	CHAT_RATE_LIMIT_WINDOW,
@@ -241,6 +242,38 @@ export async function handleJoinMatch(ws: ServerWebSocket<WebSocketData>, msg: W
 		handleLeaveMatch(ws, createLeaveMatchMessage(ws.data.matchId, ws.data.userId!));
 	}
 
+	const existingConnections = userConnections.get(userId);
+	if (existingConnections) {
+		for (const connId of existingConnections) {
+			if (connId === ws.data.id) continue;
+
+			const otherWs = connections.get(connId);
+
+			if (otherWs && otherWs.data.matchId && otherWs.data.matchId !== matchId) {
+				const otherMatchId = otherWs.data.matchId;
+				otherWs.unsubscribe(`match:${otherMatchId}`);
+				const players = matchPlayers.get(otherMatchId);
+				if (players) {
+					players.delete(connId);
+					if (players.size === 0) {
+						matchPlayers.delete(otherMatchId);
+						cleanupMatchResources(otherMatchId);
+					}
+				}
+				broadcast(otherMatchId, createPlayerLeftMessage(otherMatchId, userId));
+				otherWs.data.matchId = null;
+				otherWs.data.userId = null;
+				otherWs.data.username = null;
+				console.log(`[WS] Force-removed user ${userId} from match ${otherMatchId} (joined ${matchId})`);
+			}
+		}
+	}
+
+	if (!userConnections.has(userId)) {
+		userConnections.set(userId, new Set());
+	}
+	userConnections.get(userId)!.add(ws.data.id);
+
 	ws.data.matchId = matchId;
 	ws.data.userId = userId;
 	ws.data.username = username;
@@ -274,6 +307,14 @@ export function handleLeaveMatch(ws: ServerWebSocket<WebSocketData>, msg: WSMess
 		if (players.size === 0) {
 			matchPlayers.delete(matchId);
 			cleanupMatchResources(matchId);
+		}
+	}
+
+	const userConns = userConnections.get(userId);
+	if (userConns) {
+		userConns.delete(ws.data.id);
+		if (userConns.size === 0) {
+			userConnections.delete(userId);
 		}
 	}
 
@@ -335,7 +376,7 @@ export async function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: W
 				const clipType = mediaTypeMap[clip.type] || "video";
 				const isVideoClip = clipType === "video" || clipType === "image";
 				const isAudioClip = clipType === "audio";
-				
+
 				if ((track.type === "video" && isAudioClip) || (track.type === "audio" && isVideoClip)) {
 					ws.send(serializeMessage(createErrorMessage("TRACK_TYPE_MISMATCH", `Cannot place ${clipType} clip on ${track.type} track`)));
 					return;
@@ -826,16 +867,7 @@ export function handleChatMessage(ws: ServerWebSocket<WebSocketData>, msg: WSMes
 	const highlightColor = ws.data.highlightColor ?? "#3b82f6";
 	const timestamp = BigInt(Date.now());
 
-	const broadcastMsg = createChatBroadcast(
-		matchId,
-		messageId,
-		userId,
-		username,
-		userImage,
-		highlightColor,
-		sanitizedMessage,
-		timestamp
-	);
+	const broadcastMsg = createChatBroadcast(matchId, messageId, userId, username, userImage, highlightColor, sanitizedMessage, timestamp);
 
 	const players = matchPlayers.get(matchId);
 	if (players) {

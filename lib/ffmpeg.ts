@@ -54,6 +54,19 @@ let cachedFFmpegPath: string;
 const CANVAS_WIDTH = 1920;
 const CANVAS_HEIGHT = 1080;
 
+export function calculateContentDuration(timeline: TimelineState): number {
+	let maxEndTime = 0;
+	for (const track of timeline.tracks) {
+		for (const clip of track.clips) {
+			const clipEnd = clip.startTime + clip.duration;
+			if (clipEnd > maxEndTime) {
+				maxEndTime = clipEnd;
+			}
+		}
+	}
+	return maxEndTime;
+}
+
 function normalizeProperties(props: any) {
 	const isFlat = "x" in props || "width" in props || "zoomX" in props || "cropLeft" in props;
 
@@ -454,6 +467,9 @@ export async function renderTimeline(
 	const videoTracks = timeline.tracks.filter((t) => t.type === "video");
 	const audioTracks = timeline.tracks.filter((t) => t.type === "audio");
 
+	const contentDuration = calculateContentDuration(timeline);
+	const renderDuration = contentDuration > 0 ? contentDuration : timeline.duration || 1;
+
 	const inputFileMap = new Map<string, number>();
 	const inputFiles: string[] = [];
 	let inputIndex = 0;
@@ -508,7 +524,8 @@ export async function renderTimeline(
 			return;
 		}
 
-		const complexFilter = buildComplexFilter(timeline, videoTracks, audioTracks, inputFileMap);
+		const timelineForRender = { ...timeline, duration: renderDuration };
+		const complexFilter = buildComplexFilter(timelineForRender, videoTracks, audioTracks, inputFileMap);
 
 		const command = ffmpeg();
 		command.setFfmpegPath(ffmpegPath);
@@ -531,7 +548,7 @@ export async function renderTimeline(
 				"-b:a 192k",
 				"-r 60", // 60 fps
 				"-pix_fmt yuv420p",
-				"-t " + timeline.duration,
+				"-t " + renderDuration,
 			])
 			.output(outputPath);
 

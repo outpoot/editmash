@@ -4,6 +4,8 @@ import { matches, videoLikes, matchPlayers } from "@/lib/db/schema";
 import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
+import { calculateContentDuration } from "@/lib/ffmpeg";
+import { TimelineState } from "@/app/types/timeline";
 
 export async function GET(request: NextRequest) {
 	const searchParams = request.nextUrl.searchParams;
@@ -41,7 +43,7 @@ export async function GET(request: NextRequest) {
 			renderUrl: matches.renderUrl,
 			completedAt: matches.completedAt,
 			editCount: matches.editCount,
-			timelineDuration: sql<number>`(${matches.configJson}->>'timelineDuration')::int`,
+			timelineJson: matches.timelineJson,
 			likeCount: sql<number>`COALESCE(${likesSubquery.likeCount}, 0)`,
 			liked: userLikeSubquery ? sql<boolean>`COALESCE(${userLikeSubquery.liked}, false)` : sql<boolean>`false`,
 		})
@@ -82,20 +84,23 @@ export async function GET(request: NextRequest) {
 			renderUrl: string | null;
 			completedAt: Date | null;
 			editCount: number;
-			timelineDuration: number;
+			timelineJson: TimelineState;
 			likeCount: number;
 			liked: boolean;
-		}) => ({
-			id: r.id,
-			lobbyName: r.lobbyName,
-			renderUrl: r.renderUrl,
-			completedAt: r.completedAt,
-			editCount: r.editCount,
-			timelineDuration: r.timelineDuration,
-			likeCount: r.likeCount,
-			liked: r.liked,
-			playerCount: playerCountMap.get(r.id) || 0,
-		})
+		}) => {
+			const contentDuration = calculateContentDuration(r.timelineJson);
+			return {
+				id: r.id,
+				lobbyName: r.lobbyName,
+				renderUrl: r.renderUrl,
+				completedAt: r.completedAt,
+				editCount: r.editCount,
+				timelineDuration: Math.round(contentDuration * 10) / 10, // round to 1 decimal place
+				likeCount: r.likeCount,
+				liked: r.liked,
+				playerCount: playerCountMap.get(r.id) || 0,
+			};
+		}
 	);
 
 	return NextResponse.json({ videos });
