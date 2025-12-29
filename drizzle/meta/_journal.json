@@ -47,8 +47,8 @@
     {
       "idx": 6,
       "version": "7",
-      "when": 1735500000000,
-      "tag": "0007_tutorial_completed",
+      "when": 1766500000000,
+      "tag": "0006_highlight_color",
       "breakpoints": true
     },
     {

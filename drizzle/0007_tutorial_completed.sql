@@ -1,1 +1,0 @@
-ALTER TABLE "user" ADD COLUMN "tutorial_completed" boolean DEFAULT false NOT NULL;
