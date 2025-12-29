@@ -34,7 +34,9 @@ export function Chat({ className = "" }: ChatProps) {
 		const unsubscribe = viewSettingsStore.subscribe(() => {
 			setShowChat(viewSettingsStore.getSettings().showChat);
 		});
-		return () => { unsubscribe(); };
+		return () => {
+			unsubscribe();
+		};
 	}, []);
 
 	const isFocused = isActive || isHovered;
@@ -205,6 +207,7 @@ export function Chat({ className = "" }: ChatProps) {
 	return (
 		<div
 			className={`fixed bottom-3 left-3 w-80 flex flex-col pointer-events-none ${className}`}
+			data-tutorial="chat"
 			style={{
 				zIndex: 9999,
 				transition: "transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1)",

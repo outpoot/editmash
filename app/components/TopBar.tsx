@@ -6,6 +6,7 @@ import { UserGroupIcon, Tick01Icon } from "@hugeicons/core-free-icons";
 import { useRouter } from "next/navigation";
 import { historyStore } from "../store/historyStore";
 import { viewSettingsStore } from "../store/viewSettingsStore";
+import { useTutorial } from "./Tutorial";
 
 export interface ViewSettings {
 	showShineEffect: boolean;
@@ -27,6 +28,7 @@ export default function TopBar({ timeRemaining, playersOnline, onUndo, onRedo }:
 	const [canRedo, setCanRedo] = useState(false);
 	const [viewSettings, setViewSettings] = useState<ViewSettings>(viewSettingsStore.getSettings());
 	const router = useRouter();
+	const { startTutorial, isAvailable: tutorialAvailable } = useTutorial();
 
 	useEffect(() => {
 		const updateHistoryState = () => {
@@ -51,6 +53,8 @@ export default function TopBar({ timeRemaining, playersOnline, onUndo, onRedo }:
 			unsubscribe();
 		};
 	}, []);
+
+
 
 	const menuItems = ["EditMash", "File", "Edit", "View", "Help"];
 
@@ -127,6 +131,17 @@ export default function TopBar({ timeRemaining, playersOnline, onUndo, onRedo }:
 						type: "checkbox",
 						checked: viewSettings.showRemoteClipNotifications,
 						action: () => toggleViewSetting("showRemoteClipNotifications"),
+					},
+				];
+			case "Help":
+				if (!tutorialAvailable) return null;
+				return [
+					{
+						label: "Tutorial",
+						action: () => {
+							startTutorial();
+							setActiveMenu(null);
+						},
 					},
 				];
 			default:

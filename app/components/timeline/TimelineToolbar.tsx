@@ -60,7 +60,7 @@ function TimelineToolbar({
 	onZoomOut,
 }: TimelineToolbarProps) {
 	return (
-		<div className="h-10 bg-card border-b border-border flex items-center justify-between px-4">
+		<div className="h-10 bg-card border-b border-border flex items-center justify-between px-4" data-tutorial="toolbar">
 			<div className="flex items-center gap-3">
 				<button
 					onClick={onPlayPause}

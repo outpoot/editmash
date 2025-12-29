@@ -121,7 +121,7 @@ export async function PATCH(request: Request) {
 		}
 
 		const body = await request.json();
-		const { name, highlightColor } = body;
+		const { name, highlightColor, tutorialCompleted } = body;
 
 		if (name !== undefined) {
 			if (typeof name !== "string") {
@@ -146,6 +146,14 @@ export async function PATCH(request: Request) {
 			}
 
 			await db.update(user).set({ highlightColor }).where(eq(user.id, userId));
+		}
+
+		if (tutorialCompleted !== undefined) {
+			if (typeof tutorialCompleted !== "boolean") {
+				return NextResponse.json({ error: "tutorialCompleted must be a boolean" }, { status: 400 });
+			}
+
+			await db.update(user).set({ tutorialCompleted }).where(eq(user.id, userId));
 		}
 
 		return NextResponse.json({ success: true });

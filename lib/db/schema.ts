@@ -14,6 +14,7 @@ export const user = pgTable("user", {
 	emailVerified: boolean("email_verified").default(false).notNull(),
 	image: text("image"),
 	highlightColor: text("highlight_color").default("#3b82f6"),
+	tutorialCompleted: boolean("tutorial_completed").default(false).notNull(),
 	createdAt: timestamp("created_at").defaultNow().notNull(),
 	updatedAt: timestamp("updated_at")
 		.defaultNow()

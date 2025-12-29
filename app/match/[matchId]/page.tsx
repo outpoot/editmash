@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import type { ClipData, TimelineData } from "@/websocket/types";
 import { VideoClipProperties, AudioClipProperties } from "@/app/types/timeline";
 import { Chat } from "@/app/components/Chat";
+import { TutorialProvider } from "@/app/components/Tutorial";
 
 function transformTimelineFromApi(timeline: TimelineState): TimelineState {
 	return {
@@ -72,6 +73,7 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 	const [error, setError] = useState<string | null>(null);
 	const [userImage, setUserImage] = useState<string | undefined>(undefined);
 	const [highlightColor, setHighlightColor] = useState<string>("#3b82f6");
+	const [tutorialCompleted, setTutorialCompleted] = useState<boolean | undefined>(undefined);
 	const [profileLoaded, setProfileLoaded] = useState(false);
 	const [serverTimeRemaining, setServerTimeRemaining] = useState<number | null>(null);
 	const [localTimeRemaining, setLocalTimeRemaining] = useState<number | null>(null);
@@ -144,12 +146,26 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 				if (data.user) {
 					setUserImage(data.user.image ?? undefined);
 					setHighlightColor(data.user.highlightColor ?? "#3b82f6");
+					setTutorialCompleted(data.user.tutorialCompleted ?? false);
 				}
 			}
 		} catch (error) {
 			console.error("Error fetching user profile:", error);
 		} finally {
 			setProfileLoaded(true);
+		}
+	}, []);
+
+	const markTutorialComplete = useCallback(async () => {
+		try {
+			await fetch("/api/user", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ tutorialCompleted: true }),
+			});
+			setTutorialCompleted(true);
+		} catch (error) {
+			console.error("Error marking tutorial complete:", error);
 		}
 	}, []);
 
@@ -375,33 +391,35 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 	const maxClipsPerUser = match?.config?.maxClipsPerUser ?? DEFAULT_MATCH_CONFIG.maxClipsPerUser;
 
 	return (
-		<MatchWS
-			matchId={matchId}
-			userId={stablePlayerRef.current.playerId}
-			username={stablePlayerRef.current.username}
-			userImage={userImage}
-			highlightColor={highlightColor}
-			matchConfig={match?.config}
-			onRemoteMediaUploaded={handleRemoteMediaUploaded}
-			onRemoteClipAdded={handleRemoteClipAdded}
-			onRemoteClipUpdated={handleRemoteClipUpdated}
-			onRemoteClipRemoved={handleRemoteClipRemoved}
-			onRemoteClipSplit={handleRemoteClipSplit}
-			onZoneClipsReceived={handleZoneClipsReceived}
-			onPlayerJoined={handlePlayerJoined}
-			onPlayerLeft={handlePlayerLeft}
-			onConnectionFailed={handleConnectionFailed}
-			onMatchStatusChange={handleMatchStatusChange}
-			onTimelineSyncRequested={handleTimelineSyncRequested}
-		>
-			<MatchContent
-				localTimeRemaining={localTimeRemaining}
-				mainLayoutRef={mainLayoutRef}
-				maxClipsPerUser={maxClipsPerUser}
+		<TutorialProvider tutorialCompleted={tutorialCompleted} onTutorialComplete={markTutorialComplete}>
+			<MatchWS
+				matchId={matchId}
+				userId={stablePlayerRef.current.playerId}
+				username={stablePlayerRef.current.username}
+				userImage={userImage}
+				highlightColor={highlightColor}
 				matchConfig={match?.config}
-				initialTimeline={match?.timeline ? transformTimelineFromApi(match.timeline) : undefined}
-			/>
-		</MatchWS>
+				onRemoteMediaUploaded={handleRemoteMediaUploaded}
+				onRemoteClipAdded={handleRemoteClipAdded}
+				onRemoteClipUpdated={handleRemoteClipUpdated}
+				onRemoteClipRemoved={handleRemoteClipRemoved}
+				onRemoteClipSplit={handleRemoteClipSplit}
+				onZoneClipsReceived={handleZoneClipsReceived}
+				onPlayerJoined={handlePlayerJoined}
+				onPlayerLeft={handlePlayerLeft}
+				onConnectionFailed={handleConnectionFailed}
+				onMatchStatusChange={handleMatchStatusChange}
+				onTimelineSyncRequested={handleTimelineSyncRequested}
+			>
+				<MatchContent
+					localTimeRemaining={localTimeRemaining}
+					mainLayoutRef={mainLayoutRef}
+					maxClipsPerUser={maxClipsPerUser}
+					matchConfig={match?.config}
+					initialTimeline={match?.timeline ? transformTimelineFromApi(match.timeline) : undefined}
+				/>
+			</MatchWS>
+		</TutorialProvider>
 	);
 }
 

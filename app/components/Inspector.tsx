@@ -93,7 +93,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 
 	if (!selectedClips || selectedClips.length === 0) {
 		return (
-			<div className="h-full bg-card border-l border-border flex items-center justify-center">
+			<div className="h-full bg-card border-l border-border flex items-center justify-center" data-tutorial="inspector">
 				<p className="text-sm text-muted-foreground">No clip selected</p>
 			</div>
 		);
@@ -137,7 +137,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 	const isAudioClip = clip && clip.type === "audio" && "properties" in clip;
 
 	return (
-		<div className="h-full bg-card border-l border-border flex flex-col">
+		<div className="h-full bg-card border-l border-border flex flex-col" data-tutorial="inspector">
 			<Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
 				<TabsList className="w-full grid grid-cols-3 rounded-none border-b border-border bg-transparent h-auto p-0">
 					<TabsTrigger

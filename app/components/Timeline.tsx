@@ -865,7 +865,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					}
 					return;
 				}
-				
+
 				if (isSnappingEnabled) {
 					const snappedTime = calculateSnappedTime(dragTime, "preview", clipDuration, {
 						isSnappingEnabled,
@@ -876,7 +876,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						dragTime = snappedTime;
 					}
 				}
-				
+
 				const last = lastDragPreviewRef.current;
 				if (
 					!last ||
@@ -919,7 +919,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						clipDuration = timelineState.duration - dropTime;
 					}
 					if (clipDuration <= 0) return;
-					
+
 					if (isSnappingEnabled) {
 						const snappedTime = calculateSnappedTime(dropTime, "drop", clipDuration, {
 							isSnappingEnabled,
@@ -949,7 +949,16 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					console.error("Error handling media drop:", err);
 				}
 			},
-			[pixelsPerSecond, timelineState.duration, updateTimelineState, onClipAdded, canAddClip, isSnappingEnabled, snapPointsCache, currentTimeRef]
+			[
+				pixelsPerSecond,
+				timelineState.duration,
+				updateTimelineState,
+				onClipAdded,
+				canAddClip,
+				isSnappingEnabled,
+				snapPointsCache,
+				currentTimeRef,
+			]
 		);
 
 		const handleMediaDragLeave = useCallback(() => {
@@ -1022,7 +1031,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		const timelineWidth = timelineState.duration * pixelsPerSecond;
 
 		return (
-			<div className="h-full bg-background border-t border-border flex flex-col">
+			<div className="h-full bg-background border-t border-border flex flex-col" data-tutorial="timeline">
 				<TimelineToolbar
 					isPlaying={isPlaying}
 					onPlayPause={handlePlayPause}
@@ -1066,6 +1075,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 								{timelineState.tracks.map((track, index) => (
 									<div
 										key={track.id}
+										data-tutorial={track.type === "video" ? "video-track" : "audio-track"}
 										className={`h-10 flex items-center px-3 bg-card ${
 											index !== timelineState.tracks.length - 1 ? "border-b border-border" : ""
 										}`}
