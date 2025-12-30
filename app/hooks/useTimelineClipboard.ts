@@ -167,11 +167,9 @@ export function useTimelineClipboard({
 			return newState;
 		});
 
-		setTimeout(() => {
-			addedClips.forEach(({ trackId, clip }) => {
-				onClipAdded?.(trackId, clip);
-			});
-		}, 0);
+		addedClips.forEach(({ trackId, clip }) => {
+			onClipAdded?.(trackId, clip);
+		});
 
 		setSelectedClips(newClipIds);
 		if (newClipIds.length > 0) {

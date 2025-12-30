@@ -80,11 +80,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 			freezeFrame: props.freezeFrame ?? DEFAULT_VIDEO_PROPERTIES.freezeFrame,
 			freezeFrameTime: props.freezeFrameTime ?? DEFAULT_VIDEO_PROPERTIES.freezeFrameTime,
 		};
-	}, [
-		clip?.id,
-		clip?.type,
-		(clip as VideoClip | ImageClip)?.properties,
-	]);
+	}, [clip]);
 
 	const videoRef = React.useRef(video);
 	videoRef.current = video;
@@ -98,11 +94,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 			pitch: props.pitch ?? DEFAULT_AUDIO_PROPERTIES.pitch,
 			speed: props.speed ?? DEFAULT_AUDIO_PROPERTIES.speed,
 		};
-	}, [
-		clip?.id,
-		clip?.type,
-		(clip as AudioClip)?.properties,
-	]);
+	}, [clip]);
 
 	const audioRef = React.useRef(audio);
 	audioRef.current = audio;
