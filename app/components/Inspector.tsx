@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback, memo } from "react";
 import { Clip, VideoClip, ImageClip, AudioClip, VideoClipProperties, AudioClipProperties } from "../types/timeline";
-import { HugeiconsIcon } from "@hugeicons/react";
+import MemoizedIcon from "./MemoizedIcon";
 import {
 	ArrowDown01Icon,
 	ArrowRight01Icon,
@@ -43,7 +43,7 @@ interface InspectorProps {
 	currentTime: number;
 }
 
-export default function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps) {
+function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps) {
 	const [transformExpanded, setTransformExpanded] = useState(true);
 	const [croppingExpanded, setCroppingExpanded] = useState(true);
 	const [speedExpanded, setSpeedExpanded] = useState(true);
@@ -56,6 +56,16 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 	const clip = selectedClips?.[selectedClips.length - 1]?.clip;
 	const trackId = selectedClips?.[selectedClips.length - 1]?.trackId;
 
+	const clipRef = React.useRef(clip);
+	clipRef.current = clip;
+	const trackIdRef = React.useRef(trackId);
+	trackIdRef.current = trackId;
+	const onClipUpdateRef = React.useRef(onClipUpdate);
+	onClipUpdateRef.current = onClipUpdate;
+	const currentTimeRef = React.useRef(currentTime);
+	currentTimeRef.current = currentTime;
+
+	// Memoize video properties with deep comparison of relevant properties only
 	const video = useMemo(() => {
 		if (!clip || (clip.type !== "video" && clip.type !== "image")) return DEFAULT_VIDEO_PROPERTIES;
 		const props = clip.properties as Partial<VideoClipProperties>;
@@ -70,7 +80,14 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 			freezeFrame: props.freezeFrame ?? DEFAULT_VIDEO_PROPERTIES.freezeFrame,
 			freezeFrameTime: props.freezeFrameTime ?? DEFAULT_VIDEO_PROPERTIES.freezeFrameTime,
 		};
-	}, [clip]);
+	}, [
+		clip?.id,
+		clip?.type,
+		clip && (clip.type === "video" || clip.type === "image") ? JSON.stringify((clip.properties as VideoClipProperties)) : null,
+	]);
+
+	const videoRef = React.useRef(video);
+	videoRef.current = video;
 
 	const audio = useMemo(() => {
 		if (!clip || clip.type !== "audio") return DEFAULT_AUDIO_PROPERTIES;
@@ -81,7 +98,14 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 			pitch: props.pitch ?? DEFAULT_AUDIO_PROPERTIES.pitch,
 			speed: props.speed ?? DEFAULT_AUDIO_PROPERTIES.speed,
 		};
-	}, [clip]);
+	}, [
+		clip?.id,
+		clip?.type,
+		clip?.type === "audio" ? JSON.stringify((clip.properties as AudioClipProperties)) : null,
+	]);
+
+	const audioRef = React.useRef(audio);
+	audioRef.current = audio;
 
 	useEffect(() => {
 		if (clip?.type === "video" || clip?.type === "image") {
@@ -91,6 +115,76 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 		}
 	}, [clip?.type, clip?.id]);
 
+	const updateVideoProperty = useCallback((propertyUpdate: Partial<VideoClipProperties>) => {
+		const currentClip = clipRef.current;
+		const currentTrackId = trackIdRef.current;
+		const currentOnClipUpdate = onClipUpdateRef.current;
+		if (currentClip && (currentClip.type === "video" || currentClip.type === "image") && currentTrackId && currentOnClipUpdate) {
+			currentOnClipUpdate(currentTrackId, currentClip.id, {
+				properties: {
+					...currentClip.properties,
+					...propertyUpdate,
+				},
+			});
+		}
+	}, []);
+
+	const updateAudioProperty = useCallback((propertyUpdate: Partial<AudioClipProperties>) => {
+		const currentClip = clipRef.current;
+		const currentTrackId = trackIdRef.current;
+		const currentOnClipUpdate = onClipUpdateRef.current;
+		if (currentClip && currentClip.type === "audio" && currentTrackId && currentOnClipUpdate) {
+			currentOnClipUpdate(currentTrackId, currentClip.id, {
+				properties: {
+					...currentClip.properties,
+					...propertyUpdate,
+				},
+			});
+		}
+	}, []);
+
+	const handleRotationChange = useCallback(([value]: number[]) => {
+		updateVideoProperty({ rotation: value });
+	}, [updateVideoProperty]);
+
+	const handleCropLeftChange = useCallback(([value]: number[]) => {
+		const currentVideo = videoRef.current;
+		updateVideoProperty({ crop: { ...currentVideo.crop, left: value } });
+	}, [updateVideoProperty]);
+
+	const handleCropRightChange = useCallback(([value]: number[]) => {
+		const currentVideo = videoRef.current;
+		updateVideoProperty({ crop: { ...currentVideo.crop, right: value } });
+	}, [updateVideoProperty]);
+
+	const handleCropTopChange = useCallback(([value]: number[]) => {
+		const currentVideo = videoRef.current;
+		updateVideoProperty({ crop: { ...currentVideo.crop, top: value } });
+	}, [updateVideoProperty]);
+
+	const handleCropBottomChange = useCallback(([value]: number[]) => {
+		const currentVideo = videoRef.current;
+		updateVideoProperty({ crop: { ...currentVideo.crop, bottom: value } });
+	}, [updateVideoProperty]);
+
+	const audioMaxDbRef = React.useRef(audioMaxDb);
+	audioMaxDbRef.current = audioMaxDb;
+
+	const handleVolumeChange = useCallback(([value]: number[]) => {
+		const maxDb = audioMaxDbRef.current;
+		const clampedDb = Math.min(value, maxDb);
+		const linearVolume = clampedDb <= -60 ? 0 : Math.pow(10, clampedDb / 20);
+		updateAudioProperty({ volume: Math.max(0, linearVolume) });
+	}, [updateAudioProperty]);
+
+	const handlePanChange = useCallback(([value]: number[]) => {
+		updateAudioProperty({ pan: value / 100 });
+	}, [updateAudioProperty]);
+
+	const handlePitchChange = useCallback(([value]: number[]) => {
+		updateAudioProperty({ pitch: value });
+	}, [updateAudioProperty]);
+
 	if (!selectedClips || selectedClips.length === 0) {
 		return (
 			<div className="h-full bg-card border-l border-border flex items-center justify-center" data-tutorial="inspector">
@@ -98,40 +192,6 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 			</div>
 		);
 	}
-
-	const handlePropertyUpdate = (updates: Partial<VideoClip> | Partial<ImageClip> | Partial<AudioClip>) => {
-		if (onClipUpdate && clip && trackId) {
-			onClipUpdate(trackId, clip.id, updates);
-		}
-	};
-
-	const handleAudioPropertyUpdate = (updates: Partial<AudioClip>) => {
-		if (onClipUpdate && clip?.type === "audio" && trackId) {
-			onClipUpdate(trackId, clip.id, updates);
-		}
-	};
-
-	const updateVideoProperty = (propertyUpdate: Partial<VideoClipProperties>) => {
-		if (clip && (clip.type === "video" || clip.type === "image") && trackId) {
-			handlePropertyUpdate({
-				properties: {
-					...clip.properties,
-					...propertyUpdate,
-				},
-			});
-		}
-	};
-
-	const updateAudioProperty = (propertyUpdate: Partial<AudioClipProperties>) => {
-		if (clip && clip.type === "audio" && trackId) {
-			handleAudioPropertyUpdate({
-				properties: {
-					...clip.properties,
-					...propertyUpdate,
-				},
-			});
-		}
-	};
 
 	const isVideoClip = clip && (clip.type === "video" || clip.type === "image") && "properties" in clip;
 	const isAudioClip = clip && clip.type === "audio" && "properties" in clip;
@@ -175,9 +235,9 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 										className="flex items-center gap-2 w-full px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-accent"
 									>
 										{transformExpanded ? (
-											<HugeiconsIcon icon={ArrowDown01Icon} size={14} />
+											<MemoizedIcon icon={ArrowDown01Icon} size={14} />
 										) : (
-											<HugeiconsIcon icon={ArrowRight01Icon} size={14} />
+											<MemoizedIcon icon={ArrowRight01Icon} size={14} />
 										)}
 										<span>TRANSFORM</span>
 									</div>
@@ -217,9 +277,9 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														className={`p-1 rounded ${video.zoom.linked ? "text-primary" : "text-muted-foreground"} hover:bg-muted`}
 													>
 														{video.zoom.linked ? (
-															<HugeiconsIcon icon={Link01Icon} size={14} />
+															<MemoizedIcon icon={Link01Icon} size={14} />
 														) : (
-															<HugeiconsIcon icon={LinkSquare01Icon} size={14} />
+															<MemoizedIcon icon={LinkSquare01Icon} size={14} />
 														)}
 													</button>
 													<span className="text-muted-foreground/60 text-xs">Y</span>
@@ -283,9 +343,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 													<Label className="text-muted-foreground text-xs w-16 shrink-0">Rotation</Label>
 													<Slider
 														value={[video.rotation]}
-														onValueChange={([value]) => {
-															updateVideoProperty({ rotation: value });
-														}}
+														onValueChange={handleRotationChange}
 														min={-180}
 														max={180}
 														step={0.1}
@@ -324,7 +382,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														}`}
 														title="Flip Horizontal"
 													>
-														<HugeiconsIcon icon={FlipHorizontalIcon} size={16} />
+														<MemoizedIcon icon={FlipHorizontalIcon} size={16} />
 													</button>
 													<button
 														onClick={() => {
@@ -342,7 +400,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 														}`}
 														title="Flip Vertical"
 													>
-														<HugeiconsIcon icon={FlipVerticalIcon} size={16} />
+														<MemoizedIcon icon={FlipVerticalIcon} size={16} />
 													</button>
 												</div>
 											)}
@@ -360,9 +418,9 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 										className="flex items-center gap-2 w-full px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-accent"
 									>
 										{croppingExpanded ? (
-											<HugeiconsIcon icon={ArrowDown01Icon} size={14} />
+											<MemoizedIcon icon={ArrowDown01Icon} size={14} />
 										) : (
-											<HugeiconsIcon icon={ArrowRight01Icon} size={14} />
+											<MemoizedIcon icon={ArrowRight01Icon} size={14} />
 										)}
 										<span>CROPPING</span>
 									</div>
@@ -375,14 +433,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 													<Label className="text-muted-foreground text-xs w-16 shrink-0">Left</Label>
 													<Slider
 														value={[video.crop.left]}
-														onValueChange={([value]) => {
-															updateVideoProperty({
-																crop: {
-																	...video.crop,
-																	left: value,
-																},
-															});
-														}}
+														onValueChange={handleCropLeftChange}
 														min={0}
 														max={1920}
 														step={1}
@@ -412,14 +463,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 													<Label className="text-muted-foreground text-xs w-16 shrink-0">Right</Label>
 													<Slider
 														value={[video.crop.right]}
-														onValueChange={([value]) => {
-															updateVideoProperty({
-																crop: {
-																	...video.crop,
-																	right: value,
-																},
-															});
-														}}
+														onValueChange={handleCropRightChange}
 														min={0}
 														max={1920}
 														step={1}
@@ -449,14 +493,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 													<Label className="text-muted-foreground text-xs w-16 shrink-0">Top</Label>
 													<Slider
 														value={[video.crop.top]}
-														onValueChange={([value]) => {
-															updateVideoProperty({
-																crop: {
-																	...video.crop,
-																	top: value,
-																},
-															});
-														}}
+														onValueChange={handleCropTopChange}
 														min={0}
 														max={1080}
 														step={1}
@@ -486,14 +523,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 													<Label className="text-muted-foreground text-xs w-16 shrink-0">Bottom</Label>
 													<Slider
 														value={[video.crop.bottom]}
-														onValueChange={([value]) => {
-															updateVideoProperty({
-																crop: {
-																	...video.crop,
-																	bottom: value,
-																},
-															});
-														}}
+														onValueChange={handleCropBottomChange}
 														min={0}
 														max={1080}
 														step={1}
@@ -530,9 +560,9 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 										className="flex items-center gap-2 w-full px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-accent"
 									>
 										{speedExpanded ? (
-											<HugeiconsIcon icon={ArrowDown01Icon} size={14} />
+											<MemoizedIcon icon={ArrowDown01Icon} size={14} />
 										) : (
-											<HugeiconsIcon icon={ArrowRight01Icon} size={14} />
+											<MemoizedIcon icon={ArrowRight01Icon} size={14} />
 										)}
 										<span>SPEED</span>
 									</div>
@@ -607,9 +637,9 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 										className="flex items-center gap-2 w-full px-3 py-2 text-xs font-semibold text-foreground hover:bg-accent"
 									>
 										{audioExpanded ? (
-											<HugeiconsIcon icon={ArrowDown01Icon} size={14} />
+											<MemoizedIcon icon={ArrowDown01Icon} size={14} />
 										) : (
-											<HugeiconsIcon icon={ArrowRight01Icon} size={14} />
+											<MemoizedIcon icon={ArrowRight01Icon} size={14} />
 										)}
 										<span>AUDIO</span>
 									</div>
@@ -621,13 +651,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 													<Label className="text-muted-foreground text-xs w-16 shrink-0">Volume</Label>
 													<Slider
 														value={[audio.volume <= 0 ? -60 : 20 * Math.log10(audio.volume)]}
-														onValueChange={([value]) => {
-															const clampedDb = Math.min(value, audioMaxDb);
-															const linearVolume = clampedDb <= -60 ? 0 : Math.pow(10, clampedDb / 20);
-															updateAudioProperty({
-																volume: Math.max(0, linearVolume),
-															});
-														}}
+														onValueChange={handleVolumeChange}
 														min={-60}
 														max={audioMaxDb}
 														step={1}
@@ -636,7 +660,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 													<DragNumberInput
 														value={audio.volume <= 0 ? -60.0 : Number((20 * Math.log10(audio.volume)).toFixed(1))}
 														onChange={(newValue) => {
-															const clampedDb = Math.min(newValue, audioMaxDb);
+															const clampedDb = Math.min(newValue, audioMaxDbRef.current);
 															const linearVolume = clampedDb <= -60 ? 0 : Math.pow(10, clampedDb / 20);
 															updateAudioProperty({
 																volume: Math.max(0, linearVolume),
@@ -657,9 +681,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 													<Label className="text-muted-foreground text-xs w-16 shrink-0">Pan</Label>
 													<Slider
 														value={[audio.pan * 100]}
-														onValueChange={([value]) => {
-															updateAudioProperty({ pan: value / 100 });
-														}}
+														onValueChange={handlePanChange}
 														min={-100}
 														max={100}
 														step={1}
@@ -684,9 +706,7 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 													<Label className="text-muted-foreground text-xs w-16 shrink-0">Pitch</Label>
 													<Slider
 														value={[audio.pitch]}
-														onValueChange={([value]) => {
-															updateAudioProperty({ pitch: value });
-														}}
+														onValueChange={handlePitchChange}
 														min={-24}
 														max={24}
 														step={1}
@@ -778,3 +798,5 @@ export default function Inspector({ selectedClips, onClipUpdate, currentTime }: 
 		</div>
 	);
 }
+
+export default memo(Inspector);

@@ -68,8 +68,14 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 			50
 		);
 
+		const onClipAddedRef = useRef(onClipAdded);
+		onClipAddedRef.current = onClipAdded;
 		const onClipUpdatedRef = useRef(onClipUpdated);
 		onClipUpdatedRef.current = onClipUpdated;
+		const onClipRemovedRef = useRef(onClipRemoved);
+		onClipRemovedRef.current = onClipRemoved;
+		const onClipSplitRef = useRef(onClipSplit);
+		onClipSplitRef.current = onClipSplit;
 		const broadcastClipUpdate = useDebouncedCallback(
 			(trackId: string, clip: Clip) => onClipUpdatedRef.current?.(trackId, clip),
 			150 // ms
@@ -113,30 +119,30 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 
 		const handleClipAdded = useCallback(
 			(trackId: string, clip: Clip) => {
-				onClipAdded?.(trackId, clip);
+				onClipAddedRef.current?.(trackId, clip);
 			},
-			[onClipAdded]
+			[]
 		);
 
 		const handleClipUpdated = useCallback(
 			(trackId: string, clip: Clip) => {
-				onClipUpdated?.(trackId, clip);
+				onClipUpdatedRef.current?.(trackId, clip);
 			},
-			[onClipUpdated]
+			[]
 		);
 
 		const handleClipRemoved = useCallback(
 			(trackId: string, clipId: string) => {
-				onClipRemoved?.(trackId, clipId);
+				onClipRemovedRef.current?.(trackId, clipId);
 			},
-			[onClipRemoved]
+			[]
 		);
 
 		const handleClipSplit = useCallback(
 			(trackId: string, originalClip: Clip, newClip: Clip) => {
-				onClipSplit?.(trackId, originalClip, newClip);
+				onClipSplitRef.current?.(trackId, originalClip, newClip);
 			},
-			[onClipSplit]
+			[]
 		);
 
 		useImperativeHandle(

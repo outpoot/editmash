@@ -133,7 +133,7 @@ export function useTimelineClipboard({
 		const newClipIds: Array<{ clipId: string; trackId: string }> = [];
 		const addedClips: Array<{ trackId: string; clip: Clip }> = [];
 
-		updateTimelineState((prev) => {
+		const updatedState = updateTimelineState((prev) => {
 			let newState = {
 				...prev,
 				tracks: prev.tracks.map((t) => ({
@@ -167,9 +167,11 @@ export function useTimelineClipboard({
 			return newState;
 		});
 
-		addedClips.forEach(({ trackId, clip }) => {
-			onClipAdded?.(trackId, clip);
-		});
+		setTimeout(() => {
+			addedClips.forEach(({ trackId, clip }) => {
+				onClipAdded?.(trackId, clip);
+			});
+		}, 0);
 
 		setSelectedClips(newClipIds);
 		if (newClipIds.length > 0) {

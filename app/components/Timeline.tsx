@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle, memo } from "react";
 import { TimelineState, Clip, VideoClip, ImageClip, AudioClip } from "../types/timeline";
 import TimelineTrack from "./TimelineTrack";
 import TimeRuler from "./TimeRuler";
@@ -130,7 +130,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		const timelineStateRef = useRef<TimelineState>(timelineState);
 		timelineStateRef.current = timelineState;
 
-		// Snap points cache
 		const snapPointsCache = useMemo(() => {
 			const points: number[] = [0, timelineState.duration];
 			timelineState.tracks.forEach((track) => {
@@ -141,7 +140,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			return points;
 		}, [timelineState]);
 
-		// Update timeline state with history
 		const updateTimelineState = useCallback((updater: (prev: TimelineState) => TimelineState) => {
 			setTimelineState((prev) => {
 				const newState = updater(prev);
@@ -150,14 +148,12 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			});
 		}, []);
 
-		// Selection hook
 		const { selectedClips, setSelectedClips, lastSelectedClip, setLastSelectedClip, handleClipSelect, clearSelection } =
 			useTimelineSelection({
 				timelineState,
 				onClipSelect,
 			});
 
-		// Drag hook
 		const { dragState, hoveredTrackId, setHoveredTrackId, handleClipDragStart } = useTimelineDrag({
 			pixelsPerSecond,
 			timelineState,
@@ -177,7 +173,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			clipSizeMax,
 		});
 
-		// Clipboard hook
 		const { handleCutClips, handleCopyClips, handlePasteClips, handleDeleteClip } = useTimelineClipboard({
 			selectedClips,
 			timelineState,
@@ -190,7 +185,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			onClipRemoved,
 		});
 
-		// Undo/Redo handlers
 		const handleUndo = useCallback(() => {
 			const currentState = timelineState;
 			const previousState = historyStore.undo();
@@ -273,7 +267,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			}
 		}, [timelineState, onClipSelect, onClipAdded, onClipUpdated, onClipRemoved, setSelectedClips, setLastSelectedClip]);
 
-		// Zoom handlers
 		const handleZoomIn = useCallback(() => {
 			setPixelsPerSecond((prev) => Math.min(prev + 10, 200));
 		}, []);
@@ -282,12 +275,10 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			setPixelsPerSecond((prev) => Math.max(prev - 10, 10));
 		}, []);
 
-		// Play/Pause handler
 		const handlePlayPause = useCallback(() => {
 			onPlayingChange(!isPlaying);
 		}, [isPlaying, onPlayingChange]);
 
-		// Keyboard hook
 		useTimelineKeyboard({
 			selectedClipsCount: selectedClips.length,
 			onPlayPause: handlePlayPause,
@@ -306,7 +297,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			transformMode,
 		});
 
-		// Imperative handle for remote operations
 		useImperativeHandle(
 			ref,
 			() => ({
@@ -671,8 +661,10 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			};
 		}, []);
 
-		// update selected clips when timeline changes
+		const prevSelectedClipsDataRef = useRef<string | null>(null);
 		useEffect(() => {
+			if (dragState) return;
+			
 			if (selectedClips.length > 0 && onClipSelect) {
 				const updatedSelections = selectedClips
 					.map((s) => {
@@ -682,10 +674,21 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					})
 					.filter((s): s is { clip: Clip; trackId: string } => s !== null);
 				if (updatedSelections.length > 0) {
-					onClipSelect(updatedSelections);
+					const newDataKey = JSON.stringify(updatedSelections.map(s => ({ 
+						id: s.clip.id, 
+						trackId: s.trackId,
+						startTime: s.clip.startTime,
+						duration: s.clip.duration,
+						sourceIn: s.clip.sourceIn,
+						properties: s.clip.properties
+					})));
+					if (newDataKey !== prevSelectedClipsDataRef.current) {
+						prevSelectedClipsDataRef.current = newDataKey;
+						onClipSelect(updatedSelections);
+					}
 				}
 			}
-		}, [timelineState, selectedClips, onClipSelect]);
+		}, [timelineState, selectedClips, onClipSelect, dragState]);
 
 		// update playhead position when not playing
 		useEffect(() => {
@@ -743,7 +746,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					cancelAnimationFrame(animationFrameRef.current);
 				}
 			};
-			// eslint-disable-next-line react-hooks/exhaustive-deps
 		}, [isPlaying]);
 
 		// close transform menu on outside click
@@ -784,27 +786,44 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			return () => scrollContainer.removeEventListener("wheel", handleWheel);
 		}, []);
 
+		const isSnappingEnabledRef = useRef(isSnappingEnabled);
+		isSnappingEnabledRef.current = isSnappingEnabled;
+		const snapPointsCacheRef = useRef(snapPointsCache);
+		snapPointsCacheRef.current = snapPointsCache;
+		const clipSizeMaxRef = useRef(clipSizeMax);
+		clipSizeMaxRef.current = clipSizeMax;
+
+		const isPlayingRef = useRef(isPlaying);
+		isPlayingRef.current = isPlaying;
+		const onTimeChangeRef = useRef(onTimeChange);
+		onTimeChangeRef.current = onTimeChange;
+
 		// seek handler with snapping
 		const handleSeek = useCallback(
 			(time: number) => {
-				const snappedTime = calculatePlayheadSnappedTime(time, isSnappingEnabled, snapPointsCache);
+				const snappedTime = calculatePlayheadSnappedTime(time, isSnappingEnabledRef.current, snapPointsCacheRef.current);
 				currentTimeRef.current = snappedTime;
-				onTimeChange(snappedTime);
-				if (isPlaying) {
+				onTimeChangeRef.current(snappedTime);
+				if (isPlayingRef.current) {
 					playbackStartTimeRef.current = performance.now();
 					playbackStartPositionRef.current = snappedTime;
 				}
 			},
-			[currentTimeRef, onTimeChange, isPlaying, isSnappingEnabled, snapPointsCache]
+			[currentTimeRef]
 		);
 
 		// timeline click handler (deselect)
 		const handleTimelineClick = useCallback(() => clearSelection(), [clearSelection]);
 
 		// track mouse move for blade cursor
+		const toolModeRef = useRef(toolMode);
+		toolModeRef.current = toolMode;
+		const pixelsPerSecondRef = useRef(pixelsPerSecond);
+		pixelsPerSecondRef.current = pixelsPerSecond;
+
 		const handleTrackMouseMove = useCallback(
 			(e: React.MouseEvent, trackId: string) => {
-				if (toolMode !== "blade") {
+				if (toolModeRef.current !== "blade") {
 					if (lastBladeCursorRef.current !== null) {
 						lastBladeCursorRef.current = null;
 						setBladeCursorPosition(null);
@@ -815,18 +834,19 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				const rect = timelineRef.current?.getBoundingClientRect();
 				if (!rect) return;
 				const mouseX = e.clientX - rect.left + scrollLeft;
-				const mouseTime = mouseX / pixelsPerSecond;
+				const pps = pixelsPerSecondRef.current;
+				const mouseTime = mouseX / pps;
 				const fps = 30;
 				const frameTime = 1 / fps;
 				const snappedTime = Math.round(mouseTime / frameTime) * frameTime;
-				const snappedX = snappedTime * pixelsPerSecond;
+				const snappedX = snappedTime * pps;
 				const last = lastBladeCursorRef.current;
 				if (!last || last.trackId !== trackId || Math.abs(last.x - snappedX) > 1) {
 					lastBladeCursorRef.current = { x: snappedX, trackId };
 					setBladeCursorPosition({ x: snappedX, trackId });
 				}
 			},
-			[toolMode, pixelsPerSecond]
+			[]
 		);
 
 		// media drag over handler
@@ -840,14 +860,17 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
 				const rect = timelineRef.current?.getBoundingClientRect();
 				if (!rect) return;
+				const pps = pixelsPerSecondRef.current;
 				const dragX = e.clientX - rect.left + scrollLeft;
-				let dragTime = Math.max(0, dragX / pixelsPerSecond);
+				let dragTime = Math.max(0, dragX / pps);
 				let clipDuration = mediaItem.duration;
-				if (clipSizeMax && clipDuration > clipSizeMax) {
-					clipDuration = clipSizeMax;
+				const maxSize = clipSizeMaxRef.current;
+				if (maxSize && clipDuration > maxSize) {
+					clipDuration = maxSize;
 				}
-				if (dragTime + clipDuration > timelineState.duration) {
-					clipDuration = timelineState.duration - dragTime;
+				const timelineDuration = timelineStateRef.current.duration;
+				if (dragTime + clipDuration > timelineDuration) {
+					clipDuration = timelineDuration - dragTime;
 				}
 				if (clipDuration <= 0) {
 					if (lastDragPreviewRef.current !== null) {
@@ -857,13 +880,13 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					return;
 				}
 
-				if (isSnappingEnabled) {
+				if (isSnappingEnabledRef.current) {
 					const snappedTime = calculateSnappedTime(dragTime, "preview", clipDuration, {
-						isSnappingEnabled,
-						snapPoints: snapPointsCache,
+						isSnappingEnabled: isSnappingEnabledRef.current,
+						snapPoints: snapPointsCacheRef.current,
 						currentTimeRef,
 					});
-					if (snappedTime >= 0 && snappedTime + clipDuration <= timelineState.duration) {
+					if (snappedTime >= 0 && snappedTime + clipDuration <= timelineDuration) {
 						dragTime = snappedTime;
 					}
 				}
@@ -881,8 +904,11 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					setDragPreview(newPreview);
 				}
 			},
-			[pixelsPerSecond, timelineState.duration, isSnappingEnabled, snapPointsCache, currentTimeRef, clipSizeMax]
+			[currentTimeRef]
 		);
+
+		const onClipAddedRef = useRef(onClipAdded);
+		onClipAddedRef.current = onClipAdded;
 
 		// media drop handler
 		const handleMediaDrop = useCallback(
@@ -895,24 +921,27 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
 					const rect = timelineRef.current?.getBoundingClientRect();
 					if (!rect) return;
+					const pps = pixelsPerSecondRef.current;
 					const dropX = e.clientX - rect.left + scrollLeft;
-					let dropTime = Math.max(0, dropX / pixelsPerSecond);
+					let dropTime = Math.max(0, dropX / pps);
 					let clipDuration = mediaItem.duration;
-					if (clipSizeMax && clipDuration > clipSizeMax) {
-						clipDuration = clipSizeMax;
+					const maxSize = clipSizeMaxRef.current;
+					if (maxSize && clipDuration > maxSize) {
+						clipDuration = maxSize;
 					}
-					if (dropTime + clipDuration > timelineState.duration) {
-						clipDuration = timelineState.duration - dropTime;
+					const timelineDuration = timelineStateRef.current.duration;
+					if (dropTime + clipDuration > timelineDuration) {
+						clipDuration = timelineDuration - dropTime;
 					}
 					if (clipDuration <= 0) return;
 
-					if (isSnappingEnabled) {
+					if (isSnappingEnabledRef.current) {
 						const snappedTime = calculateSnappedTime(dropTime, "drop", clipDuration, {
-							isSnappingEnabled,
-							snapPoints: snapPointsCache,
+							isSnappingEnabled: isSnappingEnabledRef.current,
+							snapPoints: snapPointsCacheRef.current,
 							currentTimeRef,
 						});
-						if (snappedTime >= 0 && snappedTime + clipDuration <= timelineState.duration) {
+						if (snappedTime >= 0 && snappedTime + clipDuration <= timelineDuration) {
 							dropTime = snappedTime;
 						}
 					}
@@ -930,21 +959,12 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						return placeClipOnTimeline(newClip, trackId, newState).state;
 					});
 
-					onClipAdded?.(trackId, newClip);
+					onClipAddedRef.current?.(trackId, newClip);
 				} catch (err) {
 					console.error("Error handling media drop:", err);
 				}
 			},
-			[
-				pixelsPerSecond,
-				timelineState.duration,
-				updateTimelineState,
-				onClipAdded,
-				isSnappingEnabled,
-				snapPointsCache,
-				currentTimeRef,
-				clipSizeMax,
-			]
+			[updateTimelineState, currentTimeRef]
 		);
 
 		const handleMediaDragLeave = useCallback(() => {
@@ -952,10 +972,17 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			setDragPreview(null);
 		}, []);
 
+		const handleTrackMouseEnter = useCallback((trackId: string) => {
+			setHoveredTrackId(trackId);
+		}, [setHoveredTrackId]);
+
+		const onClipSplitRef = useRef(onClipSplit);
+		onClipSplitRef.current = onClipSplit;
+
 		// blade click handler
 		const handleBladeClick = useCallback(
 			(e: React.MouseEvent, trackId: string) => {
-				if (toolMode !== "blade") return;
+				if (toolModeRef.current !== "blade") return;
 				e.stopPropagation();
 
 				const now = Date.now();
@@ -968,15 +995,16 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
 				const rect = timelineRef.current?.getBoundingClientRect();
 				if (!rect) return;
+				const pps = pixelsPerSecondRef.current;
 				const clickX = e.clientX - rect.left + scrollLeft;
-				const mouseTime = clickX / pixelsPerSecond;
+				const mouseTime = clickX / pps;
 				const fps = 30;
 				const frameTime = 1 / fps;
 				const clickTime = Math.round(mouseTime / frameTime) * frameTime;
 
 				const splitTimestamp = Date.now();
 
-				const currentState = timelineState;
+				const currentState = timelineStateRef.current;
 				const trackIndex = currentState.tracks.findIndex((t) => t.id === trackId);
 				if (trackIndex === -1) return;
 				const track = currentState.tracks[trackIndex];
@@ -1009,9 +1037,9 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					return newState;
 				});
 
-				onClipSplit?.(trackId, leftPart, rightPart);
+				onClipSplitRef.current?.(trackId, leftPart, rightPart);
 			},
-			[toolMode, pixelsPerSecond, updateTimelineState, onClipSplit, timelineState]
+			[updateTimelineState]
 		);
 
 		const timelineWidth = timelineState.duration * pixelsPerSecond;
@@ -1121,7 +1149,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 											onClipSelect={handleClipSelect}
 											onClipDragStart={handleClipDragStart}
 											onTrackClick={handleTimelineClick}
-											onTrackMouseEnter={() => setHoveredTrackId(track.id)}
+											onTrackMouseEnter={handleTrackMouseEnter}
 											toolMode={toolMode}
 											onBladeClick={handleBladeClick}
 											isLastTrack={index === timelineState.tracks.length - 1}
@@ -1203,4 +1231,4 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 
 Timeline.displayName = "Timeline";
 
-export default Timeline;
+export default memo(Timeline);

@@ -481,7 +481,10 @@ function MatchContent({
 	const handleClipAdded = useCallback(
 		(trackId: string, clip: Clip) => {
 			const timelineState = mainLayoutRef.current?.getTimelineState();
-			if (!timelineState) return;
+			if (!timelineState) {
+				console.warn("Timeline state not available for clip add broadcast");
+				return;
+			}
 
 			const timeline = {
 				duration: timelineState.duration,
@@ -498,7 +501,10 @@ function MatchContent({
 				})),
 			};
 
-			ws?.broadcastClipAdded(trackId, clip, timeline);
+			const success = ws?.broadcastClipAdded(trackId, clip, timeline);
+			if (!success) {
+				console.warn("Failed to broadcast clip add:", { trackId, clipId: clip.id });
+			}
 		},
 		[ws, mainLayoutRef]
 	);
