@@ -582,42 +582,6 @@ function MatchContent({
 		}
 	}, [ws?.status, ws?.subscribeToZone]);
 
-	const canAddClip = useCallback(() => {
-		const config = ws?.matchConfig;
-		const clipCount = ws?.playerClipCount ?? 0;
-
-		if (!config || config.maxClipsPerUser === 0) {
-			return { allowed: true };
-		}
-
-		if (clipCount >= config.maxClipsPerUser) {
-			return {
-				allowed: false,
-				reason: `You've reached the maximum clip limit (${config.maxClipsPerUser} clips)`,
-			};
-		}
-
-		return { allowed: true };
-	}, [ws?.matchConfig, ws?.playerClipCount]);
-
-	const canSplitClip = useCallback(() => {
-		const config = ws?.matchConfig;
-		const clipCount = ws?.playerClipCount ?? 0;
-
-		if (!config || config.maxClipsPerUser === 0) {
-			return { allowed: true };
-		}
-
-		if (clipCount >= config.maxClipsPerUser) {
-			return {
-				allowed: false,
-				reason: `You've reached the maximum clip limit (${config.maxClipsPerUser} clips). Delete a clip to split.`,
-			};
-		}
-
-		return { allowed: true };
-	}, [ws?.matchConfig, ws?.playerClipCount]);
-
 	return (
 		<div className="h-screen flex flex-col relative">
 			<TopBar
@@ -634,9 +598,6 @@ function MatchContent({
 				onSelectionChange={handleSelectionChange}
 				remoteSelections={ws?.remoteSelections}
 				onCurrentTimeChange={handleCurrentTimeChange}
-				canAddClip={canAddClip}
-				canSplitClip={canSplitClip}
-				clipSizeMin={matchConfig?.clipSizeMin}
 				clipSizeMax={matchConfig?.clipSizeMax}
 			/>
 

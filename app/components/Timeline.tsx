@@ -60,9 +60,6 @@ interface TimelineProps {
 	onClipRemoved?: (trackId: string, clipId: string) => void;
 	onClipSplit?: (trackId: string, originalClip: Clip, newClip: Clip) => void;
 	remoteSelections?: Map<string, RemoteSelection>;
-	canAddClip?: () => { allowed: boolean; reason?: string };
-	canSplitClip?: () => { allowed: boolean; reason?: string };
-	clipSizeMin?: number;
 	clipSizeMax?: number;
 }
 
@@ -94,9 +91,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			onClipRemoved,
 			onClipSplit,
 			remoteSelections,
-			canAddClip,
-			canSplitClip,
-			clipSizeMin,
 			clipSizeMax,
 		},
 		ref
@@ -131,6 +125,8 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		const lastStateUpdateRef = useRef<number>(0);
 		const lastDragPreviewRef = useRef<{ trackId: string; startTime: number; duration: number } | null>(null);
 		const lastBladeCursorRef = useRef<{ x: number; trackId: string } | null>(null);
+		const lastBladeTimeRef = useRef<number>(0);
+		const BLADE_COOLDOWN_MS = 300;
 		const timelineStateRef = useRef<TimelineState>(timelineState);
 		timelineStateRef.current = timelineState;
 
@@ -178,7 +174,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			onClipUpdated,
 			onClipRemoved,
 			onClipAdded,
-			clipSizeMin,
 			clipSizeMax,
 		});
 
@@ -193,7 +188,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			onClipSelect,
 			onClipAdded,
 			onClipRemoved,
-			canAddClip,
 		});
 
 		// Undo/Redo handlers
@@ -615,25 +609,31 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				},
 				splitRemoteClip: (trackId: string, originalClip: Clip, newClip: Clip) => {
 					setTimelineState((prev) => {
-						let newState = {
-							...prev,
-							tracks: prev.tracks.map((t) =>
-								t.id === trackId
-									? {
-											...t,
-											clips: t.clips.map((c) =>
-												c.id === originalClip.id ? ({ ...originalClip, thumbnail: originalClip.thumbnail || c.thumbnail } as Clip) : c
-											),
-									  }
-									: t
-							),
-						};
-						const trackIndex = newState.tracks.findIndex((t) => t.id === trackId);
-						if (trackIndex !== -1 && !newState.tracks[trackIndex].clips.find((c) => c.id === newClip.id)) {
-							newState.tracks[trackIndex].clips.push(newClip);
-							newState = placeClipOnTimeline(newClip, trackId, newState).state;
+						const trackIndex = prev.tracks.findIndex((t) => t.id === trackId);
+						if (trackIndex === -1) return prev;
+
+						const track = prev.tracks[trackIndex];
+						const originalIndex = track.clips.findIndex((c) => c.id === originalClip.id);
+
+						let newClips: Clip[];
+						if (originalIndex !== -1) {
+							newClips = track.clips.map((c) =>
+								c.id === originalClip.id ? ({ ...originalClip, thumbnail: originalClip.thumbnail || c.thumbnail } as Clip) : c
+							);
+							if (!newClips.find((c) => c.id === newClip.id)) {
+								newClips.push(newClip);
+							}
+						} else {
+							newClips = [...track.clips];
+							if (!newClips.find((c) => c.id === newClip.id)) {
+								newClips.push(newClip);
+							}
 						}
-						return newState;
+
+						return {
+							...prev,
+							tracks: prev.tracks.map((t, i) => (i === trackIndex ? { ...t, clips: newClips } : t)),
+						};
 					});
 					generateAndUpdateThumbnail(newClip, setTimelineState);
 				},
@@ -834,18 +834,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			(e: React.DragEvent, trackId: string) => {
 				e.preventDefault();
 
-				if (canAddClip) {
-					const check = canAddClip();
-					if (!check.allowed) {
-						e.dataTransfer.dropEffect = "none";
-						if (lastDragPreviewRef.current !== null) {
-							lastDragPreviewRef.current = null;
-							setDragPreview(null);
-						}
-						return;
-					}
-				}
-
 				e.dataTransfer.dropEffect = "copy";
 				const mediaItem = getCurrentDragItem();
 				if (!mediaItem) return;
@@ -855,6 +843,9 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				const dragX = e.clientX - rect.left + scrollLeft;
 				let dragTime = Math.max(0, dragX / pixelsPerSecond);
 				let clipDuration = mediaItem.duration;
+				if (clipSizeMax && clipDuration > clipSizeMax) {
+					clipDuration = clipSizeMax;
+				}
 				if (dragTime + clipDuration > timelineState.duration) {
 					clipDuration = timelineState.duration - dragTime;
 				}
@@ -890,7 +881,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					setDragPreview(newPreview);
 				}
 			},
-			[pixelsPerSecond, timelineState.duration, canAddClip, isSnappingEnabled, snapPointsCache, currentTimeRef]
+			[pixelsPerSecond, timelineState.duration, isSnappingEnabled, snapPointsCache, currentTimeRef, clipSizeMax]
 		);
 
 		// media drop handler
@@ -898,14 +889,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			(e: React.DragEvent, trackId: string) => {
 				setDragPreview(null);
 				try {
-					if (canAddClip) {
-						const check = canAddClip();
-						if (!check.allowed) {
-							toast.error(check.reason || "Cannot add clip");
-							return;
-						}
-					}
-
 					const mediaItemData = e.dataTransfer.getData("application/media-item");
 					if (!mediaItemData) return;
 					const mediaItem = JSON.parse(mediaItemData);
@@ -915,6 +898,9 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					const dropX = e.clientX - rect.left + scrollLeft;
 					let dropTime = Math.max(0, dropX / pixelsPerSecond);
 					let clipDuration = mediaItem.duration;
+					if (clipSizeMax && clipDuration > clipSizeMax) {
+						clipDuration = clipSizeMax;
+					}
 					if (dropTime + clipDuration > timelineState.duration) {
 						clipDuration = timelineState.duration - dropTime;
 					}
@@ -954,10 +940,10 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				timelineState.duration,
 				updateTimelineState,
 				onClipAdded,
-				canAddClip,
 				isSnappingEnabled,
 				snapPointsCache,
 				currentTimeRef,
+				clipSizeMax,
 			]
 		);
 
@@ -972,13 +958,12 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				if (toolMode !== "blade") return;
 				e.stopPropagation();
 
-				if (canSplitClip) {
-					const check = canSplitClip();
-					if (!check.allowed) {
-						toast.error(check.reason || "Cannot split clip");
-						return;
-					}
+				const now = Date.now();
+				const timeSinceLastCut = now - lastBladeTimeRef.current;
+				if (timeSinceLastCut < BLADE_COOLDOWN_MS) {
+					return;
 				}
+				lastBladeTimeRef.current = now;
 
 				const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
 				const rect = timelineRef.current?.getBoundingClientRect();
@@ -989,43 +974,44 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				const frameTime = 1 / fps;
 				const clickTime = Math.round(mouseTime / frameTime) * frameTime;
 
-				let leftPartResult: Clip | null = null;
-				let rightPartResult: Clip | null = null;
+				const splitTimestamp = Date.now();
+
+				const currentState = timelineState;
+				const trackIndex = currentState.tracks.findIndex((t) => t.id === trackId);
+				if (trackIndex === -1) return;
+				const track = currentState.tracks[trackIndex];
+				const clipIndex = track.clips.findIndex((c) => clickTime >= c.startTime && clickTime < c.startTime + c.duration);
+				if (clipIndex === -1) return;
+				const clipToSplit = track.clips[clipIndex];
+				if (clickTime <= clipToSplit.startTime || clickTime >= clipToSplit.startTime + clipToSplit.duration - frameTime) return;
+
+				const leftPart: Clip = { ...clipToSplit, duration: clickTime - clipToSplit.startTime };
+				const timelineOffset = clickTime - clipToSplit.startTime;
+				const speed = clipToSplit.type === "video" ? (clipToSplit as VideoClip).properties.speed : 1;
+				const sourceOffset = timelineOffset * speed;
+				const rightPart: Clip = {
+					...clipToSplit,
+					id: `${clipToSplit.id}-split-${splitTimestamp}`,
+					startTime: clickTime,
+					duration: clipToSplit.startTime + clipToSplit.duration - clickTime,
+					sourceIn: clipToSplit.sourceIn + sourceOffset,
+				};
 
 				updateTimelineState((prev) => {
 					const newState = { ...prev, tracks: prev.tracks.map((t) => ({ ...t, clips: [...t.clips] })) };
-					const trackIndex = newState.tracks.findIndex((t) => t.id === trackId);
-					if (trackIndex === -1) return prev;
-					const track = newState.tracks[trackIndex];
-					const clipIndex = track.clips.findIndex((c) => clickTime >= c.startTime && clickTime < c.startTime + c.duration);
-					if (clipIndex === -1) return prev;
-					const clipToSplit = track.clips[clipIndex];
-					if (clickTime <= clipToSplit.startTime || clickTime >= clipToSplit.startTime + clipToSplit.duration - frameTime) return prev;
+					const tIdx = newState.tracks.findIndex((t) => t.id === trackId);
+					if (tIdx === -1) return prev;
+					const cIdx = newState.tracks[tIdx].clips.findIndex((c) => c.id === clipToSplit.id);
+					if (cIdx === -1) return prev;
 
-					const leftPart: Clip = { ...clipToSplit, duration: clickTime - clipToSplit.startTime };
-					const timelineOffset = clickTime - clipToSplit.startTime;
-					const speed = clipToSplit.type === "video" ? (clipToSplit as VideoClip).properties.speed : 1;
-					const sourceOffset = timelineOffset * speed;
-					const rightPart: Clip = {
-						...clipToSplit,
-						id: `${clipToSplit.id}-split-${Date.now()}`,
-						startTime: clickTime,
-						duration: clipToSplit.startTime + clipToSplit.duration - clickTime,
-						sourceIn: clipToSplit.sourceIn + sourceOffset,
-					};
-
-					leftPartResult = leftPart;
-					rightPartResult = rightPart;
-					newState.tracks[trackIndex].clips[clipIndex] = leftPart;
-					newState.tracks[trackIndex].clips.push(rightPart);
+					newState.tracks[tIdx].clips[cIdx] = leftPart;
+					newState.tracks[tIdx].clips.push(rightPart);
 					return newState;
 				});
 
-				if (leftPartResult && rightPartResult) {
-					onClipSplit?.(trackId, leftPartResult, rightPartResult);
-				}
+				onClipSplit?.(trackId, leftPart, rightPart);
 			},
-			[toolMode, pixelsPerSecond, updateTimelineState, onClipSplit, canSplitClip]
+			[toolMode, pixelsPerSecond, updateTimelineState, onClipSplit, timelineState]
 		);
 
 		const timelineWidth = timelineState.duration * pixelsPerSecond;

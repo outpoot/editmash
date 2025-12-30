@@ -102,6 +102,11 @@ export const CHAT_RATE_LIMIT_WINDOW = 10000; // 10 seconds
 export const CHAT_RATE_LIMIT_MAX_MESSAGES = 5; // max 5 messages per window
 export const CHAT_COOLDOWN_MS = 1000; // 1 second between messages
 
+export const matchMessageQueues = new Map<string, {
+	processing: boolean;
+	queue: Array<() => Promise<void>>;
+}>();
+
 export const pendingBatches = new Map<
 	string,
 	{
@@ -114,4 +119,43 @@ export const pendingBatches = new Map<
 
 export function generateConnectionId(): string {
 	return `conn_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+export function queueMatchTask(matchId: string, task: () => Promise<void>): void {
+	let matchQueue = matchMessageQueues.get(matchId);
+	if (!matchQueue) {
+		matchQueue = { processing: false, queue: [] };
+		matchMessageQueues.set(matchId, matchQueue);
+	}
+
+	matchQueue.queue.push(task);
+	processMatchQueue(matchId);
+}
+
+async function processMatchQueue(matchId: string): Promise<void> {
+	const matchQueue = matchMessageQueues.get(matchId);
+	if (!matchQueue || matchQueue.processing) return;
+
+	matchQueue.processing = true;
+
+	while (matchQueue.queue.length > 0) {
+		const task = matchQueue.queue.shift();
+		if (task) {
+			try {
+				await task();
+			} catch (error) {
+				console.error(`[WS] Error processing queued task for match ${matchId}:`, error);
+			}
+		}
+	}
+
+	matchQueue.processing = false;
+
+	if (matchQueue.queue.length === 0) {
+		matchMessageQueues.delete(matchId);
+	}
+}
+
+export function cleanupMatchQueue(matchId: string): void {
+	matchMessageQueues.delete(matchId);
 }

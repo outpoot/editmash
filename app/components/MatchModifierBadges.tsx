@@ -55,14 +55,11 @@ export function MatchModifierBadges({ matchConfig, showMaxPlayers = false, verti
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<Badge variant="secondary" className="gap-1 text-xs cursor-default w-fit">
-							<HugeiconsIcon icon={ScissorIcon} className="w-3 h-3" />
-							{matchConfig.clipSizeMin}-{matchConfig.clipSizeMax}s
+							<HugeiconsIcon icon={ScissorIcon} className="w-3 h-3" />≤{matchConfig.clipSizeMax}s
 						</Badge>
 					</TooltipTrigger>
 					<TooltipContent>
-						<p>
-							Clip duration is {matchConfig.clipSizeMin}s to {matchConfig.clipSizeMax}s.
-						</p>
+						<p>Max clip duration is {matchConfig.clipSizeMax}s.</p>
 					</TooltipContent>
 				</Tooltip>
 
@@ -75,7 +72,10 @@ export function MatchModifierBadges({ matchConfig, showMaxPlayers = false, verti
 						</Badge>
 					</TooltipTrigger>
 					<TooltipContent>
-						<p>Max volume boost is {matchConfig.audioMaxDb > 0 ? "+" : ""}{matchConfig.audioMaxDb} dB.</p>
+						<p>
+							Max volume boost is {matchConfig.audioMaxDb > 0 ? "+" : ""}
+							{matchConfig.audioMaxDb} dB.
+						</p>
 					</TooltipContent>
 				</Tooltip>
 

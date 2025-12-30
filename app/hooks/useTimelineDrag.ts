@@ -18,7 +18,6 @@ interface UseTimelineDragOptions {
 	onClipUpdated?: (trackId: string, clip: Clip) => void;
 	onClipRemoved?: (trackId: string, clipId: string) => void;
 	onClipAdded?: (trackId: string, clip: Clip) => void;
-	clipSizeMin?: number;
 	clipSizeMax?: number;
 }
 
@@ -46,7 +45,6 @@ export function useTimelineDrag({
 	onClipUpdated,
 	onClipRemoved,
 	onClipAdded,
-	clipSizeMin,
 	clipSizeMax,
 }: UseTimelineDragOptions): UseTimelineDragReturn {
 	const [dragState, setDragState] = useState<DragState | null>(null);
@@ -214,17 +212,7 @@ export function useTimelineDrag({
 							const trimAmount = clip.startTime - latestDragState.startTime;
 							clip.duration = latestDragState.startDuration - trimAmount;
 
-							const minDuration = clipSizeMin ?? 0.1;
-							const maxDuration = clipSizeMax ?? Infinity;
-
-							if (clip.duration < minDuration) {
-								clip.duration = minDuration;
-								clip.startTime = latestDragState.startTime + latestDragState.startDuration - minDuration;
-							}
-							if (clip.duration > maxDuration) {
-								clip.duration = maxDuration;
-								clip.startTime = latestDragState.startTime + latestDragState.startDuration - maxDuration;
-							}
+								const minDuration = 0.033; // ~1 frame at 30fps
 
 							const finalTrimAmount = clip.startTime - latestDragState.startTime;
 							const newSourceIn = originalSourceIn + finalTrimAmount * speed;
@@ -244,7 +232,7 @@ export function useTimelineDrag({
 
 							newState.tracks[sourceTrackIndex].clips[clipIndex] = clip;
 						} else if (latestDragState.type === "trim-end") {
-							const minDuration = clipSizeMin ?? 0.1;
+								const minDuration = 0.033; // ~1 frame at 30fps
 							const maxTimelineDuration = prev.duration - clip.startTime;
 
 							let maxDuration = maxTimelineDuration;

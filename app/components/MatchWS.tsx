@@ -821,12 +821,6 @@ export function MatchWS({
 			const { matchId, userId, username } = propsRef.current;
 
 			if (constraintConfig) {
-				const limitResult = validatePlayerClipLimit(constraintConfig, playerClipCount);
-				if (!limitResult.valid) {
-					toast.error(limitResult.reason || "Clip limit reached");
-					return false;
-				}
-
 				const clipForValidation: ClipForValidation = {
 					id: clip.id,
 					type: clip.type,
@@ -1007,12 +1001,6 @@ export function MatchWS({
 			const { matchId, userId, username } = propsRef.current;
 
 			if (constraintConfig) {
-				const limitResult = validatePlayerClipLimit(constraintConfig, playerClipCount);
-				if (!limitResult.valid) {
-					toast.error(limitResult.reason || "Clip limit reached");
-					return false;
-				}
-
 				const originalForValidation: ClipForValidation = {
 					id: originalClip.id,
 					type: originalClip.type,
@@ -1093,11 +1081,6 @@ export function MatchWS({
 				return { valid: true };
 			}
 
-			const limitResult = validatePlayerClipLimit(constraintConfig, playerClipCount);
-			if (!limitResult.valid) {
-				return limitResult;
-			}
-
 			const clipForValidation: ClipForValidation = {
 				id: clip.id,
 				type: clip.type,
@@ -1115,11 +1098,6 @@ export function MatchWS({
 		(originalClip: Clip, newClip: Clip, trackId: string, timeline: TimelineForValidation): { valid: boolean; reason?: string } => {
 			if (!constraintConfig) {
 				return { valid: true };
-			}
-
-			const limitResult = validatePlayerClipLimit(constraintConfig, playerClipCount);
-			if (!limitResult.valid) {
-				return limitResult;
 			}
 
 			const originalForValidation: ClipForValidation = {

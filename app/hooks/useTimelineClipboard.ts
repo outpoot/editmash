@@ -13,7 +13,6 @@ interface UseTimelineClipboardOptions {
 	onClipSelect?: (selection: { clip: Clip; trackId: string }[] | null) => void;
 	onClipAdded?: (trackId: string, clip: Clip) => void;
 	onClipRemoved?: (trackId: string, clipId: string) => void;
-	canAddClip?: () => { allowed: boolean; reason?: string };
 }
 
 interface UseTimelineClipboardReturn {
@@ -34,7 +33,6 @@ export function useTimelineClipboard({
 	onClipSelect,
 	onClipAdded,
 	onClipRemoved,
-	canAddClip,
 }: UseTimelineClipboardOptions): UseTimelineClipboardReturn {
 	const [clipboard, setClipboard] = useState<Array<{ clip: Clip; trackId: string }> | null>(null);
 
@@ -129,14 +127,6 @@ export function useTimelineClipboard({
 	const handlePasteClips = useCallback(() => {
 		if (!clipboard || clipboard.length === 0) return;
 
-		if (canAddClip) {
-			const check = canAddClip();
-			if (!check.allowed) {
-				toast.error(check.reason || "Cannot paste clips");
-				return;
-			}
-		}
-
 		const minStartTime = Math.min(...clipboard.map((c) => c.clip.startTime));
 		const offset = currentTimeRef.current - minStartTime;
 
@@ -185,7 +175,7 @@ export function useTimelineClipboard({
 		if (newClipIds.length > 0) {
 			setLastSelectedClip(newClipIds[0]);
 		}
-	}, [clipboard, currentTimeRef, updateTimelineState, onClipAdded, setSelectedClips, setLastSelectedClip, canAddClip]);
+	}, [clipboard, currentTimeRef, updateTimelineState, onClipAdded, setSelectedClips, setLastSelectedClip]);
 
 	return {
 		clipboard,

@@ -47,7 +47,7 @@ import {
 	updateCacheClipSplit,
 	cleanupMatchResources,
 } from "./timelineCache";
-import { broadcast, broadcastClipMessage, requestTimelineSync } from "./broadcast";
+import { broadcast, requestTimelineSync } from "./broadcast";
 import {
 	validateClipConstraints,
 	validateClipUpdate,
@@ -389,15 +389,6 @@ export async function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: W
 
 	const config = await fetchMatchConfig(matchId);
 	if (config && clip) {
-		if (userId) {
-			const playerClipCount = getPlayerClipCount(matchId, userId);
-			const limitResult = validatePlayerClipLimit(config, playerClipCount);
-			if (!limitResult.valid) {
-				ws.send(serializeMessage(createErrorMessage("CONSTRAINT_VIOLATION", limitResult.reason || "Clip limit reached")));
-				return;
-			}
-		}
-
 		const clipForValidation: ClipForValidation = {
 			id: clip.id,
 			type: mediaTypeMap[clip.type] || "video",
@@ -448,9 +439,7 @@ export async function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: W
 		}
 	}
 
-	const clipStartTime = clip?.startTime;
-	const clipDuration = clip?.duration;
-	broadcastClipMessage(matchId, msg, clipStartTime, clipDuration, ws.data.id);
+	broadcast(matchId, msg, ws.data.id);
 
 	requestTimelineSync(matchId);
 }
@@ -572,7 +561,7 @@ export async function handleClipBatchUpdate(ws: ServerWebSocket<WebSocketData>, 
 		}
 	}
 
-	broadcastClipMessage(matchId, msg, undefined, undefined, ws.data.id);
+	broadcast(matchId, msg, ws.data.id);
 	requestTimelineSync(matchId);
 }
 
@@ -593,15 +582,6 @@ export async function handleClipSplit(ws: ServerWebSocket<WebSocketData>, msg: W
 
 	const config = await fetchMatchConfig(matchId);
 	if (config) {
-		if (userId) {
-			const playerClipCount = getPlayerClipCount(matchId, userId);
-			const limitResult = validatePlayerClipLimit(config, playerClipCount);
-			if (!limitResult.valid) {
-				ws.send(serializeMessage(createErrorMessage("CONSTRAINT_VIOLATION", limitResult.reason || "Clip limit reached")));
-				return;
-			}
-		}
-
 		const originalForValidation: ClipForValidation = {
 			id: originalClip.id,
 			type: mediaTypeMap[originalClip.type] || "video",
@@ -660,8 +640,7 @@ export async function handleClipSplit(ws: ServerWebSocket<WebSocketData>, msg: W
 		incrementPlayerClipCount(matchId, userId);
 	}
 
-	const splitSpanDuration = newClip.startTime + newClip.duration - originalClip.startTime;
-	broadcastClipMessage(matchId, msg, originalClip.startTime, splitSpanDuration, ws.data.id);
+	broadcast(matchId, msg, ws.data.id);
 
 	requestTimelineSync(matchId);
 }

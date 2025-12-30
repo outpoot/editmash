@@ -369,34 +369,18 @@ export default function MatchmakingPage() {
 										/>
 									</div>
 
-									<div className="grid grid-cols-2 gap-4">
-										<div className="space-y-2">
-											<Label>Min Clip Duration</Label>
-											<div className="flex items-center gap-2">
-												<Slider
-													value={[matchConfig.clipSizeMin]}
-													onValueChange={([v]) => setMatchConfig({ ...matchConfig, clipSizeMin: v })}
-													min={0.1}
-													max={5}
-													step={0.1}
-													className="flex-1"
-												/>
-												<span className="text-xs text-muted-foreground w-8">{matchConfig.clipSizeMin}s</span>
-											</div>
-										</div>
-										<div className="space-y-2">
-											<Label>Max Clip Duration</Label>
-											<div className="flex items-center gap-2">
-												<Slider
-													value={[matchConfig.clipSizeMax]}
-													onValueChange={([v]) => setMatchConfig({ ...matchConfig, clipSizeMax: v })}
-													min={1}
-													max={60}
-													step={1}
-													className="flex-1"
-												/>
-												<span className="text-xs text-muted-foreground w-8">{matchConfig.clipSizeMax}s</span>
-											</div>
+									<div className="space-y-2">
+										<Label>Max Clip Duration</Label>
+										<div className="flex items-center gap-2">
+											<Slider
+												value={[matchConfig.clipSizeMax]}
+												onValueChange={([v]) => setMatchConfig({ ...matchConfig, clipSizeMax: v })}
+												min={1}
+												max={60}
+												step={1}
+												className="flex-1"
+											/>
+											<span className="text-xs text-muted-foreground w-8">{matchConfig.clipSizeMax}s</span>
 										</div>
 									</div>
 

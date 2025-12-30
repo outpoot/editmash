@@ -58,14 +58,6 @@ function parseConstraint(constraint: string): { type: string; params: string[] }
 function validateClipDuration(context: ConstraintContext): ValidationResult {
 	const { clip, config } = context;
 
-	if (clip.duration < config.clipSizeMin) {
-		return {
-			valid: false,
-			reason: `Clip duration (${clip.duration.toFixed(2)}s) is shorter than minimum allowed (${config.clipSizeMin}s)`,
-			code: "CLIP_TOO_SHORT",
-		};
-	}
-
 	if (clip.duration > config.clipSizeMax) {
 		return {
 			valid: false,
@@ -282,11 +274,17 @@ export function validateClipUpdate(
 	}
 
 	if (!existingClip) {
-		return {
-			valid: false,
-			reason: "Clip not found",
-			code: "CLIP_NOT_FOUND",
-		};
+		if (updates.startTime !== undefined && updates.duration !== undefined && updates.type) {
+			const clipToValidate: ClipForValidation = {
+				id: clipId,
+				type: updates.type,
+				startTime: updates.startTime,
+				duration: updates.duration,
+				properties: updates.properties,
+			};
+			return validateClipConstraints(clipToValidate, config, timeline, trackId, clipId);
+		}
+		return { valid: true };
 	}
 
 	const mergedClip: ClipForValidation = {

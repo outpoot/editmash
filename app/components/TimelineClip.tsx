@@ -208,12 +208,7 @@ function TimelineClip({
 				}}
 				onMouseDown={handleMouseDown}
 				onClick={(e) => {
-					if (toolMode === "blade") {
-						e.stopPropagation();
-						onBladeClick(e, trackId);
-					} else {
-						e.stopPropagation();
-					}
+					e.stopPropagation();
 				}}
 			>
 				{(clip.type === "video" || clip.type === "image") && thumbnails.length > 0 && (
