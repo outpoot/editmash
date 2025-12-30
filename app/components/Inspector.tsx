@@ -56,15 +56,6 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 	const clip = selectedClips?.[selectedClips.length - 1]?.clip;
 	const trackId = selectedClips?.[selectedClips.length - 1]?.trackId;
 
-	const clipRef = React.useRef(clip);
-	clipRef.current = clip;
-	const trackIdRef = React.useRef(trackId);
-	trackIdRef.current = trackId;
-	const onClipUpdateRef = React.useRef(onClipUpdate);
-	onClipUpdateRef.current = onClipUpdate;
-	const currentTimeRef = React.useRef(currentTime);
-	currentTimeRef.current = currentTime;
-
 	// Memoize video properties with deep comparison of relevant properties only
 	const video = useMemo(() => {
 		if (!clip || (clip.type !== "video" && clip.type !== "image")) return DEFAULT_VIDEO_PROPERTIES;
@@ -82,9 +73,6 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 		};
 	}, [clip]);
 
-	const videoRef = React.useRef(video);
-	videoRef.current = video;
-
 	const audio = useMemo(() => {
 		if (!clip || clip.type !== "audio") return DEFAULT_AUDIO_PROPERTIES;
 		const props = clip.properties as Partial<AudioClipProperties>;
@@ -96,9 +84,6 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 		};
 	}, [clip]);
 
-	const audioRef = React.useRef(audio);
-	audioRef.current = audio;
-
 	useEffect(() => {
 		if (clip?.type === "video" || clip?.type === "image") {
 			setActiveTab("video");
@@ -108,66 +93,52 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 	}, [clip?.type, clip?.id]);
 
 	const updateVideoProperty = useCallback((propertyUpdate: Partial<VideoClipProperties>) => {
-		const currentClip = clipRef.current;
-		const currentTrackId = trackIdRef.current;
-		const currentOnClipUpdate = onClipUpdateRef.current;
-		if (currentClip && (currentClip.type === "video" || currentClip.type === "image") && currentTrackId && currentOnClipUpdate) {
-			currentOnClipUpdate(currentTrackId, currentClip.id, {
+		if (clip && (clip.type === "video" || clip.type === "image") && trackId && onClipUpdate) {
+			onClipUpdate(trackId, clip.id, {
 				properties: {
-					...currentClip.properties,
+					...clip.properties,
 					...propertyUpdate,
 				},
 			});
 		}
-	}, []);
+	}, [clip, trackId, onClipUpdate]);
 
 	const updateAudioProperty = useCallback((propertyUpdate: Partial<AudioClipProperties>) => {
-		const currentClip = clipRef.current;
-		const currentTrackId = trackIdRef.current;
-		const currentOnClipUpdate = onClipUpdateRef.current;
-		if (currentClip && currentClip.type === "audio" && currentTrackId && currentOnClipUpdate) {
-			currentOnClipUpdate(currentTrackId, currentClip.id, {
+		if (clip && clip.type === "audio" && trackId && onClipUpdate) {
+			onClipUpdate(trackId, clip.id, {
 				properties: {
-					...currentClip.properties,
+					...clip.properties,
 					...propertyUpdate,
 				},
 			});
 		}
-	}, []);
+	}, [clip, trackId, onClipUpdate]);
 
 	const handleRotationChange = useCallback(([value]: number[]) => {
 		updateVideoProperty({ rotation: value });
 	}, [updateVideoProperty]);
 
 	const handleCropLeftChange = useCallback(([value]: number[]) => {
-		const currentVideo = videoRef.current;
-		updateVideoProperty({ crop: { ...currentVideo.crop, left: value } });
-	}, [updateVideoProperty]);
+		updateVideoProperty({ crop: { ...video.crop, left: value } });
+	}, [updateVideoProperty, video.crop]);
 
 	const handleCropRightChange = useCallback(([value]: number[]) => {
-		const currentVideo = videoRef.current;
-		updateVideoProperty({ crop: { ...currentVideo.crop, right: value } });
-	}, [updateVideoProperty]);
+		updateVideoProperty({ crop: { ...video.crop, right: value } });
+	}, [updateVideoProperty, video.crop]);
 
 	const handleCropTopChange = useCallback(([value]: number[]) => {
-		const currentVideo = videoRef.current;
-		updateVideoProperty({ crop: { ...currentVideo.crop, top: value } });
-	}, [updateVideoProperty]);
+		updateVideoProperty({ crop: { ...video.crop, top: value } });
+	}, [updateVideoProperty, video.crop]);
 
 	const handleCropBottomChange = useCallback(([value]: number[]) => {
-		const currentVideo = videoRef.current;
-		updateVideoProperty({ crop: { ...currentVideo.crop, bottom: value } });
-	}, [updateVideoProperty]);
-
-	const audioMaxDbRef = React.useRef(audioMaxDb);
-	audioMaxDbRef.current = audioMaxDb;
+		updateVideoProperty({ crop: { ...video.crop, bottom: value } });
+	}, [updateVideoProperty, video.crop]);
 
 	const handleVolumeChange = useCallback(([value]: number[]) => {
-		const maxDb = audioMaxDbRef.current;
-		const clampedDb = Math.min(value, maxDb);
+		const clampedDb = Math.min(value, audioMaxDb);
 		const linearVolume = clampedDb <= -60 ? 0 : Math.pow(10, clampedDb / 20);
 		updateAudioProperty({ volume: Math.max(0, linearVolume) });
-	}, [updateAudioProperty]);
+	}, [updateAudioProperty, audioMaxDb]);
 
 	const handlePanChange = useCallback(([value]: number[]) => {
 		updateAudioProperty({ pan: value / 100 });
@@ -652,7 +623,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 													<DragNumberInput
 														value={audio.volume <= 0 ? -60.0 : Number((20 * Math.log10(audio.volume)).toFixed(1))}
 														onChange={(newValue) => {
-															const clampedDb = Math.min(newValue, audioMaxDbRef.current);
+															const clampedDb = Math.min(newValue, audioMaxDb);
 															const linearVolume = clampedDb <= -60 ? 0 : Math.pow(10, clampedDb / 20);
 															updateAudioProperty({
 																volume: Math.max(0, linearVolume),
