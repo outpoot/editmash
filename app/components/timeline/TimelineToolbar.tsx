@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
+import MemoizedIcon from "../MemoizedIcon";
 import {
 	SearchAddIcon,
 	SearchMinusIcon,
@@ -67,7 +67,7 @@ function TimelineToolbar({
 					className="p-1.5 hover:bg-accent rounded text-muted-foreground hover:text-foreground"
 					title={isPlaying ? "Pause" : "Play"}
 				>
-					{isPlaying ? <HugeiconsIcon icon={PauseIcon} size={16} /> : <HugeiconsIcon icon={PlayIcon} size={16} />}
+					{isPlaying ? <MemoizedIcon icon={PauseIcon} size={16} /> : <MemoizedIcon icon={PlayIcon} size={16} />}
 				</button>
 				<div className="w-px h-6 bg-border" />
 				<div className="flex items-center gap-1">
@@ -78,7 +78,7 @@ function TimelineToolbar({
 						}`}
 						title="Select Mode (A)"
 					>
-						<HugeiconsIcon icon={Cursor01Icon} size={16} />
+						<MemoizedIcon icon={Cursor01Icon} size={16} />
 					</button>
 					<button
 						onClick={() => onToolModeChange("blade")}
@@ -87,7 +87,7 @@ function TimelineToolbar({
 						}`}
 						title="Blade Mode (B)"
 					>
-						<HugeiconsIcon icon={ScissorIcon} size={16} />
+						<MemoizedIcon icon={ScissorIcon} size={16} />
 					</button>
 					<div className="relative">
 						<button
@@ -104,14 +104,14 @@ function TimelineToolbar({
 							}`}
 							title="Transform Mode"
 						>
-							{transformMode === "crop" ? <HugeiconsIcon icon={CropIcon} size={16} /> : <HugeiconsIcon icon={SquareIcon} size={16} />}
+							{transformMode === "crop" ? <MemoizedIcon icon={CropIcon} size={16} /> : <MemoizedIcon icon={SquareIcon} size={16} />}
 						</button>
 						<button
 							onClick={() => onShowTransformMenuChange(!showTransformMenu)}
 							className="p-1.5 rounded text-muted-foreground hover:bg-accent hover:text-foreground"
 							title="Transform options"
 						>
-							<HugeiconsIcon icon={ArrowDown01Icon} size={12} />
+							<MemoizedIcon icon={ArrowDown01Icon} size={12} />
 						</button>
 						{showTransformMenu && (
 							<div className="absolute top-full left-0 mt-1 bg-popover border border-border rounded shadow-lg z-50 min-w-[120px]">
@@ -122,7 +122,7 @@ function TimelineToolbar({
 									}}
 									className="w-full px-3 py-2 text-left text-sm text-foreground hover:bg-accent flex items-center gap-2"
 								>
-									<HugeiconsIcon icon={SquareIcon} size={14} />
+									<MemoizedIcon icon={SquareIcon} size={14} />
 									Transform
 								</button>
 								<button
@@ -132,7 +132,7 @@ function TimelineToolbar({
 									}}
 									className="w-full px-3 py-2 text-left text-sm text-foreground hover:bg-accent flex items-center gap-2"
 								>
-									<HugeiconsIcon icon={CropIcon} size={14} />
+									<MemoizedIcon icon={CropIcon} size={14} />
 									Crop
 								</button>
 							</div>
@@ -147,7 +147,7 @@ function TimelineToolbar({
 					}`}
 					title={isSnappingEnabled ? "Snapping Enabled (N)" : "Snapping Disabled (N)"}
 				>
-					<HugeiconsIcon icon={MagnetIcon} size={16} />
+					<MemoizedIcon icon={MagnetIcon} size={16} />
 				</button>
 				<div className="w-px h-6 bg-border" />
 				<div className="flex items-center gap-1">
@@ -159,7 +159,7 @@ function TimelineToolbar({
 						}`}
 						title="Undo (Ctrl+Z)"
 					>
-						<HugeiconsIcon icon={Undo02Icon} size={16} />
+						<MemoizedIcon icon={Undo02Icon} size={16} />
 					</button>
 					<button
 						onClick={onRedo}
@@ -169,18 +169,18 @@ function TimelineToolbar({
 						}`}
 						title="Redo (Ctrl+Y)"
 					>
-						<HugeiconsIcon icon={Redo02Icon} size={16} />
+						<MemoizedIcon icon={Redo02Icon} size={16} />
 					</button>
 				</div>
 			</div>
 			<div className="flex items-center gap-2">
 				<div className="flex items-center gap-1">
 					<button onClick={onZoomOut} className="p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground" title="Zoom out">
-						<HugeiconsIcon icon={SearchMinusIcon} size={16} />
+						<MemoizedIcon icon={SearchMinusIcon} size={16} />
 					</button>
 					<span className="text-xs text-muted-foreground w-12 text-center">{Math.round((pixelsPerSecond / 50) * 100)}%</span>
 					<button onClick={onZoomIn} className="p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground" title="Zoom in">
-						<HugeiconsIcon icon={SearchAddIcon} size={16} />
+						<MemoizedIcon icon={SearchAddIcon} size={16} />
 					</button>
 				</div>
 			</div>

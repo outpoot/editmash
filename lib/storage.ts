@@ -39,7 +39,7 @@ const SYSTEM_LOBBY_PRESETS: { name: string; config: MatchConfig }[] = [
 		},
 	},
 	{
-		name: "Epic Collab",
+		name: "Spotify Premium",
 		config: {
 			timelineDuration: 60,
 			matchDuration: 10,

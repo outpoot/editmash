@@ -187,7 +187,9 @@ export async function completeMatch(matchId: string): Promise<{ success: boolean
 		notifyWsServer("/notify/match", { matchId, status: "rendering", timeRemaining: null });
 		notifyWsServer("/notify/lobbies", { lobbyId: match.lobbyId, matchId, action: "match_completing" });
 
-		await triggerRender(matchId);
+		triggerRender(matchId).catch((error) => {
+			console.error(`[MatchManager] Background render failed for match ${matchId}:`, error);
+		});
 
 		return { success: true, message: "Match completing, render started" };
 	} catch (error) {

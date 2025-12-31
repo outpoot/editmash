@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useCallback } from "react";
 import { Track, Clip } from "../types/timeline";
 import TimelineClip, { type ClipChangeNotification } from "./TimelineClip";
 import type { RemoteSelection } from "./MatchWS";
@@ -13,7 +13,7 @@ interface TimelineTrackProps {
 	onClipSelect: (clipId: string, trackId: string, event?: { ctrlKey: boolean; shiftKey: boolean }) => void;
 	onClipDragStart: (e: React.MouseEvent, clipId: string, trackId: string, type: "move" | "trim-start" | "trim-end") => void;
 	onTrackClick: () => void;
-	onTrackMouseEnter: () => void;
+	onTrackMouseEnter: (trackId: string) => void;
 	toolMode: "select" | "blade";
 	onBladeClick: (e: React.MouseEvent, trackId: string) => void;
 	onTrackMouseMove: (e: React.MouseEvent, trackId: string) => void;
@@ -25,6 +25,77 @@ interface TimelineTrackProps {
 	isLastTrack?: boolean;
 	remoteSelections?: Map<string, RemoteSelection>;
 	clipChangeNotifications?: Map<string, ClipChangeNotification[]>;
+}
+
+function clipsEqual(a: Clip[], b: Clip[]): boolean {
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) {
+		const clipA = a[i];
+		const clipB = b[i];
+		if (
+			clipA.id !== clipB.id ||
+			clipA.startTime !== clipB.startTime ||
+			clipA.duration !== clipB.duration ||
+			clipA.sourceIn !== clipB.sourceIn ||
+			clipA.thumbnail !== clipB.thumbnail
+		) {
+			return false;
+		}
+	}
+	return true;
+}
+
+function arePropsEqual(prev: TimelineTrackProps, next: TimelineTrackProps): boolean {
+	if (
+		prev.pixelsPerSecond !== next.pixelsPerSecond ||
+		prev.timelineDuration !== next.timelineDuration ||
+		prev.draggedClipId !== next.draggedClipId ||
+		prev.isHovered !== next.isHovered ||
+		prev.toolMode !== next.toolMode ||
+		prev.bladeCursorPosition !== next.bladeCursorPosition ||
+		prev.isLastTrack !== next.isLastTrack
+	) {
+		return false;
+	}
+
+	if (prev.track !== next.track) {
+		if (prev.track.id !== next.track.id || prev.track.type !== next.track.type) {
+			return false;
+		}
+		if (!clipsEqual(prev.track.clips, next.track.clips)) {
+			return false;
+		}
+	}
+
+	if (prev.selectedClips !== next.selectedClips) {
+		if (prev.selectedClips.length !== next.selectedClips.length) {
+			return false;
+		}
+		for (let i = 0; i < prev.selectedClips.length; i++) {
+			if (
+				prev.selectedClips[i].clipId !== next.selectedClips[i].clipId ||
+				prev.selectedClips[i].trackId !== next.selectedClips[i].trackId
+			) {
+				return false;
+			}
+		}
+	}
+
+	if (prev.dragPreview !== next.dragPreview) {
+		if (!prev.dragPreview || !next.dragPreview) {
+			return false;
+		}
+		if (
+			prev.dragPreview.trackId !== next.dragPreview.trackId ||
+			prev.dragPreview.startTime !== next.dragPreview.startTime ||
+			prev.dragPreview.duration !== next.dragPreview.duration ||
+			prev.dragPreview.type !== next.dragPreview.type
+		) {
+			return false;
+		}
+	}
+	
+	return true;
 }
 
 function TimelineTrack({
@@ -50,14 +121,30 @@ function TimelineTrack({
 	remoteSelections,
 	clipChangeNotifications,
 }: TimelineTrackProps) {
-	const handleDragOver = (e: React.DragEvent) => {
+	const handleDragOver = useCallback((e: React.DragEvent) => {
 		onMediaDragOver(e, track.id);
-	};
+	}, [onMediaDragOver, track.id]);
 
-	const handleDrop = (e: React.DragEvent) => {
+	const handleDrop = useCallback((e: React.DragEvent) => {
 		e.preventDefault();
 		onMediaDrop(e, track.id);
-	};
+	}, [onMediaDrop, track.id]);
+
+	const handleMouseEnter = useCallback(() => {
+		onTrackMouseEnter(track.id);
+	}, [onTrackMouseEnter, track.id]);
+
+	const handleMouseMove = useCallback((e: React.MouseEvent) => {
+		onTrackMouseMove(e, track.id);
+	}, [onTrackMouseMove, track.id]);
+
+	const handleClick = useCallback((e: React.MouseEvent) => {
+		if (toolMode === "blade") {
+			onBladeClick(e, track.id);
+		} else {
+			onTrackClick();
+		}
+	}, [toolMode, onBladeClick, track.id, onTrackClick]);
 
 	const clipRemoteSelectors = useMemo(() => {
 		const result = new Map<string, Array<{ userId: string; username: string; userImage?: string; highlightColor: string }>>();
@@ -85,15 +172,9 @@ function TimelineTrack({
 			className={`h-10 relative cursor-crosshair transition-colors ${!isLastTrack ? "border-b border-border" : ""} ${
 				isHovered && draggedClipId ? "bg-accent" : "bg-background"
 			}`}
-			onClick={(e) => {
-				if (toolMode === "blade") {
-					onBladeClick(e, track.id);
-				} else {
-					onTrackClick();
-				}
-			}}
-			onMouseEnter={onTrackMouseEnter}
-			onMouseMove={(e) => onTrackMouseMove(e, track.id)}
+			onClick={handleClick}
+			onMouseEnter={handleMouseEnter}
+			onMouseMove={handleMouseMove}
 			onDragOver={handleDragOver}
 			onDrop={handleDrop}
 			onDragLeave={onMediaDragLeave}
@@ -147,4 +228,4 @@ function TimelineTrack({
 	);
 }
 
-export default memo(TimelineTrack);
+export default memo(TimelineTrack, arePropsEqual);

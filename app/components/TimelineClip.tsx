@@ -1,9 +1,9 @@
-import { memo, useState, useEffect, useCallback } from "react";
+import { memo, useState, useEffect, useCallback, useRef } from "react";
 import { Clip, VideoClip, ImageClip, AudioClip } from "../types/timeline";
 import { useVideoThumbnails } from "../hooks/useVideoThumbnails";
 import { useAudioWaveform } from "../hooks/useAudioWaveform";
 import { viewSettingsStore } from "../store/viewSettingsStore";
-import { HugeiconsIcon } from "@hugeicons/react";
+import MemoizedIcon from "./MemoizedIcon";
 import { SnowIcon } from "@hugeicons/core-free-icons";
 
 interface RemoteSelector {
@@ -31,6 +31,64 @@ interface TimelineClipProps {
 	bladeCursorPosition: number | null;
 	remoteSelectors?: RemoteSelector[];
 	changeNotifications?: ClipChangeNotification[];
+}
+
+function areClipPropsEqual(prev: TimelineClipProps, next: TimelineClipProps): boolean {
+	if (
+		prev.trackId !== next.trackId ||
+		prev.pixelsPerSecond !== next.pixelsPerSecond ||
+		prev.isSelected !== next.isSelected ||
+		prev.toolMode !== next.toolMode ||
+		prev.bladeCursorPosition !== next.bladeCursorPosition
+	) {
+		return false;
+	}
+
+	if (prev.clip !== next.clip) {
+		const a = prev.clip;
+		const b = next.clip;
+		if (
+			a.id !== b.id ||
+			a.type !== b.type ||
+			a.startTime !== b.startTime ||
+			a.duration !== b.duration ||
+			a.sourceIn !== b.sourceIn ||
+			a.src !== b.src ||
+			a.name !== b.name ||
+			a.thumbnail !== b.thumbnail
+		) {
+			return false;
+		}
+		if (a.type === "video" && b.type === "video") {
+			const propsA = (a as VideoClip).properties;
+			const propsB = (b as VideoClip).properties;
+			if (propsA.freezeFrame !== propsB.freezeFrame) {
+				return false;
+			}
+		}
+	}
+
+	if (prev.remoteSelectors !== next.remoteSelectors) {
+		if (!prev.remoteSelectors || !next.remoteSelectors) {
+			if (prev.remoteSelectors?.length || next.remoteSelectors?.length) {
+				return false;
+			}
+		} else if (prev.remoteSelectors.length !== next.remoteSelectors.length) {
+			return false;
+		}
+	}
+
+	if (prev.changeNotifications !== next.changeNotifications) {
+		if (!prev.changeNotifications || !next.changeNotifications) {
+			if (prev.changeNotifications?.length || next.changeNotifications?.length) {
+				return false;
+			}
+		} else if (prev.changeNotifications.length !== next.changeNotifications.length) {
+			return false;
+		}
+	}
+
+	return true;
 }
 
 function ChangeNotification({ message, onComplete }: { message: string; onComplete: () => void }) {
@@ -105,10 +163,15 @@ function TimelineClip({
 	const thumbnails =
 		clip.type === "image" ? (clip.thumbnail ? [clip.thumbnail] : []) : clip.thumbnail ? [clip.thumbnail] : generatedThumbnails;
 
-	const waveformSampleCount = Math.max(50, Math.ceil(width / 3));
+	const waveformSampleCount = useRef(0);
+	const rawSampleCount = Math.max(50, Math.ceil(width / 3));
+	if (waveformSampleCount.current === 0 || Math.abs(rawSampleCount - waveformSampleCount.current) > 20) {
+		waveformSampleCount.current = rawSampleCount;
+	}
+
 	const waveformPeaks = useAudioWaveform(
 		clip.type === "audio" ? clip.src : "",
-		waveformSampleCount,
+		waveformSampleCount.current,
 		clip.type === "audio" ? { sourceIn: clip.sourceIn, sourceDuration: clip.duration } : {}
 	);
 
@@ -290,7 +353,7 @@ function TimelineClip({
 
 				{clip.type === "video" && (clip as VideoClip).properties.freezeFrame && (
 					<div className="absolute top-1 right-1 pointer-events-none">
-						<HugeiconsIcon icon={SnowIcon} className="w-4 h-4 text-cyan-400 drop-shadow-md" />
+						<MemoizedIcon icon={SnowIcon} className="w-4 h-4 text-cyan-400 drop-shadow-md" />
 					</div>
 				)}
 
@@ -353,4 +416,4 @@ function TimelineClip({
 	);
 }
 
-export default memo(TimelineClip);
+export default memo(TimelineClip, areClipPropsEqual);
