@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, memo } from "react";
+import React, { useState, useEffect, memo } from "react";
 import { Clip, VideoClip, ImageClip, AudioClip, VideoClipProperties, AudioClipProperties } from "../types/timeline";
 import MemoizedIcon from "./MemoizedIcon";
 import {
@@ -56,8 +56,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 	const clip = selectedClips?.[selectedClips.length - 1]?.clip;
 	const trackId = selectedClips?.[selectedClips.length - 1]?.trackId;
 
-	// Memoize video properties with deep comparison of relevant properties only
-	const video = useMemo(() => {
+	const video = (() => {
 		if (!clip || (clip.type !== "video" && clip.type !== "image")) return DEFAULT_VIDEO_PROPERTIES;
 		const props = clip.properties as Partial<VideoClipProperties>;
 		return {
@@ -71,9 +70,9 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 			freezeFrame: props.freezeFrame ?? DEFAULT_VIDEO_PROPERTIES.freezeFrame,
 			freezeFrameTime: props.freezeFrameTime ?? DEFAULT_VIDEO_PROPERTIES.freezeFrameTime,
 		};
-	}, [clip]);
+	})();
 
-	const audio = useMemo(() => {
+	const audio = (() => {
 		if (!clip || clip.type !== "audio") return DEFAULT_AUDIO_PROPERTIES;
 		const props = clip.properties as Partial<AudioClipProperties>;
 		return {
@@ -82,7 +81,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 			pitch: props.pitch ?? DEFAULT_AUDIO_PROPERTIES.pitch,
 			speed: props.speed ?? DEFAULT_AUDIO_PROPERTIES.speed,
 		};
-	}, [clip]);
+	})();
 
 	useEffect(() => {
 		if (clip?.type === "video" || clip?.type === "image") {
@@ -119,19 +118,31 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 	};
 
 	const handleCropLeftChange = ([value]: number[]) => {
-		updateVideoProperty({ crop: { ...video.crop, left: value } });
+		if (clip && (clip.type === "video" || clip.type === "image")) {
+			const currentCrop = (clip.properties as VideoClipProperties).crop ?? DEFAULT_VIDEO_PROPERTIES.crop;
+			updateVideoProperty({ crop: { ...currentCrop, left: Math.max(0, value) } });
+		}
 	};
 
 	const handleCropRightChange = ([value]: number[]) => {
-		updateVideoProperty({ crop: { ...video.crop, right: value } });
+		if (clip && (clip.type === "video" || clip.type === "image")) {
+			const currentCrop = (clip.properties as VideoClipProperties).crop ?? DEFAULT_VIDEO_PROPERTIES.crop;
+			updateVideoProperty({ crop: { ...currentCrop, right: Math.max(0, value) } });
+		}
 	};
 
 	const handleCropTopChange = ([value]: number[]) => {
-		updateVideoProperty({ crop: { ...video.crop, top: value } });
+		if (clip && (clip.type === "video" || clip.type === "image")) {
+			const currentCrop = (clip.properties as VideoClipProperties).crop ?? DEFAULT_VIDEO_PROPERTIES.crop;
+			updateVideoProperty({ crop: { ...currentCrop, top: Math.max(0, value) } });
+		}
 	};
 
 	const handleCropBottomChange = ([value]: number[]) => {
-		updateVideoProperty({ crop: { ...video.crop, bottom: value } });
+		if (clip && (clip.type === "video" || clip.type === "image")) {
+			const currentCrop = (clip.properties as VideoClipProperties).crop ?? DEFAULT_VIDEO_PROPERTIES.crop;
+			updateVideoProperty({ crop: { ...currentCrop, bottom: Math.max(0, value) } });
+		}
 	};
 
 	const handleVolumeChange = ([value]: number[]) => {
@@ -146,6 +157,173 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 
 	const handlePitchChange = ([value]: number[]) => {
 		updateAudioProperty({ pitch: value });
+	};
+
+	// Helper functions that read fresh values from clip.properties
+	const handleZoomXChange = (newValue: number) => {
+		if (clip && (clip.type === "video" || clip.type === "image")) {
+			const currentZoom = (clip.properties as VideoClipProperties).zoom ?? DEFAULT_VIDEO_PROPERTIES.zoom;
+			updateVideoProperty({
+				zoom: {
+					...currentZoom,
+					x: newValue,
+					y: currentZoom.linked ? newValue : currentZoom.y,
+				},
+			});
+		}
+	};
+
+	const handleZoomYChange = (newValue: number) => {
+		if (clip && (clip.type === "video" || clip.type === "image")) {
+			const currentZoom = (clip.properties as VideoClipProperties).zoom ?? DEFAULT_VIDEO_PROPERTIES.zoom;
+			updateVideoProperty({
+				zoom: {
+					...currentZoom,
+					y: newValue,
+					x: currentZoom.linked ? newValue : currentZoom.x,
+				},
+			});
+		}
+	};
+
+	const handleZoomLinkedToggle = () => {
+		if (clip && (clip.type === "video" || clip.type === "image")) {
+			const currentZoom = (clip.properties as VideoClipProperties).zoom ?? DEFAULT_VIDEO_PROPERTIES.zoom;
+			updateVideoProperty({
+				zoom: {
+					...currentZoom,
+					linked: !currentZoom.linked,
+				},
+			});
+		}
+	};
+
+	const handlePositionXChange = (newValue: number) => {
+		if (clip && (clip.type === "video" || clip.type === "image")) {
+			const currentPosition = (clip.properties as VideoClipProperties).position ?? DEFAULT_VIDEO_PROPERTIES.position;
+			updateVideoProperty({
+				position: {
+					...currentPosition,
+					x: newValue,
+				},
+			});
+		}
+	};
+
+	const handlePositionYChange = (newValue: number) => {
+		if (clip && (clip.type === "video" || clip.type === "image")) {
+			const currentPosition = (clip.properties as VideoClipProperties).position ?? DEFAULT_VIDEO_PROPERTIES.position;
+			updateVideoProperty({
+				position: {
+					...currentPosition,
+					y: newValue,
+				},
+			});
+		}
+	};
+
+	const handleRotationInputChange = (newValue: number) => {
+		updateVideoProperty({ rotation: newValue });
+	};
+
+	const handleFlipHorizontalToggle = () => {
+		if (clip && (clip.type === "video" || clip.type === "image")) {
+			const currentFlip = (clip.properties as VideoClipProperties).flip ?? DEFAULT_VIDEO_PROPERTIES.flip;
+			updateVideoProperty({
+				flip: {
+					...currentFlip,
+					horizontal: !currentFlip.horizontal,
+				},
+			});
+		}
+	};
+
+	const handleFlipVerticalToggle = () => {
+		if (clip && (clip.type === "video" || clip.type === "image")) {
+			const currentFlip = (clip.properties as VideoClipProperties).flip ?? DEFAULT_VIDEO_PROPERTIES.flip;
+			updateVideoProperty({
+				flip: {
+					...currentFlip,
+					vertical: !currentFlip.vertical,
+				},
+			});
+		}
+	};
+
+	const handleCropLeftInputChange = (newValue: number) => {
+		if (clip && (clip.type === "video" || clip.type === "image")) {
+			const currentCrop = (clip.properties as VideoClipProperties).crop ?? DEFAULT_VIDEO_PROPERTIES.crop;
+			updateVideoProperty({ crop: { ...currentCrop, left: Math.max(0, newValue) } });
+		}
+	};
+
+	const handleCropRightInputChange = (newValue: number) => {
+		if (clip && (clip.type === "video" || clip.type === "image")) {
+			const currentCrop = (clip.properties as VideoClipProperties).crop ?? DEFAULT_VIDEO_PROPERTIES.crop;
+			updateVideoProperty({ crop: { ...currentCrop, right: Math.max(0, newValue) } });
+		}
+	};
+
+	const handleCropTopInputChange = (newValue: number) => {
+		if (clip && (clip.type === "video" || clip.type === "image")) {
+			const currentCrop = (clip.properties as VideoClipProperties).crop ?? DEFAULT_VIDEO_PROPERTIES.crop;
+			updateVideoProperty({ crop: { ...currentCrop, top: Math.max(0, newValue) } });
+		}
+	};
+
+	const handleCropBottomInputChange = (newValue: number) => {
+		if (clip && (clip.type === "video" || clip.type === "image")) {
+			const currentCrop = (clip.properties as VideoClipProperties).crop ?? DEFAULT_VIDEO_PROPERTIES.crop;
+			updateVideoProperty({ crop: { ...currentCrop, bottom: Math.max(0, newValue) } });
+		}
+	};
+
+	const handleVideoSpeedInputChange = (newValue: number) => {
+		if (clip && (clip.type === "video" || clip.type === "image") && trackId && onClipUpdate) {
+			const currentSpeed = (clip.properties as VideoClipProperties).speed ?? DEFAULT_VIDEO_PROPERTIES.speed;
+			const newSpeed = newValue / 100;
+			const sourceDuration = clip.duration * currentSpeed;
+			const newDuration = sourceDuration / newSpeed;
+
+			onClipUpdate(trackId, clip.id, {
+				duration: newDuration,
+				properties: {
+					...clip.properties,
+					speed: newSpeed,
+				},
+			});
+		}
+	};
+
+	const handleVolumeInputChange = (newValue: number) => {
+		const clampedDb = Math.min(newValue, audioMaxDb);
+		const linearVolume = clampedDb <= -60 ? 0 : Math.pow(10, clampedDb / 20);
+		updateAudioProperty({ volume: Math.max(0, linearVolume) });
+	};
+
+	const handlePanInputChange = (newValue: number) => {
+		updateAudioProperty({ pan: newValue / 100 });
+	};
+
+	const handlePitchInputChange = (newValue: number) => {
+		updateAudioProperty({ pitch: Math.round(newValue) });
+	};
+
+	const handleAudioSpeedInputChange = (newValue: number) => {
+		if (clip && clip.type === "audio" && trackId && onClipUpdate) {
+			const currentSpeed = (clip.properties as AudioClipProperties).speed ?? DEFAULT_AUDIO_PROPERTIES.speed;
+			const newSpeed = newValue / 100;
+			const sourceDuration = clip.duration * currentSpeed;
+			const newDuration = sourceDuration / newSpeed;
+
+			onClipUpdate(trackId, clip.id, {
+				duration: newDuration,
+				properties: {
+					...clip.properties,
+					speed: newSpeed,
+				},
+			});
+		}
 	};
 
 	if (!selectedClips || selectedClips.length === 0) {
@@ -214,29 +392,14 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 													<span className="text-muted-foreground/60 text-xs">X</span>
 													<DragNumberInput
 														value={video.zoom.x}
-														onChange={(newValue) => {
-															updateVideoProperty({
-																zoom: {
-																	...video.zoom,
-																	x: newValue,
-																	y: video.zoom.linked ? newValue : video.zoom.y,
-																},
-															});
-														}}
+														onChange={handleZoomXChange}
 														step={0.01}
 														min={0.1}
 														max={10}
 														className="w-14"
 													/>
 													<button
-														onClick={() => {
-															updateVideoProperty({
-																zoom: {
-																	...video.zoom,
-																	linked: !video.zoom.linked,
-																},
-															});
-														}}
+														onClick={handleZoomLinkedToggle}
 														className={`p-1 rounded ${video.zoom.linked ? "text-primary" : "text-muted-foreground"} hover:bg-muted`}
 													>
 														{video.zoom.linked ? (
@@ -248,15 +411,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 													<span className="text-muted-foreground/60 text-xs">Y</span>
 													<DragNumberInput
 														value={video.zoom.y}
-														onChange={(newValue) => {
-															updateVideoProperty({
-																zoom: {
-																	...video.zoom,
-																	y: newValue,
-																	x: video.zoom.linked ? newValue : video.zoom.x,
-																},
-															});
-														}}
+														onChange={handleZoomYChange}
 														step={0.01}
 														min={0.1}
 														max={10}
@@ -270,33 +425,9 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 shrink-0">Position</Label>
 													<span className="text-muted-foreground/60 text-xs">X</span>
-													<DragNumberInput
-														value={video.position.x}
-														onChange={(newValue) => {
-															updateVideoProperty({
-																position: {
-																	...video.position,
-																	x: newValue,
-																},
-															});
-														}}
-														step={1}
-														className="w-14"
-													/>
+													<DragNumberInput value={video.position.x} onChange={handlePositionXChange} step={1} className="w-14" />
 													<span className="text-muted-foreground/60 text-xs">Y</span>
-													<DragNumberInput
-														value={video.position.y}
-														onChange={(newValue) => {
-															updateVideoProperty({
-																position: {
-																	...video.position,
-																	y: newValue,
-																},
-															});
-														}}
-														step={1}
-														className="w-14"
-													/>
+													<DragNumberInput value={video.position.y} onChange={handlePositionYChange} step={1} className="w-14" />
 												</div>
 											)}
 
@@ -314,9 +445,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 													/>
 													<DragNumberInput
 														value={video.rotation}
-														onChange={(newValue) => {
-															updateVideoProperty({ rotation: newValue });
-														}}
+														onChange={handleRotationInputChange}
 														min={-180}
 														max={180}
 														step={0.1}
@@ -330,14 +459,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 shrink-0">Flip</Label>
 													<button
-														onClick={() => {
-															updateVideoProperty({
-																flip: {
-																	...video.flip,
-																	horizontal: !video.flip.horizontal,
-																},
-															});
-														}}
+														onClick={handleFlipHorizontalToggle}
 														className={`p-2 rounded border ${
 															video.flip.horizontal
 																? "bg-primary/20 border-primary text-primary"
@@ -348,14 +470,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 														<MemoizedIcon icon={FlipHorizontalIcon} size={16} />
 													</button>
 													<button
-														onClick={() => {
-															updateVideoProperty({
-																flip: {
-																	...video.flip,
-																	vertical: !video.flip.vertical,
-																},
-															});
-														}}
+														onClick={handleFlipVerticalToggle}
 														className={`p-2 rounded border ${
 															video.flip.vertical
 																? "bg-primary/20 border-primary text-primary"
@@ -404,14 +519,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 													/>
 													<DragNumberInput
 														value={video.crop.left}
-														onChange={(newValue) => {
-															updateVideoProperty({
-																crop: {
-																	...video.crop,
-																	left: Math.max(0, newValue),
-																},
-															});
-														}}
+														onChange={handleCropLeftInputChange}
 														min={0}
 														max={1920}
 														step={1}
@@ -434,14 +542,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 													/>
 													<DragNumberInput
 														value={video.crop.right}
-														onChange={(newValue) => {
-															updateVideoProperty({
-																crop: {
-																	...video.crop,
-																	right: Math.max(0, newValue),
-																},
-															});
-														}}
+														onChange={handleCropRightInputChange}
 														min={0}
 														max={1920}
 														step={1}
@@ -464,14 +565,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 													/>
 													<DragNumberInput
 														value={video.crop.top}
-														onChange={(newValue) => {
-															updateVideoProperty({
-																crop: {
-																	...video.crop,
-																	top: Math.max(0, newValue),
-																},
-															});
-														}}
+														onChange={handleCropTopInputChange}
 														min={0}
 														max={1080}
 														step={1}
@@ -494,14 +588,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 													/>
 													<DragNumberInput
 														value={video.crop.bottom}
-														onChange={(newValue) => {
-															updateVideoProperty({
-																crop: {
-																	...video.crop,
-																	bottom: Math.max(0, newValue),
-																},
-															});
-														}}
+														onChange={handleCropBottomInputChange}
 														min={0}
 														max={1080}
 														step={1}
@@ -522,11 +609,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 										onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setSpeedExpanded(!speedExpanded)}
 										className="flex items-center gap-2 w-full px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-accent"
 									>
-										{speedExpanded ? (
-											<MemoizedIcon icon={ArrowDown01Icon} size={14} />
-										) : (
-											<MemoizedIcon icon={ArrowRight01Icon} size={14} />
-										)}
+										{speedExpanded ? <MemoizedIcon icon={ArrowDown01Icon} size={14} /> : <MemoizedIcon icon={ArrowRight01Icon} size={14} />}
 										<span>SPEED</span>
 									</div>
 
@@ -538,22 +621,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 													<Label className="text-muted-foreground text-xs w-16 shrink-0">Speed</Label>
 													<DragNumberInput
 														value={video.speed * 100}
-														onChange={(newValue) => {
-															const newSpeed = newValue / 100;
-															const oldSpeed = video.speed;
-															const sourceDuration = clip.duration * oldSpeed;
-															const newDuration = sourceDuration / newSpeed;
-
-															if (onClipUpdate && trackId) {
-																onClipUpdate(trackId, clip.id, {
-																	duration: newDuration,
-																	properties: {
-																		...video,
-																		speed: newSpeed,
-																	},
-																});
-															}
-														}}
+														onChange={handleVideoSpeedInputChange}
 														min={10}
 														max={1000}
 														step={1}
@@ -599,11 +667,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 										onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setAudioExpanded(!audioExpanded)}
 										className="flex items-center gap-2 w-full px-3 py-2 text-xs font-semibold text-foreground hover:bg-accent"
 									>
-										{audioExpanded ? (
-											<MemoizedIcon icon={ArrowDown01Icon} size={14} />
-										) : (
-											<MemoizedIcon icon={ArrowRight01Icon} size={14} />
-										)}
+										{audioExpanded ? <MemoizedIcon icon={ArrowDown01Icon} size={14} /> : <MemoizedIcon icon={ArrowRight01Icon} size={14} />}
 										<span>AUDIO</span>
 									</div>
 
@@ -622,13 +686,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 													/>
 													<DragNumberInput
 														value={audio.volume <= 0 ? -60.0 : Number((20 * Math.log10(audio.volume)).toFixed(1))}
-														onChange={(newValue) => {
-															const clampedDb = Math.min(newValue, audioMaxDb);
-															const linearVolume = clampedDb <= -60 ? 0 : Math.pow(10, clampedDb / 20);
-															updateAudioProperty({
-																volume: Math.max(0, linearVolume),
-															});
-														}}
+														onChange={handleVolumeInputChange}
 														min={-60}
 														max={audioMaxDb}
 														step={0.1}
@@ -652,9 +710,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 													/>
 													<DragNumberInput
 														value={Number((audio.pan * 100).toFixed(1))}
-														onChange={(newValue) => {
-															updateAudioProperty({ pan: newValue / 100 });
-														}}
+														onChange={handlePanInputChange}
 														min={-100}
 														max={100}
 														step={0.1}
@@ -667,19 +723,10 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 											{clip && clip.type === "audio" && (
 												<div className="flex items-center gap-2">
 													<Label className="text-muted-foreground text-xs w-16 shrink-0">Pitch</Label>
-													<Slider
-														value={[audio.pitch]}
-														onValueChange={handlePitchChange}
-														min={-24}
-														max={24}
-														step={1}
-														className="flex-1"
-													/>
+													<Slider value={[audio.pitch]} onValueChange={handlePitchChange} min={-24} max={24} step={1} className="flex-1" />
 													<DragNumberInput
 														value={Number(audio.pitch.toFixed(1))}
-														onChange={(newValue) => {
-															updateAudioProperty({ pitch: Math.round(newValue) });
-														}}
+														onChange={handlePitchInputChange}
 														min={-24}
 														max={24}
 														step={0.1}
@@ -694,22 +741,7 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 													<Label className="text-muted-foreground text-xs w-16 shrink-0">Speed</Label>
 													<DragNumberInput
 														value={Number((audio.speed * 100).toFixed(1))}
-														onChange={(newValue) => {
-															const newSpeed = newValue / 100;
-															const oldSpeed = audio.speed;
-															const sourceDuration = clip.duration * oldSpeed;
-															const newDuration = sourceDuration / newSpeed;
-
-															if (onClipUpdate && trackId) {
-																onClipUpdate(trackId, clip.id, {
-																	duration: newDuration,
-																	properties: {
-																		...audio,
-																		speed: newSpeed,
-																	},
-																});
-															}
-														}}
+														onChange={handleAudioSpeedInputChange}
 														min={10}
 														max={1000}
 														step={0.1}

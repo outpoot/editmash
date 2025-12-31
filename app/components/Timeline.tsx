@@ -143,7 +143,9 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		const updateTimelineState = useCallback((updater: (prev: TimelineState) => TimelineState) => {
 			setTimelineState((prev) => {
 				const newState = updater(prev);
-				historyStore.push(newState);
+				setTimeout(() => {
+					historyStore.push(newState);
+				}, 0);
 				return newState;
 			});
 		}, []);
@@ -664,7 +666,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		const prevSelectedClipsDataRef = useRef<string | null>(null);
 		useEffect(() => {
 			if (dragState) return;
-			
+
 			if (selectedClips.length > 0 && onClipSelect) {
 				const updatedSelections = selectedClips
 					.map((s) => {
@@ -674,9 +676,9 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					})
 					.filter((s): s is { clip: Clip; trackId: string } => s !== null);
 				if (updatedSelections.length > 0) {
-					const newDataKey = updatedSelections.map(s => 
-						`${s.clip.id}:${s.trackId}:${s.clip.startTime}:${s.clip.duration}:${s.clip.sourceIn}`
-					).join('|');
+					const newDataKey = updatedSelections
+						.map((s) => `${s.clip.id}:${s.trackId}:${s.clip.startTime}:${s.clip.duration}:${s.clip.sourceIn}`)
+						.join("|");
 					if (newDataKey !== prevSelectedClipsDataRef.current) {
 						prevSelectedClipsDataRef.current = newDataKey;
 						onClipSelect(updatedSelections);
@@ -816,33 +818,30 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		const pixelsPerSecondRef = useRef(pixelsPerSecond);
 		pixelsPerSecondRef.current = pixelsPerSecond;
 
-		const handleTrackMouseMove = useCallback(
-			(e: React.MouseEvent, trackId: string) => {
-				if (toolModeRef.current !== "blade") {
-					if (lastBladeCursorRef.current !== null) {
-						lastBladeCursorRef.current = null;
-						setBladeCursorPosition(null);
-					}
-					return;
+		const handleTrackMouseMove = useCallback((e: React.MouseEvent, trackId: string) => {
+			if (toolModeRef.current !== "blade") {
+				if (lastBladeCursorRef.current !== null) {
+					lastBladeCursorRef.current = null;
+					setBladeCursorPosition(null);
 				}
-				const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
-				const rect = timelineRef.current?.getBoundingClientRect();
-				if (!rect) return;
-				const mouseX = e.clientX - rect.left + scrollLeft;
-				const pps = pixelsPerSecondRef.current;
-				const mouseTime = mouseX / pps;
-				const fps = 30;
-				const frameTime = 1 / fps;
-				const snappedTime = Math.round(mouseTime / frameTime) * frameTime;
-				const snappedX = snappedTime * pps;
-				const last = lastBladeCursorRef.current;
-				if (!last || last.trackId !== trackId || Math.abs(last.x - snappedX) > 1) {
-					lastBladeCursorRef.current = { x: snappedX, trackId };
-					setBladeCursorPosition({ x: snappedX, trackId });
-				}
-			},
-			[]
-		);
+				return;
+			}
+			const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
+			const rect = timelineRef.current?.getBoundingClientRect();
+			if (!rect) return;
+			const mouseX = e.clientX - rect.left + scrollLeft;
+			const pps = pixelsPerSecondRef.current;
+			const mouseTime = mouseX / pps;
+			const fps = 30;
+			const frameTime = 1 / fps;
+			const snappedTime = Math.round(mouseTime / frameTime) * frameTime;
+			const snappedX = snappedTime * pps;
+			const last = lastBladeCursorRef.current;
+			if (!last || last.trackId !== trackId || Math.abs(last.x - snappedX) > 1) {
+				lastBladeCursorRef.current = { x: snappedX, trackId };
+				setBladeCursorPosition({ x: snappedX, trackId });
+			}
+		}, []);
 
 		// media drag over handler
 		const handleMediaDragOver = useCallback(
@@ -967,9 +966,12 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			setDragPreview(null);
 		}, []);
 
-		const handleTrackMouseEnter = useCallback((trackId: string) => {
-			setHoveredTrackId(trackId);
-		}, [setHoveredTrackId]);
+		const handleTrackMouseEnter = useCallback(
+			(trackId: string) => {
+				setHoveredTrackId(trackId);
+			},
+			[setHoveredTrackId]
+		);
 
 		const onClipSplitRef = useRef(onClipSplit);
 		onClipSplitRef.current = onClipSplit;

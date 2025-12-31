@@ -104,6 +104,16 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 				if (currentClip) {
 					const updatedClip = { ...currentClip, ...updates } as Clip;
 					broadcastClipUpdate(trackId, updatedClip);
+
+					setSelectedClips((prev) => {
+						if (!prev) return null;
+						return prev.map((s) => {
+							if (s.clip.id === clipId && s.trackId === trackId) {
+								return { ...s, clip: updatedClip };
+							}
+							return s;
+						});
+					});
 				}
 			},
 			[broadcastClipUpdate]
