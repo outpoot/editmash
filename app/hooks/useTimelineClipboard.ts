@@ -133,7 +133,7 @@ export function useTimelineClipboard({
 		const newClipIds: Array<{ clipId: string; trackId: string }> = [];
 		const addedClips: Array<{ trackId: string; clip: Clip }> = [];
 
-		const updatedState = updateTimelineState((prev) => {
+		updateTimelineState((prev) => {
 			let newState = {
 				...prev,
 				tracks: prev.tracks.map((t) => ({

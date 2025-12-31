@@ -143,9 +143,9 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 		const updateTimelineState = useCallback((updater: (prev: TimelineState) => TimelineState) => {
 			setTimelineState((prev) => {
 				const newState = updater(prev);
-				setTimeout(() => {
+				queueMicrotask(() => {
 					historyStore.push(newState);
-				}, 0);
+				});
 				return newState;
 			});
 		}, []);
