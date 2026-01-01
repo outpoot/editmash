@@ -65,7 +65,7 @@ export async function fetchLobbies() {
 			fetch(`${apiUrl}/api/lobbies?status=waiting`),
 			fetch(`${apiUrl}/api/lobbies?status=in_match`),
 		]);
-		console.log(`[WS] Lobby fetch response - waiting: ${waitingRes.status}, inMatch: ${inMatchRes.status}`);
+		console.log(`[WS] Response status - waiting: ${waitingRes.status}, inMatch: ${inMatchRes.status}`);
 
 		const lobbies: {
 			id: string;
@@ -94,48 +94,60 @@ export async function fetchLobbies() {
 		}[] = [];
 
 		if (waitingRes.ok) {
-			const data = await waitingRes.json();
-			console.log(`[WS] Found ${data.lobbies?.length || 0} waiting lobbies`);
-			lobbies.push(
-				...data.lobbies.map((lobby: any) => ({
-					id: lobby.id,
-					name: lobby.name,
-					joinCode: lobby.joinCode,
-					hostUsername: lobby.hostUsername,
-					playerCount: lobby.playerCount,
-					maxPlayers: lobby.maxPlayers,
-					status: lobby.status,
-					isSystemLobby: lobby.isSystemLobby ?? false,
-					createdAt: lobby.createdAt,
-					players: lobby.players ?? [],
-					matchConfig: lobby.matchConfig,
-					matchEndsAt: lobby.matchEndsAt ?? null,
-				}))
-			);
+			const text = await waitingRes.text();
+			console.log(`[WS] Waiting response: ${text.substring(0, 200)}`);
+			try {
+				const data = JSON.parse(text);
+				console.log(`[WS] Found ${data.lobbies?.length || 0} waiting lobbies`);
+				lobbies.push(
+					...data.lobbies.map((lobby: any) => ({
+						id: lobby.id,
+						name: lobby.name,
+						joinCode: lobby.joinCode,
+						hostUsername: lobby.hostUsername,
+						playerCount: lobby.playerCount,
+						maxPlayers: lobby.maxPlayers,
+						status: lobby.status,
+						isSystemLobby: lobby.isSystemLobby ?? false,
+						createdAt: lobby.createdAt,
+						players: lobby.players ?? [],
+						matchConfig: lobby.matchConfig,
+						matchEndsAt: lobby.matchEndsAt ?? null,
+					}))
+				);
+			} catch (e) {
+				console.error(`[WS] Failed to parse waiting lobbies:`, e);
+			}
 		}
 
 		if (inMatchRes.ok) {
-			const data = await inMatchRes.json();
-			console.log(`[WS] Found ${data.lobbies?.length || 0} in-match lobbies`);
-			lobbies.push(
-				...data.lobbies.map((lobby: any) => ({
-					id: lobby.id,
-					name: lobby.name,
-					joinCode: lobby.joinCode,
-					hostUsername: lobby.hostUsername,
-					playerCount: lobby.playerCount,
-					maxPlayers: lobby.maxPlayers,
-					status: lobby.status,
-					isSystemLobby: lobby.isSystemLobby ?? false,
-					createdAt: lobby.createdAt,
-					players: lobby.players ?? [],
-					matchConfig: lobby.matchConfig,
-					matchEndsAt: lobby.matchEndsAt ?? null,
-				}))
-			);
+			const text = await inMatchRes.text();
+			console.log(`[WS] InMatch response: ${text.substring(0, 200)}`);
+			try {
+				const data = JSON.parse(text);
+				console.log(`[WS] Found ${data.lobbies?.length || 0} in-match lobbies`);
+				lobbies.push(
+					...data.lobbies.map((lobby: any) => ({
+						id: lobby.id,
+						name: lobby.name,
+						joinCode: lobby.joinCode,
+						hostUsername: lobby.hostUsername,
+						playerCount: lobby.playerCount,
+						maxPlayers: lobby.maxPlayers,
+						status: lobby.status,
+						isSystemLobby: lobby.isSystemLobby ?? false,
+						createdAt: lobby.createdAt,
+						players: lobby.players ?? [],
+						matchConfig: lobby.matchConfig,
+						matchEndsAt: lobby.matchEndsAt ?? null,
+					}))
+				);
+			} catch (e) {
+				console.error(`[WS] Failed to parse in-match lobbies:`, e);
+			}
 		}
-console.log(`[WS] Returning ${lobbies.length} total lobbies`);
-		
+
+		console.log(`[WS] Returning ${lobbies.length} total lobbies`);
 		return lobbies;
 	} catch (error) {
 		console.error("[WS] Failed to fetch lobbies:", error);
