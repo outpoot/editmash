@@ -22,7 +22,7 @@ services:
       target: production-websocket
       dockerfile: Dockerfile
     ports:
-      - "8082:8080"
+      - "8084:8080"
     env_file:
       - websocket/.env
     restart: unless-stopped
