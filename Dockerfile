@@ -27,18 +27,19 @@ COPY . .
 RUN npm run build
 
 FROM base-node AS build-websocket
-WORKDIR /websocket
+WORKDIR /app
 
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 
-COPY websocket/tsconfig.json ./
-COPY websocket/*.ts ./
+COPY websocket/tsconfig.json ./websocket/
+COPY websocket/*.ts ./websocket/
 
 COPY src/gen ./src/gen
 
 RUN bun add -d bun-types @bufbuild/protobuf
 
+WORKDIR /app/websocket
 RUN bun build server.ts --outdir dist --target bun
 
 FROM base-node AS production-main
@@ -59,7 +60,7 @@ RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=build-websocket --chown=bun:bun /websocket/dist ./dist
+COPY --from=build-websocket --chown=bun:bun /app/websocket/dist ./dist
 
 USER bun
 EXPOSE 8080
