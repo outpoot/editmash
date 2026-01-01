@@ -29,9 +29,6 @@ RUN npm run build
 FROM base-node AS build-websocket
 WORKDIR /app
 
-# Force rebuild
-ENV BUILD_DATE=2026-01-01-v2
-
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 

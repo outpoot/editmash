@@ -33,8 +33,6 @@ export function notifyWsServer(endpoint: string, payload?: WsNotifyPayload): voi
 
 	(async () => {
 		const fullUrl = `${wsServerUrl}${endpoint}`;
-        console.log(`[WS Notify] DEBUG: Sending ${payload ? "POST" : "GET"} to ${fullUrl}`);
-        console.log(`[WS Notify] DEBUG: Headers:`, JSON.stringify(headers));
 		try {
 			const response = await fetch(fullUrl, {
 				method: "POST",
@@ -43,11 +41,8 @@ export function notifyWsServer(endpoint: string, payload?: WsNotifyPayload): voi
 				signal: controller.signal,
 			});
 
-            console.log(`[WS Notify] DEBUG: Response status ${response.status}`);
-
 			if (!response.ok) {
 				const text = await response.text();
-                console.error(`[WS Notify] DEBUG: Response body: ${text}`);
 				try {
 					const data = JSON.parse(text);
 					console.warn(`[WS Notify] HTTP ${response.status} from ${endpoint}:`, data.error);

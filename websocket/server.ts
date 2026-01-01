@@ -1,5 +1,4 @@
 import type { ServerWebSocket } from "bun";
-console.log("!!! SERVER.TS IS STARTING - DEBUG CHECK !!!");
 import { timingSafeEqual, createHash } from "crypto";
 import {
 	connections,
@@ -217,9 +216,6 @@ const server = Bun.serve({
 	port: PORT,
 
 	async fetch(req, srv) {
-        // console.error(`[WS] FETCH ENTRY: ${req.url} method=${req.method}`);
-        // return new Response("DEBUG MODE 2: FETCH RECEIVED");
-        
         let url: URL;
         try {
             url = new URL(req.url);
@@ -229,7 +225,6 @@ const server = Bun.serve({
         }
 
         const pathname = url.pathname.replace(/\/+/g, "/");
-        // console.log(`[WS] Path: ${pathname}`);
 
         if (pathname === "/health") {
             return new Response(
@@ -247,7 +242,6 @@ const server = Bun.serve({
         }
 
         if (pathname === "/notify/lobbies" && req.method === "POST") {
-            // console.log("[WS] Handling /notify/lobbies");
             const authHeader = req.headers.get("Authorization");
             const providedKey = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
@@ -269,7 +263,6 @@ const server = Bun.serve({
         }
 
         if (pathname === "/notify/match" && req.method === "POST") {
-            // console.log("[WS] Handling /notify/match");
             const authHeader = req.headers.get("Authorization");
             const providedKey = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
@@ -307,7 +300,6 @@ const server = Bun.serve({
 
         // WebSocket upgrade
         if (pathname === "/ws") {
-            // console.log("[WS] Attempting upgrade for /ws");
             const connectionId = generateConnectionId();
 
             const upgraded = srv.upgrade(req, {
@@ -333,7 +325,6 @@ const server = Bun.serve({
             return new Response("Upgrade failed", { status: 500 });
         }
 
-        // console.log(`[WS] No match for ${pathname}, returning 404`);
         return new Response("Not found", { status: 404 });
 	},
 
