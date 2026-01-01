@@ -6,6 +6,13 @@ const EARLY_ACCESS_COOKIE = "facedevisverycoolandshit";
 export function proxy(request: NextRequest) {
 	const { pathname } = request.nextUrl;
 
+	const host = request.headers.get("host") || "";
+	const isInternalRequest = host.includes("app:3000") || host.includes("localhost:3000");
+	
+	if (isInternalRequest) {
+		return NextResponse.next();
+	}
+
 	if (pathname === "/early-access" || pathname === "/api/early-access") {
 		return NextResponse.next();
 	}
