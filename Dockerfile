@@ -36,6 +36,7 @@ COPY websocket/tsconfig.json ./websocket/
 COPY websocket/*.ts ./websocket/
 
 COPY src/gen ./src/gen
+COPY lib/clipConstraints.ts ./lib/clipConstraints.ts
 
 RUN bun add -d bun-types @bufbuild/protobuf
 
