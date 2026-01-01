@@ -1,4 +1,5 @@
 import type { ServerWebSocket } from "bun";
+console.log("!!! SERVER.TS IS STARTING - DEBUG CHECK !!!");
 import { timingSafeEqual, createHash } from "crypto";
 import {
 	connections,
@@ -215,7 +216,8 @@ async function notifyLobbyChange(): Promise<void> {
 const server = Bun.serve({
 	port: PORT,
 
-	async fetch(req, server) {
+	async fetch(req, srv) {
+        console.log(`[WS] FETCH ENTRY: ${req.url}`);
 		try {
 			const url = new URL(req.url);
 			// Normalize path to remove double slashes
@@ -302,7 +304,7 @@ const server = Bun.serve({
                 console.log("[WS] Attempting upgrade for /ws");
 				const connectionId = generateConnectionId();
 
-				const upgraded = server.upgrade(req, {
+				const upgraded = srv.upgrade(req, {
 					data: {
 						id: connectionId,
 						matchId: null,
@@ -321,7 +323,7 @@ const server = Bun.serve({
 					return undefined;
 				}
 
-				return new Response("WS_UPGRADE_FAILED_CUSTOM_MESSAGE", { status: 500 });
+				return new Response("WS_UPGRADE_FAILED_DEBUG_V2", { status: 500 });
 			}
 
             console.log(`[WS] No match found for ${pathname}, returning 404`);
