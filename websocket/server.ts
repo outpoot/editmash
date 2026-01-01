@@ -338,6 +338,7 @@ const server = Bun.serve({
         */
 	},
 
+    /*
 	websocket: {
 		data: {} as WebSocketData,
 
@@ -363,6 +364,7 @@ const server = Bun.serve({
 			console.log(`[WS] Socket ready for more data: ${ws.data.id}`);
 		},
 	},
+    */
 });
 
 console.log(`[WS] EditMash WebSocket server running on port ${PORT}`);
