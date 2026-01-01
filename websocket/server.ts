@@ -217,6 +217,7 @@ const server = Bun.serve({
 
 	async fetch(req, server) {
 		const url = new URL(req.url);
+		console.log(`[WS] Request: ${req.method} ${url.pathname}`);
 
 		if (url.pathname === "/health") {
 			return new Response(
@@ -313,7 +314,7 @@ const server = Bun.serve({
 				return undefined;
 			}
 
-			return new Response("WebSocket upgrade failed", { status: 500 });
+			return new Response("WS_UPGRADE_FAILED_CUSTOM_MESSAGE", { status: 500 });
 		}
 
 		return new Response("Not found", { status: 404 });

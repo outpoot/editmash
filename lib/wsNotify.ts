@@ -41,8 +41,13 @@ export function notifyWsServer(endpoint: string, payload?: WsNotifyPayload): voi
 			});
 
 			if (!response.ok) {
-				const data = await response.json();
-				console.warn(`[WS Notify] HTTP ${response.status} from ${endpoint}:`, data.error);
+				const text = await response.text();
+				try {
+					const data = JSON.parse(text);
+					console.warn(`[WS Notify] HTTP ${response.status} from ${endpoint}:`, data.error);
+				} catch {
+					console.warn(`[WS Notify] HTTP ${response.status} from ${endpoint}. Body: ${text}`);
+				}
 			}
 		} catch (error) {
 			if (error instanceof Error && error.name === "AbortError") {

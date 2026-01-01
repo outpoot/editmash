@@ -8,6 +8,8 @@ services:
       - "6900:3000"
     env_file:
       - .env
+    environment:
+      - WS_SERVER_URL=http://websocket:8080
     depends_on:
       - websocket
     restart: unless-stopped
