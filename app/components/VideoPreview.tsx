@@ -675,42 +675,44 @@ export default function VideoPreview({
 
 		for (const { clip, trackId } of activeVideoClips) {
 			const props = clip.properties;
-		const { position, size, zoom, crop } = props;
+			const { position, size, zoom, crop } = props;
 
-		const centerX = position.x + size.width / 2;
-		const centerY = position.y + size.height / 2;
-		
-		let sourceWidth = size.width;
-		let sourceHeight = size.height;
-		
-		if (clip.type === "video") {
-			const videoEl = videoElementsRef.current.get(clip.id);
-			if (videoEl?.videoWidth && videoEl?.videoHeight) {
-				const vw = videoEl.videoWidth;
-				const vh = videoEl.videoHeight;
-				const croppedWidth = Math.max(0, vw - crop.left - crop.right);
-				const croppedHeight = Math.max(0, vh - crop.top - crop.bottom);
-				const cropWidthRatio = croppedWidth / vw;
-				const cropHeightRatio = croppedHeight / vh;
-				sourceWidth = size.width * cropWidthRatio;
-				sourceHeight = size.height * cropHeightRatio;
+			const centerX = position.x + size.width / 2;
+			const centerY = position.y + size.height / 2;
+
+			let sourceWidth = size.width;
+			let sourceHeight = size.height;
+
+			if (clip.type === "video") {
+				const videoEl = videoElementsRef.current.get(clip.id);
+				if (videoEl?.videoWidth && videoEl?.videoHeight) {
+					const vw = videoEl.videoWidth;
+					const vh = videoEl.videoHeight;
+					const croppedWidth = Math.max(0, vw - crop.left - crop.right);
+					const croppedHeight = Math.max(0, vh - crop.top - crop.bottom);
+					const cropWidthRatio = croppedWidth / vw;
+					const cropHeightRatio = croppedHeight / vh;
+					sourceWidth = size.width * cropWidthRatio;
+					sourceHeight = size.height * cropHeightRatio;
+				}
+			} else if (clip.type === "image") {
+				const imgEl = imageElementsRef.current.get(clip.id);
+				if (imgEl?.naturalWidth && imgEl?.naturalHeight) {
+					const iw = imgEl.naturalWidth;
+					const ih = imgEl.naturalHeight;
+					const croppedWidth = Math.max(0, iw - crop.left - crop.right);
+					const croppedHeight = Math.max(0, ih - crop.top - crop.bottom);
+					const cropWidthRatio = croppedWidth / iw;
+					const cropHeightRatio = croppedHeight / ih;
+					sourceWidth = size.width * cropWidthRatio;
+					sourceHeight = size.height * cropHeightRatio;
+				}
 			}
-		} else if (clip.type === "image") {
-			const imgEl = imageElementsRef.current.get(clip.id);
-			if (imgEl?.naturalWidth && imgEl?.naturalHeight) {
-				const iw = imgEl.naturalWidth;
-				const ih = imgEl.naturalHeight;
-				const croppedWidth = Math.max(0, iw - crop.left - crop.right);
-				const croppedHeight = Math.max(0, ih - crop.top - crop.bottom);
-				const cropWidthRatio = croppedWidth / iw;
-				const cropHeightRatio = croppedHeight / ih;
-				sourceWidth = size.width * cropWidthRatio;
-				sourceHeight = size.height * cropHeightRatio;
-			}
-		}
-		
-		const halfWidth = (sourceWidth * zoom.x) / 2;
-		const halfHeight = (sourceHeight * zoom.y) / 2;
+
+			const halfWidth = (sourceWidth * zoom.x) / 2;
+			const halfHeight = (sourceHeight * zoom.y) / 2;
+
+			const left = centerX - halfWidth;
 			const right = centerX + halfWidth;
 			const top = centerY - halfHeight;
 			const bottom = centerY + halfHeight;
