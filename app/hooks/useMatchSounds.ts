@@ -2,18 +2,17 @@
 
 import { useRef, useCallback, useEffect } from "react";
 
-let audioContext: AudioContext | null = null;
-
-function getAudioContext(): AudioContext {
-	if (!audioContext) {
-		audioContext = new AudioContext();
-	}
-	return audioContext;
-}
-
 export function useMatchSounds() {
+	const audioContextRef = useRef<AudioContext | null>(null);
 	const hasPlayedStartSound = useRef(false);
 	const lastTickSecond = useRef<number | null>(null);
+
+	const getAudioContext = useCallback((): AudioContext => {
+		if (!audioContextRef.current) {
+			audioContextRef.current = new AudioContext();
+		}
+		return audioContextRef.current;
+	}, []);
 
 	const playBeep = useCallback((frequency: number, duration: number, volume: number = 0.3) => {
 		try {
@@ -41,7 +40,7 @@ export function useMatchSounds() {
 		} catch (error) {
 			console.warn("Failed to play sound:", error);
 		}
-	}, []);
+	}, [getAudioContext]);
 
 	const playMatchStartSound = useCallback(() => {
 		if (hasPlayedStartSound.current) return;
@@ -80,7 +79,7 @@ export function useMatchSounds() {
 		} catch (error) {
 			console.warn("Failed to play match start sound:", error);
 		}
-	}, []);
+	}, [getAudioContext]);
 
 	const playCountdownTick = useCallback(
 		(secondsRemaining: number) => {
@@ -120,13 +119,17 @@ export function useMatchSounds() {
 				}
 			}
 		},
-		[playBeep]
+		[playBeep, getAudioContext]
 	);
 
 	useEffect(() => {
 		return () => {
 			hasPlayedStartSound.current = false;
 			lastTickSecond.current = null;
+			if (audioContextRef.current) {
+				audioContextRef.current.close();
+				audioContextRef.current = null;
+			}
 		};
 	}, []);
 

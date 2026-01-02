@@ -151,7 +151,7 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 		const handleGlobalDragEnter = useCallback((e: React.DragEvent) => {
 			e.preventDefault();
 			e.stopPropagation();
-			dragCounterRef.current = Math.max(0, dragCounterRef.current) + 1;
+			dragCounterRef.current = Math.max(0, dragCounterRef.current + 1);
 
 			if (e.dataTransfer.types.includes("Files")) {
 				setIsDragOver(true);

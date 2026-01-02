@@ -279,6 +279,17 @@ export function Chat({ className = "" }: ChatProps) {
 	}, []);
 
 	useEffect(() => {
+		if (isDragging || isSnapping) return;
+
+		const handleResize = () => {
+			setChatPosition((current) => current);
+		};
+
+		window.addEventListener("resize", handleResize);
+		return () => window.removeEventListener("resize", handleResize);
+	}, [isDragging, isSnapping]);
+
+	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
 				e.preventDefault();
