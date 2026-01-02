@@ -21,7 +21,10 @@ interface RouteParams {
 	}>;
 }
 
-export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse<MatchStateResponse | { error: string } | { redirect: string }>> {
+export async function GET(
+	request: NextRequest,
+	{ params }: RouteParams
+): Promise<NextResponse<MatchStateResponse | { error: string } | { redirect: string }>> {
 	try {
 		const { matchId } = await params;
 
@@ -65,13 +68,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 		const authHeader = request.headers.get("Authorization");
 		const wsApiKey = process.env.WS_API_KEY;
 		const providedKey = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-		const isWsAuth = secureCompare(providedKey, wsApiKey);
 
-		if (!isWsAuth) {
-			const session = await auth.api.getSession({ headers: await headers() });
-			if (!session?.user) {
-				return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-			}
+		if (!secureCompare(providedKey, wsApiKey)) {
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 		}
 
 		const match = await getMatchById(matchId);
