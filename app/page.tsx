@@ -565,7 +565,6 @@ export default function MatchmakingPage() {
 											}
 											setShowActiveLobbyDialog(false);
 											setActiveLobbyError(null);
-											window.location.reload();
 										} catch (err) {
 											toast.error(err instanceof Error ? err.message : "Failed to leave lobby");
 										}

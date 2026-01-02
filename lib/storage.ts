@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { db, lobbies, lobbyPlayers, matches, matchPlayers, clipEditOperations, user, matchMedia } from "./db";
 import type { Lobby, LobbyPlayer, LobbyStatus, LobbyListItemWithConfig } from "../app/types/lobby";
 import type { Match, MatchStatus, MatchConfig, ClipEditOperation } from "../app/types/match";
@@ -271,7 +271,7 @@ export async function getPlayerActiveLobby(userId: string): Promise<{ lobbyId: s
 		.where(
 			and(
 				eq(lobbyPlayers.userId, userId),
-				sql`${lobbies.status} IN ('waiting', 'starting', 'in_match')`
+				inArray(lobbies.status, ['waiting', 'starting', 'in_match'])
 			)
 		)
 		.limit(1);
