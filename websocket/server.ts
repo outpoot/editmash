@@ -1,5 +1,4 @@
 import type { ServerWebSocket } from "bun";
-import { timingSafeEqual, createHash } from "crypto";
 import {
 	connections,
 	matchPlayers,
@@ -65,15 +64,7 @@ import {
 	handleJoinLobby,
 	handleLeaveLobby,
 } from "./handlers";
-
-function secureCompare(a: string | null | undefined, b: string | null | undefined): boolean {
-	if (!a || !b) return false;
-
-	const hashA = createHash("sha256").update(a).digest();
-	const hashB = createHash("sha256").update(b).digest();
-
-	return timingSafeEqual(hashA, hashB);
-}
+import { secureCompare } from "@/lib/security";
 
 function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | Buffer | ArrayBuffer): void {
 	try {

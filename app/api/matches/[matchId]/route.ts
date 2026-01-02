@@ -4,16 +4,7 @@ import { MatchStateResponse } from "@/app/types/match";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import type { TimelineState } from "@/app/types/timeline";
-import { timingSafeEqual, createHash } from "crypto";
-
-function secureCompare(a: string | null | undefined, b: string | null | undefined): boolean {
-	if (!a || !b) return false;
-
-	const hashA = createHash("sha256").update(a).digest();
-	const hashB = createHash("sha256").update(b).digest();
-
-	return timingSafeEqual(hashA, hashB);
-}
+import { secureCompare } from "@/lib/security";
 
 interface RouteParams {
 	params: Promise<{

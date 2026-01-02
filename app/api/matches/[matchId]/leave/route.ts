@@ -2,16 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { markPlayerDisconnected, getMatchById, removePlayerFromLobby } from "@/lib/storage";
 import { getServerSession } from "@/lib/auth";
 import { notifyWsServer } from "@/lib/wsNotify";
-import { timingSafeEqual, createHash } from "crypto";
-
-function secureCompare(a: string | null | undefined, b: string | null | undefined): boolean {
-	if (!a || !b) return false;
-
-	const hashA = createHash("sha256").update(a).digest();
-	const hashB = createHash("sha256").update(b).digest();
-
-	return timingSafeEqual(hashA, hashB);
-}
+import { secureCompare } from "@/lib/security";
 
 interface RouteParams {
 	params: Promise<{

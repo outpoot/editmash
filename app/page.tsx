@@ -189,6 +189,7 @@ export default function MatchmakingPage() {
 				if (data.activeLobby) {
 					setActiveLobbyError(data.activeLobby);
 					setShowActiveLobbyDialog(true);
+					setIsCreating(false);
 					return;
 				}
 				throw new Error(data.error || "Failed to create lobby");
@@ -235,6 +236,7 @@ export default function MatchmakingPage() {
 				if (data.activeLobby) {
 					setActiveLobbyError(data.activeLobby);
 					setShowActiveLobbyDialog(true);
+					setJoiningLobbyId(null);
 					return;
 				}
 
