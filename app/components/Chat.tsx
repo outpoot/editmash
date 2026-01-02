@@ -4,13 +4,39 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useMatchWebSocketOptional } from "./MatchWS";
 import { viewSettingsStore } from "../store/viewSettingsStore";
 import type { ChatMessageData } from "@/websocket/types";
+import type { ChatPosition } from "./TopBar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { SentIcon } from "@hugeicons/core-free-icons";
+import { SentIcon, DragDropVerticalIcon } from "@hugeicons/core-free-icons";
 
 const MESSAGE_VISIBLE_DURATION = 8000;
 const MESSAGE_FADE_DURATION = 2000;
 const UNFOCUS_DELAY = 1000;
+
+function getSnapPositions() {
+	return {
+		"bottom-left": { x: 12, y: window.innerHeight - 12 },
+		"bottom-right": { x: window.innerWidth - 12, y: window.innerHeight - 12 },
+		"top-left": { x: 12, y: 44 },
+		"top-right": { x: window.innerWidth - 12, y: 44 },
+	};
+}
+
+function findNearestPosition(x: number, y: number): ChatPosition {
+	const positions = getSnapPositions();
+	let nearest: ChatPosition = "bottom-left";
+	let minDistance = Infinity;
+
+	for (const [key, pos] of Object.entries(positions)) {
+		const distance = Math.sqrt(Math.pow(x - pos.x, 2) + Math.pow(y - pos.y, 2));
+		if (distance < minDistance) {
+			minDistance = distance;
+			nearest = key as ChatPosition;
+		}
+	}
+
+	return nearest;
+}
 
 interface ChatProps {
 	className?: string;
@@ -22,6 +48,7 @@ export function Chat({ className = "" }: ChatProps) {
 	const [isActive, setIsActive] = useState(false);
 	const [isHovered, setIsHovered] = useState(false);
 	const [showChat, setShowChat] = useState(viewSettingsStore.getSettings().showChat);
+	const [chatPosition, setChatPosition] = useState<ChatPosition>(viewSettingsStore.getSettings().chatPosition);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -30,9 +57,16 @@ export function Chat({ className = "" }: ChatProps) {
 	const rafRef = useRef<number | null>(null);
 	const [, forceUpdate] = useState(0);
 
+	const [isDragging, setIsDragging] = useState(false);
+	const [isSnapping, setIsSnapping] = useState(false);
+	const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
+	const dragStartRef = useRef<{ mouseX: number; mouseY: number; elemX: number; elemY: number } | null>(null);
+	const chatContainerRef = useRef<HTMLDivElement>(null);
+
 	useEffect(() => {
 		const unsubscribe = viewSettingsStore.subscribe(() => {
 			setShowChat(viewSettingsStore.getSettings().showChat);
+			setChatPosition(viewSettingsStore.getSettings().chatPosition);
 		});
 		return () => {
 			unsubscribe();
@@ -141,6 +175,75 @@ export function Chat({ className = "" }: ChatProps) {
 		setIsHovered(false);
 	}, []);
 
+	const handleDragStart = useCallback(
+		(e: React.MouseEvent) => {
+			e.preventDefault();
+			e.stopPropagation();
+
+			if (!chatContainerRef.current) return;
+
+			const rect = chatContainerRef.current.getBoundingClientRect();
+			const isLeft = chatPosition.includes("left");
+			const isTop = chatPosition.startsWith("top");
+
+			const currentX = isLeft ? rect.left : rect.right;
+			const currentY = isTop ? rect.top : rect.bottom;
+
+			dragStartRef.current = {
+				mouseX: e.clientX,
+				mouseY: e.clientY,
+				elemX: currentX,
+				elemY: currentY,
+			};
+
+			setIsDragging(true);
+			setDragPosition({ x: currentX, y: currentY });
+		},
+		[chatPosition]
+	);
+
+	const handleDragMove = useCallback(
+		(e: MouseEvent) => {
+			if (!isDragging || !dragStartRef.current) return;
+
+			const deltaX = e.clientX - dragStartRef.current.mouseX;
+			const deltaY = e.clientY - dragStartRef.current.mouseY;
+
+			const newX = Math.max(12, Math.min(window.innerWidth - 12, dragStartRef.current.elemX + deltaX));
+			const newY = Math.max(44, Math.min(window.innerHeight - 12, dragStartRef.current.elemY + deltaY));
+
+			setDragPosition({ x: newX, y: newY });
+		},
+		[isDragging]
+	);
+
+	const handleDragEnd = useCallback(() => {
+		if (!isDragging || !dragPosition) return;
+
+		const nearestPosition = findNearestPosition(dragPosition.x, dragPosition.y);
+
+		setIsDragging(false);
+		setIsSnapping(true);
+
+		setTimeout(() => {
+			viewSettingsStore.updateSetting("chatPosition", nearestPosition);
+			setDragPosition(null);
+			dragStartRef.current = null;
+			setTimeout(() => setIsSnapping(false), 300);
+		}, 50);
+	}, [isDragging, dragPosition]);
+
+	useEffect(() => {
+		if (isDragging) {
+			window.addEventListener("mousemove", handleDragMove);
+			window.addEventListener("mouseup", handleDragEnd);
+			return () => {
+				window.removeEventListener("mousemove", handleDragMove);
+				window.removeEventListener("mouseup", handleDragEnd);
+			};
+		}
+	}, [isDragging, handleDragMove, handleDragEnd]);
+
 	useEffect(() => {
 		return () => {
 			if (unfocusTimeoutRef.current) {
@@ -204,26 +307,90 @@ export function Chat({ className = "" }: ChatProps) {
 
 	const visibleMessages = chatMessages.filter((msg) => getMessageOpacity(msg.messageId) > 0);
 
+	const isTop = chatPosition.startsWith("top");
+	const isLeft = chatPosition.includes("left");
+
+	const getPositionStyle = (): React.CSSProperties => {
+		if ((isDragging || isSnapping) && dragPosition) {
+			return {
+				left: isLeft ? dragPosition.x : "auto",
+				right: !isLeft ? window.innerWidth - dragPosition.x : "auto",
+				top: isTop ? dragPosition.y : "auto",
+				bottom: !isTop ? window.innerHeight - dragPosition.y : "auto",
+			};
+		}
+
+		const positions: Record<ChatPosition, React.CSSProperties> = {
+			"bottom-left": { bottom: 12, left: 12 },
+			"bottom-right": { bottom: 12, right: 12 },
+			"top-left": { top: 44, left: 12 },
+			"top-right": { top: 44, right: 12 },
+		};
+		return positions[chatPosition];
+	};
+
 	return (
 		<div
-			className={`fixed bottom-3 left-3 w-80 flex flex-col pointer-events-none ${className}`}
+			ref={chatContainerRef}
+			className={`fixed w-80 flex flex-col pointer-events-none ${className}`}
 			data-tutorial="chat"
 			style={{
-				zIndex: 9999,
-				transition: "transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1)",
-				transform: isFocused ? "scale(1)" : "scale(0.98)",
+				...getPositionStyle(),
+				zIndex: 80,
+				transition: isDragging ? "none" : "all 300ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+				transform: isFocused && !isDragging ? "scale(1)" : "scale(0.98)",
 			}}
 			onMouseEnter={handleMouseEnter}
 			onMouseLeave={handleMouseLeave}
 		>
 			<div
-				className="rounded-lg overflow-hidden pointer-events-auto"
+				className={`rounded-lg overflow-hidden pointer-events-auto flex flex-col ${isDragging ? "cursor-grabbing" : ""}`}
 				style={{
-					transition: "background-color 300ms cubic-bezier(0.34, 1.56, 0.64, 1), backdrop-filter 300ms cubic-bezier(0.34, 1.56, 0.64, 1)",
-					backgroundColor: isFocused ? "rgba(42, 52, 65, 0.95)" : "transparent",
-					backdropFilter: isFocused ? "blur(12px)" : "none",
+					transition: isDragging
+						? "none"
+						: "background-color 300ms cubic-bezier(0.34, 1.56, 0.64, 1), backdrop-filter 300ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+					backgroundColor: isFocused || isDragging ? "rgba(42, 52, 65, 0.95)" : "transparent",
+					backdropFilter: isFocused || isDragging ? "blur(12px)" : "none",
 				}}
 			>
+				<div
+					className={`flex items-center justify-center py-1 cursor-grab active:cursor-grabbing transition-opacity ${
+						isFocused || isDragging ? "opacity-100" : "opacity-0"
+					}`}
+					onMouseDown={handleDragStart}
+				>
+					<HugeiconsIcon icon={DragDropVerticalIcon} size={14} className="text-white/40" />
+				</div>
+
+				{isTop && (
+					<form onSubmit={handleSubmit} className={`relative ${isFocused ? "px-3 pb-1" : "p-1 pb-0.5"}`}>
+						<div className="relative">
+							<input
+								ref={inputRef}
+								type="text"
+								value={inputValue}
+								onChange={(e) => setInputValue(e.target.value)}
+								onFocus={handleFocusIn}
+								onBlur={handleFocusOut}
+								placeholder="To chat click here or press / key"
+								maxLength={200}
+								className={`w-full pl-3 pr-10 py-2 text-sm rounded-lg transition-all duration-200
+									${isFocused ? "bg-[#1e2730] border border-white/10" : "bg-black/50 backdrop-blur-md border border-white/[0.08]"}
+									text-white/90 placeholder:text-white/30
+									focus:outline-none`}
+							/>
+							<button
+								type="submit"
+								className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded transition-colors ${
+									inputValue.trim() ? "text-white/70 hover:text-white" : "text-white/20"
+								}`}
+								disabled={!inputValue.trim()}
+							>
+								<HugeiconsIcon icon={SentIcon} size={16} />
+							</button>
+						</div>
+					</form>
+				)}
 				<div
 					ref={messagesContainerRef}
 					className="max-h-52 overflow-y-auto overflow-x-hidden chat-scrollbar"
@@ -232,7 +399,7 @@ export function Chat({ className = "" }: ChatProps) {
 						WebkitMaskImage: isFocused ? "none" : "linear-gradient(to bottom, transparent 0%, black 30%)",
 					}}
 				>
-					<div className={`flex flex-col ${isFocused ? "p-3 pb-2" : "p-1"}`}>
+					<div className={`flex flex-col ${isFocused ? "p-3 pb-2" : "p-1"} ${isTop ? "pt-2" : ""}`}>
 						{visibleMessages.map((msg) => (
 							<ChatMessage
 								key={msg.messageId}
@@ -246,33 +413,35 @@ export function Chat({ className = "" }: ChatProps) {
 					</div>
 				</div>
 
-				<form onSubmit={handleSubmit} className={`relative ${isFocused ? "p-3 pt-1" : "p-1 pt-0.5"}`}>
-					<div className="relative">
-						<input
-							ref={inputRef}
-							type="text"
-							value={inputValue}
-							onChange={(e) => setInputValue(e.target.value)}
-							onFocus={handleFocusIn}
-							onBlur={handleFocusOut}
-							placeholder="To chat click here or press / key"
-							maxLength={200}
-							className={`w-full pl-3 pr-10 py-2 text-sm rounded-lg transition-all duration-200
-								${isFocused ? "bg-[#1e2730] border border-white/10" : "bg-black/50 backdrop-blur-md border border-white/[0.08]"}
-								text-white/90 placeholder:text-white/30
-								focus:outline-none`}
-						/>
-						<button
-							type="submit"
-							className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded transition-colors ${
-								inputValue.trim() ? "text-white/70 hover:text-white" : "text-white/20"
-							}`}
-							disabled={!inputValue.trim()}
-						>
-							<HugeiconsIcon icon={SentIcon} size={16} />
-						</button>
-					</div>
-				</form>
+				{!isTop && (
+					<form onSubmit={handleSubmit} className={`relative ${isFocused ? "px-3 pb-3 pt-1" : "p-1 pt-0.5"}`}>
+						<div className="relative">
+							<input
+								ref={inputRef}
+								type="text"
+								value={inputValue}
+								onChange={(e) => setInputValue(e.target.value)}
+								onFocus={handleFocusIn}
+								onBlur={handleFocusOut}
+								placeholder="To chat click here or press / key"
+								maxLength={200}
+								className={`w-full pl-3 pr-10 py-2 text-sm rounded-lg transition-all duration-200
+									${isFocused ? "bg-[#1e2730] border border-white/10" : "bg-black/50 backdrop-blur-md border border-white/[0.08]"}
+									text-white/90 placeholder:text-white/30
+									focus:outline-none`}
+							/>
+							<button
+								type="submit"
+								className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded transition-colors ${
+									inputValue.trim() ? "text-white/70 hover:text-white" : "text-white/20"
+								}`}
+								disabled={!inputValue.trim()}
+							>
+								<HugeiconsIcon icon={SentIcon} size={16} />
+							</button>
+						</div>
+					</form>
+				)}
 			</div>
 		</div>
 	);

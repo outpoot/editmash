@@ -243,6 +243,48 @@
 	filter: drop-shadow(0 3px 6px oklch(0 0 0 / 0.5));
 }
 
+.media-card-dock.drag-over {
+	pointer-events: auto;
+}
+
+.media-card-dock__drop-overlay {
+	position: absolute;
+	inset: -20px;
+	background: oklch(0.5 0.2 260 / 0.3);
+	border: 2px dashed oklch(0.7 0.2 260);
+	border-radius: 1rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	backdrop-filter: blur(8px);
+	z-index: 100;
+	pointer-events: none;
+	animation: pulse-border 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+	0%,
+	100% {
+		border-color: oklch(0.7 0.2 260);
+		background: oklch(0.5 0.2 260 / 0.3);
+	}
+	50% {
+		border-color: oklch(0.8 0.25 260);
+		background: oklch(0.5 0.2 260 / 0.5);
+	}
+}
+
+.media-card-dock__drop-content {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	color: white;
+	font-size: 14px;
+	font-weight: 500;
+	text-shadow: 0 1px 4px oklch(0 0 0 / 0.5);
+}
+
 .media-card {
 	--pointer-x: 50%;
 	--pointer-y: 50%;

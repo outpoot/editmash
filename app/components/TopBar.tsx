@@ -2,15 +2,18 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { UserGroupIcon, Tick01Icon } from "@hugeicons/core-free-icons";
+import { UserGroupIcon, Tick01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { useRouter } from "next/navigation";
 import { historyStore } from "../store/historyStore";
 import { viewSettingsStore } from "../store/viewSettingsStore";
 import { useTutorial } from "./Tutorial";
 
+export type ChatPosition = "bottom-left" | "bottom-right" | "top-left" | "top-right";
+
 export interface ViewSettings {
 	showShineEffect: boolean;
 	showChat: boolean;
+	chatPosition: ChatPosition;
 	showRemoteSelections: boolean;
 	showRemoteClipNotifications: boolean;
 }
@@ -24,6 +27,7 @@ interface TopBarProps {
 
 export default function TopBar({ timeRemaining, playersOnline, onUndo, onRedo }: TopBarProps) {
 	const [activeMenu, setActiveMenu] = useState<string | null>(null);
+	const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
 	const [canUndo, setCanUndo] = useState(false);
 	const [canRedo, setCanRedo] = useState(false);
 	const [viewSettings, setViewSettings] = useState<ViewSettings>(viewSettingsStore.getSettings());
@@ -54,8 +58,6 @@ export default function TopBar({ timeRemaining, playersOnline, onUndo, onRedo }:
 		};
 	}, []);
 
-
-
 	const menuItems = ["EditMash", "File", "Edit", "View", "Help"];
 
 	const handleMenuClick = useCallback(
@@ -83,6 +85,12 @@ export default function TopBar({ timeRemaining, playersOnline, onUndo, onRedo }:
 		disabled?: boolean;
 		shortcut?: string;
 		checked?: boolean;
+		submenu?: Array<{
+			label: string;
+			type?: string;
+			checked?: boolean;
+			action?: () => void;
+		}>;
 	}> | null => {
 		switch (item) {
 			case "File":
@@ -121,6 +129,36 @@ export default function TopBar({ timeRemaining, playersOnline, onUndo, onRedo }:
 					},
 					{ label: "Chat", type: "checkbox", checked: viewSettings.showChat, action: () => toggleViewSetting("showChat") },
 					{
+						label: "Chat position",
+						type: "submenu",
+						submenu: [
+							{
+								label: "Bottom Left",
+								type: "radio",
+								checked: viewSettings.chatPosition === "bottom-left",
+								action: () => viewSettingsStore.updateSetting("chatPosition", "bottom-left"),
+							},
+							{
+								label: "Bottom Right",
+								type: "radio",
+								checked: viewSettings.chatPosition === "bottom-right",
+								action: () => viewSettingsStore.updateSetting("chatPosition", "bottom-right"),
+							},
+							{
+								label: "Top Left",
+								type: "radio",
+								checked: viewSettings.chatPosition === "top-left",
+								action: () => viewSettingsStore.updateSetting("chatPosition", "top-left"),
+							},
+							{
+								label: "Top Right",
+								type: "radio",
+								checked: viewSettings.chatPosition === "top-right",
+								action: () => viewSettingsStore.updateSetting("chatPosition", "top-right"),
+							},
+						],
+					},
+					{
 						label: "Remote clip selections",
 						type: "checkbox",
 						checked: viewSettings.showRemoteSelections,
@@ -150,7 +188,7 @@ export default function TopBar({ timeRemaining, playersOnline, onUndo, onRedo }:
 	};
 
 	return (
-		<div className="fixed top-0 left-0 right-0 z-50 flex h-8 items-center justify-between bg-background px-2 text-[13px] text-foreground select-none border-b border-border">
+		<div className="fixed top-0 left-0 right-0 z-[100] flex h-8 items-center justify-between bg-background px-2 text-[13px] text-foreground select-none border-b border-border">
 			<div className="flex items-center gap-4 relative">
 				<div className="flex items-center relative">
 					{menuItems.map((item, index) => {
@@ -174,12 +212,49 @@ export default function TopBar({ timeRemaining, playersOnline, onUndo, onRedo }:
 
 								{activeMenu === item && menuContent && (
 									<div
-										className="absolute top-full left-0 mt-0.5 bg-popover border border-border rounded-md shadow-md min-w-[220px] p-1 z-50"
-										onMouseLeave={() => setActiveMenu(null)}
+										className="absolute top-full left-0 mt-0.5 bg-popover border border-border rounded-md shadow-md min-w-[220px] p-1 z-[100]"
+										onMouseLeave={() => {
+											setActiveMenu(null);
+											setActiveSubmenu(null);
+										}}
 									>
 										{menuContent.map((menuItem, idx) => {
 											if (menuItem.type === "separator") {
 												return <div key={idx} className="-mx-1 my-1 h-px bg-muted" />;
+											} else if (menuItem.type === "submenu" && menuItem.submenu) {
+												return (
+													<div
+														key={idx}
+														className="relative"
+														onMouseEnter={() => setActiveSubmenu(menuItem.label ?? null)}
+														onMouseLeave={() => setActiveSubmenu(null)}
+													>
+														<button className="w-full text-left px-2 py-1.5 text-sm text-foreground hover:bg-accent rounded-sm transition-colors flex items-center justify-between">
+															<span>{menuItem.label}</span>
+															<HugeiconsIcon icon={ArrowRight01Icon} size={14} className="opacity-60" />
+														</button>
+														{activeSubmenu === menuItem.label && (
+															<div className="absolute left-full top-0 ml-0.5 bg-popover border border-border rounded-md shadow-md min-w-40 p-1 z-[100]">
+																{menuItem.submenu.map((subItem, subIdx) => (
+																	<button
+																		key={subIdx}
+																		onClick={() => {
+																			subItem.action?.();
+																			setActiveMenu(null);
+																			setActiveSubmenu(null);
+																		}}
+																		className="w-full text-left px-2 py-1.5 text-sm text-foreground hover:bg-accent rounded-sm transition-colors flex items-center gap-2"
+																	>
+																		<span className="w-3.5 h-3.5 flex items-center justify-center">
+																			{subItem.checked && <HugeiconsIcon icon={Tick01Icon} size={16} />}
+																		</span>
+																		{subItem.label}
+																	</button>
+																))}
+															</div>
+														)}
+													</div>
+												);
 											} else if (menuItem.type === "checkbox" && "checked" in menuItem) {
 												return (
 													<button

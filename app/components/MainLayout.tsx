@@ -2,6 +2,8 @@
 
 import { useState, useRef, useCallback, useImperativeHandle, forwardRef } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Upload04Icon } from "@hugeicons/core-free-icons";
 import VideoPreview from "./VideoPreview";
 import Inspector from "./Inspector";
 import Timeline, { TimelineRef } from "./Timeline";
@@ -55,7 +57,10 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 		const [currentTime, setCurrentTime] = useState(0);
 		const [timelineState, setTimelineState] = useState<TimelineState | null>(null);
 		const [transformMode, setTransformMode] = useState<"transform" | "crop" | null>(null);
+		const [isDragOver, setIsDragOver] = useState(false);
 
+		const dragCounterRef = useRef(0);
+		const mediaCardDockRef = useRef<{ handleExternalDrop: (files: FileList) => void }>(null);
 		const currentTimeRef = useRef(0);
 		const timelineRef = useRef<TimelineRef>(null);
 		const onSelectionChangeRef = useRef(onSelectionChange);
@@ -127,33 +132,62 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 			[onTimelineStateChange]
 		);
 
-		const handleClipAdded = useCallback(
-			(trackId: string, clip: Clip) => {
-				onClipAddedRef.current?.(trackId, clip);
-			},
-			[]
-		);
+		const handleClipAdded = useCallback((trackId: string, clip: Clip) => {
+			onClipAddedRef.current?.(trackId, clip);
+		}, []);
 
-		const handleClipUpdated = useCallback(
-			(trackId: string, clip: Clip) => {
-				onClipUpdatedRef.current?.(trackId, clip);
-			},
-			[]
-		);
+		const handleClipUpdated = useCallback((trackId: string, clip: Clip) => {
+			onClipUpdatedRef.current?.(trackId, clip);
+		}, []);
 
-		const handleClipRemoved = useCallback(
-			(trackId: string, clipId: string) => {
-				onClipRemovedRef.current?.(trackId, clipId);
-			},
-			[]
-		);
+		const handleClipRemoved = useCallback((trackId: string, clipId: string) => {
+			onClipRemovedRef.current?.(trackId, clipId);
+		}, []);
 
-		const handleClipSplit = useCallback(
-			(trackId: string, originalClip: Clip, newClip: Clip) => {
-				onClipSplitRef.current?.(trackId, originalClip, newClip);
-			},
-			[]
-		);
+		const handleClipSplit = useCallback((trackId: string, originalClip: Clip, newClip: Clip) => {
+			onClipSplitRef.current?.(trackId, originalClip, newClip);
+		}, []);
+
+		const handleGlobalDragEnter = useCallback((e: React.DragEvent) => {
+			e.preventDefault();
+			e.stopPropagation();
+			dragCounterRef.current++;
+
+			if (e.dataTransfer.types.includes("Files")) {
+				setIsDragOver(true);
+			}
+		}, []);
+
+		const handleGlobalDragLeave = useCallback((e: React.DragEvent) => {
+			e.preventDefault();
+			e.stopPropagation();
+			dragCounterRef.current--;
+
+			if (dragCounterRef.current === 0) {
+				setIsDragOver(false);
+			}
+		}, []);
+
+		const handleGlobalDragOver = useCallback((e: React.DragEvent) => {
+			e.preventDefault();
+			e.stopPropagation();
+
+			if (e.dataTransfer.types.includes("Files")) {
+				e.dataTransfer.dropEffect = "copy";
+			}
+		}, []);
+
+		const handleGlobalDrop = useCallback((e: React.DragEvent) => {
+			e.preventDefault();
+			e.stopPropagation();
+			setIsDragOver(false);
+			dragCounterRef.current = 0;
+
+			const files = e.dataTransfer.files;
+			if (files && files.length > 0 && mediaCardDockRef.current) {
+				mediaCardDockRef.current.handleExternalDrop(files);
+			}
+		}, []);
 
 		useImperativeHandle(
 			ref,
@@ -189,7 +223,20 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 		);
 
 		return (
-			<div className="flex-1 h-full pt-8 bg-background relative">
+			<div
+				className="flex-1 h-full pt-8 bg-background relative"
+				onDragEnter={handleGlobalDragEnter}
+				onDragLeave={handleGlobalDragLeave}
+				onDragOver={handleGlobalDragOver}
+				onDrop={handleGlobalDrop}
+			>
+				{isDragOver && (
+					<div className="fixed inset-0 z-90 bg-black/60 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+						<div className="rounded-2xl flex flex-col items-center gap-3 animate-pulse">
+							<span className="text-xl font-semibold text-primary-foreground">Drop files to upload</span>
+						</div>
+					</div>
+				)}
 				<ResizablePanelGroup direction="horizontal" className="h-full">
 					<ResizablePanel defaultSize={100} minSize={40}>
 						<ResizablePanelGroup direction="vertical">
@@ -241,7 +288,7 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 					</ResizablePanel>
 				</ResizablePanelGroup>
 
-				<MediaCardDock maxClips={maxClipsPerUser} />
+				<MediaCardDock ref={mediaCardDockRef} maxClips={maxClipsPerUser} />
 			</div>
 		);
 	}

@@ -6,6 +6,7 @@ class ViewSettingsStore {
 	private settings: ViewSettings = {
 		showShineEffect: true,
 		showChat: true,
+		chatPosition: "bottom-left",
 		showRemoteSelections: true,
 		showRemoteClipNotifications: true,
 	};

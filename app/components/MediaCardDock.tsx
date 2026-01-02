@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon } from "@hugeicons/core-free-icons";
 import MediaCard from "./MediaCard";
@@ -13,6 +13,10 @@ interface MediaCardDockProps {
 	maxClips?: number;
 }
 
+export interface MediaCardDockRef {
+	handleExternalDrop: (files: FileList) => void;
+}
+
 let currentDragItem: MediaItem | null = null;
 
 export function getCurrentDragItem() {
@@ -21,7 +25,7 @@ export function getCurrentDragItem() {
 
 const UNLIMITED_CLIPS = 0;
 
-export default function MediaCardDock({ maxClips = 10 }: MediaCardDockProps) {
+const MediaCardDock = forwardRef<MediaCardDockRef, MediaCardDockProps>(({ maxClips = 10 }, ref) => {
 	const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const matchWs = useMatchWebSocketOptional();
@@ -275,6 +279,36 @@ export default function MediaCardDock({ maxClips = 10 }: MediaCardDockProps) {
 		currentDragItem = null;
 	}, []);
 
+	const processFilesFromDrop = useCallback(async (files: FileList) => {
+		const currentCount = myMediaItems.length;
+
+		let filesToProcess: File[];
+		if (isUnlimited) {
+			filesToProcess = Array.from(files);
+		} else {
+			const remainingSlots = maxClips - currentCount;
+
+			if (remainingSlots <= 0) {
+				toast.error(`Maximum ${maxClips} clips allowed`);
+				return;
+			}
+
+			filesToProcess = Array.from(files).slice(0, remainingSlots);
+
+			if (files.length > remainingSlots) {
+				toast.warning(`Only ${remainingSlots} more clip${remainingSlots === 1 ? "" : "s"} allowed. Some files were not imported.`);
+			}
+		}
+
+		for (const file of filesToProcess) {
+			await processFile(file);
+		}
+	}, [myMediaItems.length, maxClips, isUnlimited]);
+
+	useImperativeHandle(ref, () => ({
+		handleExternalDrop: processFilesFromDrop
+	}), [processFilesFromDrop]);
+
 	const remainingSlots = isUnlimited ? Infinity : maxClips - myMediaItems.length;
 	const showAddButton = remainingSlots > 0;
 
@@ -308,4 +342,8 @@ export default function MediaCardDock({ maxClips = 10 }: MediaCardDockProps) {
 			</div>
 		</div>
 	);
-}
+});
+
+MediaCardDock.displayName = "MediaCardDock";
+
+export default MediaCardDock;

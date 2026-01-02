@@ -16,6 +16,7 @@ import type { ClipData, TimelineData } from "@/websocket/types";
 import { VideoClipProperties, AudioClipProperties } from "@/app/types/timeline";
 import { Chat } from "@/app/components/Chat";
 import { TutorialProvider } from "@/app/components/Tutorial";
+import { useMatchSounds } from "@/app/hooks/useMatchSounds";
 
 function transformTimelineFromApi(timeline: TimelineState): TimelineState {
 	return {
@@ -201,7 +202,7 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 	useEffect(() => {
 		mediaStore.cleanup();
 		fetchMatch();
-		
+
 		return () => {
 			mediaStore.cleanup();
 		};
@@ -431,13 +432,7 @@ interface MatchContentProps {
 	initialTimeline?: TimelineState;
 }
 
-function MatchContent({
-	localTimeRemaining,
-	mainLayoutRef,
-	maxClipsPerUser,
-	matchConfig,
-	initialTimeline,
-}: MatchContentProps) {
+function MatchContent({ localTimeRemaining, mainLayoutRef, maxClipsPerUser, matchConfig, initialTimeline }: MatchContentProps) {
 	const ws = useMatchWebSocketOptional();
 	const isDisconnected = ws?.status === "disconnected" || ws?.status === "connecting";
 	const isFailed = ws?.status === "failed";
@@ -449,6 +444,20 @@ function MatchContent({
 	const ZONE_SIZE = 5; // size of each zone
 	const ZONE_PREFETCH = 1; // how early to start fetching next zone
 	const lastZoneRef = useRef<{ startTime: number; endTime: number } | null>(null);
+
+	const { playMatchStartSound, playCountdownTick } = useMatchSounds();
+
+	useEffect(() => {
+		if (ws?.status === "connected") {
+			playMatchStartSound();
+		}
+	}, [ws?.status, playMatchStartSound]);
+
+	useEffect(() => {
+		if (localTimeRemaining !== null && localTimeRemaining <= 10 && localTimeRemaining > 0) {
+			playCountdownTick(localTimeRemaining);
+		}
+	}, [localTimeRemaining, playCountdownTick]);
 
 	const loadTimeline = useCallback(() => {
 		if (initialLoadDoneRef.current) return;
@@ -590,10 +599,7 @@ function MatchContent({
 
 	return (
 		<div className="h-screen flex flex-col relative">
-			<TopBar
-				timeRemaining={localTimeRemaining}
-				playersOnline={ws?.playersOnline}
-			/>
+			<TopBar timeRemaining={localTimeRemaining} playersOnline={ws?.playersOnline} />
 			<MainLayout
 				ref={mainLayoutCallbackRef}
 				maxClipsPerUser={maxClipsPerUser}
