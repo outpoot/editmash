@@ -260,6 +260,8 @@ export function useTimelineDrag({
 		const handleMouseUp = () => {
 			const currentDragState = dragStateRef.current;
 			if (currentDragState && currentDragState.hasMoved) {
+				const pendingCallbacks: Array<() => void> = [];
+
 				updateTimelineState((prev) => {
 					if (currentDragState.type === "move") {
 						let actualTrackId = currentDragState.trackId;
@@ -276,18 +278,17 @@ export function useTimelineDrag({
 
 						if (!clip) return prev;
 
-						onClipUpdated?.(actualTrackId, clip);
-
 						const result = placeClipOnTimeline(clip, actualTrackId, prev);
 
+						pendingCallbacks.push(() => onClipUpdated?.(actualTrackId, clip!));
 						for (const { trackId, clipId } of result.removedClips) {
-							onClipRemoved?.(trackId, clipId);
+							pendingCallbacks.push(() => onClipRemoved?.(trackId, clipId));
 						}
 						for (const { trackId, clip: updatedClip } of result.updatedClips) {
-							onClipUpdated?.(trackId, updatedClip);
+							pendingCallbacks.push(() => onClipUpdated?.(trackId, updatedClip));
 						}
 						for (const { trackId, clip: addedClip } of result.addedClips) {
-							onClipAdded?.(trackId, addedClip);
+							pendingCallbacks.push(() => onClipAdded?.(trackId, addedClip));
 						}
 
 						return result.state;
@@ -295,24 +296,29 @@ export function useTimelineDrag({
 						const track = prev.tracks.find((t) => t.id === currentDragState.trackId);
 						const clip = track?.clips.find((c) => c.id === currentDragState.clipId);
 						if (clip) {
-							onClipUpdated?.(currentDragState.trackId, clip);
-
 							const result = placeClipOnTimeline(clip, currentDragState.trackId, prev);
 
+							pendingCallbacks.push(() => onClipUpdated?.(currentDragState.trackId, clip));
 							for (const { trackId, clipId } of result.removedClips) {
-								onClipRemoved?.(trackId, clipId);
+								pendingCallbacks.push(() => onClipRemoved?.(trackId, clipId));
 							}
 							for (const { trackId, clip: updatedClip } of result.updatedClips) {
-								onClipUpdated?.(trackId, updatedClip);
+								pendingCallbacks.push(() => onClipUpdated?.(trackId, updatedClip));
 							}
 							for (const { trackId, clip: addedClip } of result.addedClips) {
-								onClipAdded?.(trackId, addedClip);
+								pendingCallbacks.push(() => onClipAdded?.(trackId, addedClip));
 							}
 
 							return result.state;
 						}
 					}
 					return prev;
+				});
+
+				queueMicrotask(() => {
+					for (const cb of pendingCallbacks) {
+						cb();
+					}
 				});
 			}
 

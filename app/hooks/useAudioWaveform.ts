@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { mediaCache } from "../store/mediaCache";
 
 interface WaveformOptions {
@@ -6,14 +6,37 @@ interface WaveformOptions {
 	sourceDuration?: number;
 }
 
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000;
+
 export function useAudioWaveform(src: string, sampleCount: number = 100, options: WaveformOptions = {}): { min: number; max: number }[] {
 	const [peaks, setPeaks] = useState<{ min: number; max: number }[]>([]);
 	const { sourceIn = 0, sourceDuration } = options;
+	const retryCountRef = useRef(0);
+	const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	useEffect(() => {
-		if (!src) return;
+		if (!src) {
+			setPeaks([]);
+			return;
+		}
+
+		if (src.startsWith("blob:")) {
+			fetch(src, { method: "HEAD" })
+				.then((response) => {
+					if (!response.ok) {
+						console.warn("[Waveform] Blob URL is invalid:", src);
+						setPeaks([]);
+					}
+				})
+				.catch(() => {
+					console.warn("[Waveform] Blob URL is not accessible:", src);
+					setPeaks([]);
+				});
+		}
 
 		let isCancelled = false;
+		retryCountRef.current = 0;
 
 		const generateWaveform = async () => {
 			try {
@@ -27,6 +50,11 @@ export function useAudioWaveform(src: string, sampleCount: number = 100, options
 						const fetchPromise = (async () => {
 							const audioContext = new AudioContext();
 							const response = await fetch(src);
+							
+							if (!response.ok) {
+								throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+							}
+							
 							const arrayBuffer = await response.arrayBuffer();
 							const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
@@ -94,10 +122,24 @@ export function useAudioWaveform(src: string, sampleCount: number = 100, options
 
 				if (!isCancelled) {
 					setPeaks(normalizedPeaks);
+					retryCountRef.current = 0;
 				}
 			} catch (error) {
-				console.error("Error generating waveform:", error);
-				setPeaks([]);
+				if (isCancelled) return;
+				
+				console.warn("[Waveform] Error generating waveform:", error);
+				
+				if (retryCountRef.current < MAX_RETRIES && !src.startsWith("blob:")) {
+					retryCountRef.current++;
+					console.log(`[Waveform] Retrying in ${RETRY_DELAY_MS}ms (attempt ${retryCountRef.current}/${MAX_RETRIES})`);
+					retryTimeoutRef.current = setTimeout(() => {
+						if (!isCancelled) {
+							generateWaveform();
+						}
+					}, RETRY_DELAY_MS);
+				} else {
+					setPeaks([]);
+				}
 			}
 		};
 
@@ -105,6 +147,10 @@ export function useAudioWaveform(src: string, sampleCount: number = 100, options
 
 		return () => {
 			isCancelled = true;
+			if (retryTimeoutRef.current) {
+				clearTimeout(retryTimeoutRef.current);
+				retryTimeoutRef.current = null;
+			}
 		};
 	}, [src, sampleCount, sourceIn, sourceDuration]);
 

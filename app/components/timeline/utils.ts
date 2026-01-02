@@ -236,6 +236,7 @@ export function getTrackAtY(clientY: number, trackRefsMap: React.RefObject<Map<s
 
 export function createNewClip(
 	mediaItem: {
+		id?: string;
 		type: "video" | "audio" | "image";
 		name: string;
 		url: string;
@@ -243,6 +244,8 @@ export function createNewClip(
 		thumbnail?: string;
 		width?: number;
 		height?: number;
+		isDownloading?: boolean;
+		isUploading?: boolean;
 	},
 	dropTime: number,
 	clipDuration: number
@@ -269,6 +272,8 @@ export function createNewClip(
 		}
 	}
 
+	const isLoading = mediaItem.isDownloading || mediaItem.isUploading;
+
 	const baseClip = {
 		id: `clip-${Date.now()}-${Math.random()}`,
 		name: mediaItem.name,
@@ -278,6 +283,8 @@ export function createNewClip(
 		sourceIn: 0,
 		sourceDuration: mediaItem.duration,
 		thumbnail: mediaItem.thumbnail,
+		mediaId: mediaItem.id,
+		isLoading: isLoading || undefined,
 	};
 
 	if (mediaItem.type === "video") {

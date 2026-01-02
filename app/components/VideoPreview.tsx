@@ -13,6 +13,7 @@ interface VideoPreviewProps {
 	transformMode?: "transform" | "crop" | null;
 	selectedClips?: { clip: Clip; trackId: string }[] | null;
 	onClipUpdate?: (trackId: string, clipId: string, updates: Partial<VideoClip> | Partial<AudioClip>) => void;
+	onClipSelect?: (selection: { clip: Clip; trackId: string }[] | null) => void;
 }
 
 interface AudioNodes {
@@ -34,6 +35,7 @@ export default function VideoPreview({
 	transformMode,
 	selectedClips,
 	onClipUpdate,
+	onClipSelect,
 }: VideoPreviewProps) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -352,14 +354,24 @@ export default function VideoPreview({
 						videoEl.playbackRate = Math.max(0.25, Math.min(4, props.speed));
 
 						if (isPlaying && videoEl.paused) {
-							if (Math.abs(videoEl.currentTime - internalTime) > 0.1) {
-								videoEl.currentTime = Math.max(0, Math.min(internalTime, clampMax));
-							}
+							// Seek to correct position before starting playback
+							videoEl.currentTime = Math.max(0, Math.min(internalTime, clampMax));
 							videoEl.play().catch((err) => {
 								if (err.name !== "AbortError") {
 									console.error("Error playing video:", err);
 								}
 							});
+						} else if (isPlaying && !videoEl.paused) {
+							const drift = videoEl.currentTime - internalTime;
+							const absDrift = Math.abs(drift);
+							if (absDrift > 0.5) {
+								videoEl.currentTime = Math.max(0, Math.min(internalTime, clampMax));
+							} else if (absDrift > 0.05) {
+								const targetRate = props.speed * (1 + (drift > 0 ? -0.02 : 0.02));
+								videoEl.playbackRate = Math.max(0.25, Math.min(4, targetRate));
+							} else {
+								videoEl.playbackRate = Math.max(0.25, Math.min(4, props.speed));
+							}
 						} else if (!isPlaying && !videoEl.paused) {
 							videoEl.pause();
 						} else if (!isPlaying) {
@@ -455,14 +467,15 @@ export default function VideoPreview({
 							const timeInClip = currentTimeValue - audioClip.startTime;
 							const internalTime = audioClip.sourceIn + timeInClip * audioClip.properties.speed;
 
-							if (Math.abs(audioEl.currentTime - internalTime) > 0.1) {
-								audioEl.currentTime = internalTime;
-							}
+							const hasValidSource = (audioEl.src && !audioEl.src.startsWith("blob:")) || audioEl.readyState >= 2;
+							const isReady = audioEl.readyState >= 2; // HAVE_CURRENT_DATA or higher
 
-							if (isPlaying && audioEl.paused) {
+							if (isPlaying && audioEl.paused && hasValidSource && isReady) {
 								if (Tone.context.state === "suspended") {
 									Tone.start();
 								}
+
+								audioEl.currentTime = internalTime;
 
 								const playPromise = audioEl.play();
 								if (playPromise !== undefined) {
@@ -473,10 +486,23 @@ export default function VideoPreview({
 										})
 										.catch((err) => {
 											audioPlayPromisesRef.current.delete(audioClip.id);
-											if (err.name !== "AbortError") {
+											if (err.name !== "AbortError" && err.name !== "NotSupportedError") {
 												console.error("Error playing audio:", err);
 											}
 										});
+								}
+							} else if (isPlaying && !audioEl.paused) {
+								const drift = audioEl.currentTime - internalTime;
+								const absDrift = Math.abs(drift);
+								if (absDrift > 0.3) {
+									audioEl.currentTime = internalTime;
+								} else if (absDrift > 0.03) {
+									const baseRate = audioClip.properties.speed ?? 1;
+									const targetRate = baseRate * (1 + (drift > 0 ? -0.015 : 0.015));
+									audioEl.playbackRate = Math.max(0.25, Math.min(4, targetRate));
+								} else {
+									const baseRate = audioClip.properties.speed ?? 1;
+									audioEl.playbackRate = Math.max(0.25, Math.min(4, baseRate));
 								}
 							} else if (!isPlaying && !audioEl.paused) {
 								const playPromise = audioPlayPromisesRef.current.get(audioClip.id);
@@ -488,6 +514,10 @@ export default function VideoPreview({
 									});
 								} else {
 									audioEl.pause();
+								}
+							} else if (!isPlaying && audioEl.paused) {
+								if (Math.abs(audioEl.currentTime - internalTime) > 0.1) {
+									audioEl.currentTime = internalTime;
 								}
 							}
 						} else {
@@ -611,6 +641,89 @@ export default function VideoPreview({
 		};
 
 		return result;
+	};
+
+	const handleCanvasClick = (e: React.MouseEvent) => {
+		if (!timelineState || !canvasRef.current || !onClipSelect || !transformMode) return;
+
+		const canvas = canvasRef.current;
+		const canvasRect = canvas.getBoundingClientRect();
+		const scaleX = CANVAS_WIDTH / canvasRect.width;
+		const scaleY = CANVAS_HEIGHT / canvasRect.height;
+
+		const clickX = (e.clientX - canvasRect.left) * scaleX;
+		const clickY = (e.clientY - canvasRect.top) * scaleY;
+
+		const currentTimeValue = currentTimeRef.current;
+
+		const activeVideoClips: { clip: VideoClip | ImageClip; trackId: string; trackIndex: number }[] = [];
+		timelineState.tracks.forEach((track, trackIndex) => {
+			if (track.type === "video") {
+				track.clips.forEach((clip) => {
+					if (clip.type === "video" || clip.type === "image") {
+						const visualClip = clip as VideoClip | ImageClip;
+						const clipEnd = visualClip.startTime + visualClip.duration;
+						if (currentTimeValue >= visualClip.startTime && currentTimeValue < clipEnd) {
+							activeVideoClips.push({ clip: visualClip, trackId: track.id, trackIndex });
+						}
+					}
+				});
+			}
+		});
+
+		activeVideoClips.sort((a, b) => b.trackIndex - a.trackIndex);
+
+		for (const { clip, trackId } of activeVideoClips) {
+			const props = clip.properties;
+			const { position, size, zoom, crop } = props;
+
+			const centerX = position.x + size.width / 2;
+			const centerY = position.y + size.height / 2;
+
+			let sourceWidth = size.width;
+			let sourceHeight = size.height;
+
+			if (clip.type === "video") {
+				const videoEl = videoElementsRef.current.get(clip.id);
+				if (videoEl?.videoWidth && videoEl?.videoHeight) {
+					const vw = videoEl.videoWidth;
+					const vh = videoEl.videoHeight;
+					const croppedWidth = Math.max(0, vw - crop.left - crop.right);
+					const croppedHeight = Math.max(0, vh - crop.top - crop.bottom);
+					const cropWidthRatio = croppedWidth / vw;
+					const cropHeightRatio = croppedHeight / vh;
+					sourceWidth = size.width * cropWidthRatio;
+					sourceHeight = size.height * cropHeightRatio;
+				}
+			} else if (clip.type === "image") {
+				const imgEl = imageElementsRef.current.get(clip.id);
+				if (imgEl?.naturalWidth && imgEl?.naturalHeight) {
+					const iw = imgEl.naturalWidth;
+					const ih = imgEl.naturalHeight;
+					const croppedWidth = Math.max(0, iw - crop.left - crop.right);
+					const croppedHeight = Math.max(0, ih - crop.top - crop.bottom);
+					const cropWidthRatio = croppedWidth / iw;
+					const cropHeightRatio = croppedHeight / ih;
+					sourceWidth = size.width * cropWidthRatio;
+					sourceHeight = size.height * cropHeightRatio;
+				}
+			}
+
+			const halfWidth = (sourceWidth * zoom.x) / 2;
+			const halfHeight = (sourceHeight * zoom.y) / 2;
+
+			const left = centerX - halfWidth;
+			const right = centerX + halfWidth;
+			const top = centerY - halfHeight;
+			const bottom = centerY + halfHeight;
+
+			if (clickX >= left && clickX <= right && clickY >= top && clickY <= bottom) {
+				onClipSelect([{ clip, trackId }]);
+				return;
+			}
+		}
+
+		onClipSelect(null);
 	};
 
 	const handleTransformMouseDown = (e: React.MouseEvent, type: "move" | "resize" | "crop", handle?: typeof dragHandle) => {
@@ -768,23 +881,26 @@ export default function VideoPreview({
 							maxWidth: "100%",
 							maxHeight: "100%",
 							aspectRatio: "16/9",
+							cursor: transformMode ? "pointer" : "default",
 						}}
+						onClick={handleCanvasClick}
 					/>
 
 					{/* Transform overlay */}
 					{displayRect && selectedVideoClip && transformMode && (
 						<div
-							className="absolute border-2 border-primary pointer-events-none"
+							className="absolute border-2 border-primary pointer-events-auto cursor-move"
 							style={{
 								left: `${displayRect.x}px`,
 								top: `${displayRect.y}px`,
 								width: `${displayRect.width}px`,
 								height: `${displayRect.height}px`,
 							}}
+							onMouseDown={(e) => handleTransformMouseDown(e, "move")}
 						>
-							{/* Center circle for moving */}
+							{/* Center circle indicator */}
 							<div
-								className="absolute bg-primary rounded-full pointer-events-auto cursor-move"
+								className="absolute bg-primary rounded-full pointer-events-none"
 								style={{
 									width: "12px",
 									height: "12px",
@@ -792,7 +908,6 @@ export default function VideoPreview({
 									top: "50%",
 									transform: "translate(-50%, -50%)",
 								}}
-								onMouseDown={(e) => handleTransformMouseDown(e, "move")}
 							/>
 
 							{/* Corner handles */}
@@ -807,7 +922,10 @@ export default function VideoPreview({
 										...(handle.includes("w") ? { left: "-4px" } : { right: "-4px" }),
 										cursor: `${handle}-resize`,
 									}}
-									onMouseDown={(e) => handleTransformMouseDown(e, transformMode === "crop" ? "crop" : "resize", handle as any)}
+									onMouseDown={(e) => {
+										e.stopPropagation();
+										handleTransformMouseDown(e, transformMode === "crop" ? "crop" : "resize", handle as any);
+									}}
 								/>
 							))}
 
@@ -825,7 +943,10 @@ export default function VideoPreview({
 										...(handle === "w" && { left: "-4px", top: "50%", transform: "translateY(-50%)" }),
 										cursor: `${handle}-resize`,
 									}}
-									onMouseDown={(e) => handleTransformMouseDown(e, transformMode === "crop" ? "crop" : "resize", handle as any)}
+									onMouseDown={(e) => {
+										e.stopPropagation();
+										handleTransformMouseDown(e, transformMode === "crop" ? "crop" : "resize", handle as any);
+									}}
 								/>
 							))}
 						</div>

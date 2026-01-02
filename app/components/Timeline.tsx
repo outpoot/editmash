@@ -8,6 +8,7 @@ import type { RemoteSelection } from "./MatchWS";
 import type { ClipChangeNotification } from "./TimelineClip";
 import { getCurrentDragItem } from "./MediaCardDock";
 import { historyStore } from "../store/historyStore";
+import { mediaStore } from "../store/mediaStore";
 import { toast } from "sonner";
 
 import {
@@ -299,6 +300,62 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			transformMode,
 		});
 
+		useEffect(() => {
+			const mediaUrlMapRef = { current: new Map<string, string>() };
+
+			const items = mediaStore.getItems();
+			for (const item of items) {
+				mediaUrlMapRef.current.set(item.id, item.url);
+			}
+
+			const handleMediaUpdate = () => {
+				const items = mediaStore.getItems();
+				let hasChanges = false;
+				const updates: Array<{ mediaId: string; oldUrl: string; newUrl: string; thumbnail?: string }> = [];
+
+				for (const item of items) {
+					const oldUrl = mediaUrlMapRef.current.get(item.id);
+					if (oldUrl && oldUrl !== item.url && !item.isUploading && !item.isDownloading) {
+						updates.push({ mediaId: item.id, oldUrl, newUrl: item.url, thumbnail: item.thumbnail });
+						hasChanges = true;
+					}
+					mediaUrlMapRef.current.set(item.id, item.url);
+				}
+
+				if (hasChanges) {
+					setTimelineState((prev) => {
+						let changed = false;
+						const newState = {
+							...prev,
+							tracks: prev.tracks.map((track) => ({
+								...track,
+								clips: track.clips.map((clip) => {
+									for (const update of updates) {
+										if (clip.src === update.oldUrl || clip.mediaId === update.mediaId) {
+											changed = true;
+											return {
+												...clip,
+												src: update.newUrl,
+												thumbnail: update.thumbnail || clip.thumbnail,
+												isLoading: false,
+											};
+										}
+									}
+									return clip;
+								}),
+							})),
+						};
+						return changed ? newState : prev;
+					});
+				}
+			};
+
+			const unsubscribe = mediaStore.subscribe(handleMediaUpdate);
+			return () => {
+				unsubscribe();
+			};
+		}, []);
+
 		useImperativeHandle(
 			ref,
 			() => ({
@@ -560,44 +617,72 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					});
 				},
 				syncZoneClips: (clips: Array<{ trackId: string; clip: Clip }>) => {
-					setTimelineState((prev) => {
-						let newState = { ...prev, tracks: prev.tracks.map((t) => ({ ...t, clips: [...t.clips] })) };
-						for (const { trackId, clip } of clips) {
-							const trackIndex = newState.tracks.findIndex((t) => t.id === trackId);
-							if (trackIndex === -1) continue;
-							const existingClipIndex = newState.tracks[trackIndex].clips.findIndex((c) => c.id === clip.id);
-							if (existingClipIndex !== -1) {
-								const existingClip = newState.tracks[trackIndex].clips[existingClipIndex];
-								newState.tracks[trackIndex].clips[existingClipIndex] = {
-									...clip,
-									thumbnail: clip.thumbnail || existingClip.thumbnail,
-								} as Clip;
-							} else {
-								let foundInOtherTrack = false;
-								for (let i = 0; i < newState.tracks.length; i++) {
-									if (i === trackIndex) continue;
-									const otherClipIndex = newState.tracks[i].clips.findIndex((c) => c.id === clip.id);
-									if (otherClipIndex !== -1) {
-										const existingClip = newState.tracks[i].clips[otherClipIndex];
-										newState.tracks[i].clips.splice(otherClipIndex, 1);
-										const mergedClip = { ...clip, thumbnail: clip.thumbnail || existingClip.thumbnail } as Clip;
-										newState.tracks[trackIndex].clips.push(mergedClip);
-										newState = placeClipOnTimeline(mergedClip, trackId, newState).state;
-										foundInOtherTrack = true;
-										break;
+					queueMicrotask(() => {
+						setTimelineState((prev) => {
+							const clipIdToTrackIndex = new Map<string, number>();
+							prev.tracks.forEach((track, idx) => {
+								track.clips.forEach((c) => clipIdToTrackIndex.set(c.id, idx));
+							});
+
+							const trackIdToIndex = new Map<string, number>();
+							prev.tracks.forEach((track, idx) => trackIdToIndex.set(track.id, idx));
+
+							const newTracks = prev.tracks.map((t) => ({ ...t, clips: [...t.clips] }));
+							let hasChanges = false;
+
+							for (const { trackId, clip } of clips) {
+								const trackIndex = trackIdToIndex.get(trackId);
+								if (trackIndex === undefined) continue;
+
+								const existingTrackIndex = clipIdToTrackIndex.get(clip.id);
+
+								if (existingTrackIndex !== undefined) {
+									const clipIndex = newTracks[existingTrackIndex].clips.findIndex((c) => c.id === clip.id);
+									if (clipIndex !== -1) {
+										const existingClip = newTracks[existingTrackIndex].clips[clipIndex];
+										if (existingTrackIndex === trackIndex) {
+											newTracks[trackIndex].clips[clipIndex] = {
+												...clip,
+												thumbnail: clip.thumbnail || existingClip.thumbnail,
+											} as Clip;
+										} else {
+											newTracks[existingTrackIndex].clips.splice(clipIndex, 1);
+											newTracks[trackIndex].clips.push({
+												...clip,
+												thumbnail: clip.thumbnail || existingClip.thumbnail,
+											} as Clip);
+											clipIdToTrackIndex.set(clip.id, trackIndex);
+										}
+										hasChanges = true;
 									}
-								}
-								if (!foundInOtherTrack) {
-									newState.tracks[trackIndex].clips.push(clip);
-									newState = placeClipOnTimeline(clip, trackId, newState).state;
+								} else {
+									newTracks[trackIndex].clips.push(clip);
+									clipIdToTrackIndex.set(clip.id, trackIndex);
+									hasChanges = true;
 								}
 							}
+
+							if (!hasChanges) return prev;
+							return { ...prev, tracks: newTracks };
+						});
+
+						if ("requestIdleCallback" in window) {
+							(window as Window).requestIdleCallback(
+								() => {
+									for (const { clip } of clips) {
+										generateAndUpdateThumbnail(clip, setTimelineState);
+									}
+								},
+								{ timeout: 500 }
+							);
+						} else {
+							setTimeout(() => {
+								for (const { clip } of clips) {
+									generateAndUpdateThumbnail(clip, setTimelineState);
+								}
+							}, 100);
 						}
-						return newState;
 					});
-					for (const { clip } of clips) {
-						generateAndUpdateThumbnail(clip, setTimelineState);
-					}
 				},
 				splitRemoteClip: (trackId: string, originalClip: Clip, newClip: Clip) => {
 					setTimelineState((prev) => {
@@ -629,16 +714,19 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					});
 					generateAndUpdateThumbnail(newClip, setTimelineState);
 				},
-				getState: () => timelineState,
+				getState: () => timelineStateRef.current,
 			}),
-			[updateTimelineState, timelineState, setSelectedClips, setLastSelectedClip]
+			[updateTimelineState, setSelectedClips, setLastSelectedClip]
 		);
 
 		// notify parent of timeline state changes
+		const onTimelineStateChangeRef = useRef(onTimelineStateChange);
+		onTimelineStateChangeRef.current = onTimelineStateChange;
+
 		useEffect(() => {
 			if (dragState) return;
-			onTimelineStateChange(timelineState);
-		}, [timelineState, onTimelineStateChange, dragState]);
+			onTimelineStateChangeRef.current(timelineState);
+		}, [timelineState, dragState]);
 
 		// notify parent of transform mode changes
 		useEffect(() => {
@@ -726,7 +814,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 					playheadElementRef.current.style.transform = `translateX(${left}px)`;
 				}
 
-				if (timestamp - lastStateUpdateRef.current > 16) {
+				if (timestamp - lastStateUpdateRef.current > 33) {
 					onTimeChange(newTime);
 					lastStateUpdateRef.current = timestamp;
 				}
@@ -1065,7 +1153,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 
 				<div className="flex-1 flex overflow-hidden relative">
 					{/* Track names column */}
-					<div className="w-32 shrink-0 bg-card border-r border-border flex flex-col relative z-70">
+					<div className="w-32 shrink-0 bg-card border-r border-border flex flex-col relative z-30">
 						<div className="h-8 border-b border-border flex items-center justify-center relative shrink-0 bg-card z-10">
 							<span className="text-sm text-foreground font-mono tabular-nums">
 								{Math.floor(currentTime / 60)

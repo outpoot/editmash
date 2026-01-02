@@ -106,6 +106,10 @@ class MediaStore {
 		return this.items.find((item) => item.id === id);
 	}
 
+	getItemByUrl(url: string) {
+		return this.items.find((item) => item.url === url);
+	}
+
 	addRemoteItem(id: string, name: string, type: "video" | "audio" | "image", url: string, isOwn: boolean = false) {
 		if (this.getItemById(id)) return;
 

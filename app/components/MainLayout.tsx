@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useImperativeHandle, forwardRef } from "react";
+import { useState, useRef, useCallback, useImperativeHandle, forwardRef, useEffect } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Upload04Icon } from "@hugeicons/core-free-icons";
@@ -63,10 +63,22 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 		const mediaCardDockRef = useRef<{ handleExternalDrop: (files: FileList) => void }>(null);
 		const currentTimeRef = useRef(0);
 		const timelineRef = useRef<TimelineRef>(null);
+		const isPlayingRef = useRef(false);
+		const pendingZoneClipsRef = useRef<Array<{ trackId: string; clip: Clip }> | null>(null);
 		const onSelectionChangeRef = useRef(onSelectionChange);
 		const onCurrentTimeChangeRef = useRef(onCurrentTimeChange);
 		onSelectionChangeRef.current = onSelectionChange;
 		onCurrentTimeChangeRef.current = onCurrentTimeChange;
+		
+		isPlayingRef.current = isPlaying;
+		
+		useEffect(() => {
+			if (!isPlaying && pendingZoneClipsRef.current) {
+				const clips = pendingZoneClipsRef.current;
+				pendingZoneClipsRef.current = null;
+				timelineRef.current?.syncZoneClips(clips);
+			}
+		}, [isPlaying]);
 
 		const broadcastSelection = useDebouncedCallback(
 			(clips: Array<{ clipId: string; trackId: string }>) => onSelectionChangeRef.current?.(clips),
@@ -124,12 +136,15 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 			[broadcastClipUpdate]
 		);
 
+		const onTimelineStateChangeRef = useRef(onTimelineStateChange);
+		onTimelineStateChangeRef.current = onTimelineStateChange;
+
 		const handleTimelineStateChange = useCallback(
 			(state: TimelineState) => {
 				setTimelineState(state);
-				onTimelineStateChange?.(state);
+				onTimelineStateChangeRef.current?.(state);
 			},
-			[onTimelineStateChange]
+			[]
 		);
 
 		const handleClipAdded = useCallback((trackId: string, clip: Clip) => {
@@ -213,6 +228,10 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 					timelineRef.current?.splitRemoteClip(trackId, originalClip, newClip);
 				},
 				syncZoneClips: (clips: Array<{ trackId: string; clip: Clip }>) => {
+					if (isPlayingRef.current) {
+						pendingZoneClipsRef.current = clips;
+						return;
+					}
 					timelineRef.current?.syncZoneClips(clips);
 				},
 				getTimelineState: () => {
@@ -253,6 +272,7 @@ const MainLayout = forwardRef<MainLayoutRef, MainLayoutProps>(
 											transformMode={transformMode}
 											selectedClips={selectedClips}
 											onClipUpdate={handleClipUpdate}
+											onClipSelect={handleClipSelect}
 										/>
 									</ResizablePanel>
 

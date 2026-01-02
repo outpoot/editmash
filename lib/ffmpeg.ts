@@ -154,7 +154,7 @@ function generateVideoFilter(clip: VideoClip, inputIndex: number, outputLabel: s
 
 	const hasCrop = crop.left > 0 || crop.right > 0 || crop.top > 0 || crop.bottom > 0;
 	if (hasCrop) {
-		filters.push(`crop=iw-${crop.left}-${crop.right}:ih-${crop.top}-${crop.bottom}:${crop.left}:${crop.top}`);
+		filters.push(`crop='max(2,iw-${crop.left}-${crop.right})':'max(2,ih-${crop.top}-${crop.bottom})':'min(${crop.left},iw-2)':'min(${crop.top},ih-2)'`);
 	}
 
 	let scaleExpr: string;
@@ -213,7 +213,7 @@ function generateImageFilter(clip: ImageClip, inputIndex: number, outputLabel: s
 
 	const hasCrop = crop.left > 0 || crop.right > 0 || crop.top > 0 || crop.bottom > 0;
 	if (hasCrop) {
-		filters.push(`crop=iw-${crop.left}-${crop.right}:ih-${crop.top}-${crop.bottom}:${crop.left}:${crop.top}`);
+		filters.push(`crop='max(2,iw-${crop.left}-${crop.right})':'max(2,ih-${crop.top}-${crop.bottom})':'min(${crop.left},iw-2)':'min(${crop.top},ih-2)'`);
 	}
 
 	let scaleExpr: string;
@@ -496,7 +496,7 @@ export async function renderTimeline(
 			command.setFfmpegPath(ffmpegPath);
 
 			command
-				.input(`color=c=black:s=1920x1080:r=60:d=${timeline.duration || 1}`)
+			.input(`color=c=black:s=1920x1080:r=30:d=${timeline.duration || 1}`)
 				.inputOptions(["-f", "lavfi"])
 				.input(`anullsrc=channel_layout=stereo:sample_rate=48000:d=${timeline.duration || 1}`)
 				.inputOptions(["-f", "lavfi"])
@@ -546,7 +546,7 @@ export async function renderTimeline(
 				"-crf 23",
 				"-c:a aac",
 				"-b:a 192k",
-				"-r 60", // 60 fps
+				"-r 30", // 30 fps
 				"-pix_fmt yuv420p",
 				"-t " + renderDuration,
 			])
@@ -586,6 +586,11 @@ export async function downloadMediaFiles(mediaUrls: Record<string, string>): Pro
 
 	for (const [src, url] of Object.entries(mediaUrls)) {
 		try {
+			if (url.startsWith("blob:")) {
+				console.warn(`[FFmpeg] Skipping blob URL (not fetchable server-side): ${url}`);
+				continue;
+			}
+
 			const absoluteUrl = url.startsWith("/") ? `${baseUrl}${url}` : url;
 
 			const response = await fetch(absoluteUrl);

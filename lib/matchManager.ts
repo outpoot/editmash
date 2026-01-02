@@ -210,11 +210,23 @@ async function triggerRender(matchId: string): Promise<void> {
 	const mediaUrls: Record<string, string> = {};
 	for (const track of match.timeline.tracks) {
 		for (const clip of track.clips) {
+			if (clip.src.startsWith("blob:")) {
+				console.warn(`[Match ${matchId}] Skipping clip with blob URL: ${clip.id}`);
+				continue;
+			}
 			if (!mediaUrls[clip.src]) {
 				mediaUrls[clip.src] = clip.src;
 			}
 		}
 	}
+
+	const renderableTimeline = {
+		...match.timeline,
+		tracks: match.timeline.tracks.map(track => ({
+			...track,
+			clips: track.clips.filter(clip => !clip.src.startsWith("blob:"))
+		}))
+	};
 
 	const outputDir = path.join(os.tmpdir(), "editmash", "renders");
 	await fs.mkdir(outputDir, { recursive: true });
@@ -222,7 +234,7 @@ async function triggerRender(matchId: string): Promise<void> {
 	const outputPath = path.join(outputDir, outputFileName);
 
 	if (Object.keys(mediaUrls).length === 0) {
-		await renderTimeline(match.timeline, new Map(), outputPath);
+		await renderTimeline(renderableTimeline, new Map(), outputPath);
 
 		const outputBuffer = await fs.readFile(outputPath);
 		const b2FileName = `renders/${outputFileName}`;
@@ -244,7 +256,7 @@ async function triggerRender(matchId: string): Promise<void> {
 
 		await storage.updateMatchRender(matchId, matchId);
 
-		await renderTimeline(match.timeline, fileMap, outputPath, (progress) => {
+		await renderTimeline(renderableTimeline, fileMap, outputPath, (progress) => {
 			console.log(`[Match ${matchId}] Render progress: ${progress.toFixed(1)}%`);
 		});
 

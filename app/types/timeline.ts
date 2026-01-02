@@ -26,6 +26,8 @@ export interface BaseClip {
 	sourceIn: number; // offset into the source video file
 	sourceDuration: number;
 	thumbnail?: string;
+	isLoading?: boolean;
+	mediaId?: string;
 }
 
 export interface VideoClip extends BaseClip {

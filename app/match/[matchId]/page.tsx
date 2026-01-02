@@ -296,30 +296,38 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 	);
 
 	const handleZoneClipsReceived = useCallback((startTime: number, endTime: number, clips: Array<{ trackId: string; clip: ClipData }>) => {
-		const convertedClips: Array<{ trackId: string; clip: Clip }> = clips.map(({ trackId, clip }) => {
-			const convertedClip: Clip =
-				clip.type === "video"
-					? ({
-							...clip,
-							type: "video",
-							properties: clip.properties as unknown as VideoClip["properties"],
-					  } as VideoClip)
-					: clip.type === "image"
-					? ({
-							...clip,
-							type: "image",
-							properties: clip.properties as unknown as ImageClip["properties"],
-					  } as ImageClip)
-					: ({
-							...clip,
-							type: "audio",
-							properties: clip.properties as unknown as AudioClip["properties"],
-					  } as AudioClip);
+		const processClips = () => {
+			const convertedClips: Array<{ trackId: string; clip: Clip }> = clips.map(({ trackId, clip }) => {
+				const convertedClip: Clip =
+					clip.type === "video"
+						? ({
+								...clip,
+								type: "video",
+								properties: clip.properties as unknown as VideoClip["properties"],
+						  } as VideoClip)
+						: clip.type === "image"
+						? ({
+								...clip,
+								type: "image",
+								properties: clip.properties as unknown as ImageClip["properties"],
+						  } as ImageClip)
+						: ({
+								...clip,
+								type: "audio",
+								properties: clip.properties as unknown as AudioClip["properties"],
+						  } as AudioClip);
 
-			return { trackId, clip: convertedClip };
-		});
+				return { trackId, clip: convertedClip };
+			});
 
-		mainLayoutRef.current?.syncZoneClips(convertedClips);
+			mainLayoutRef.current?.syncZoneClips(convertedClips);
+		};
+
+		if ("requestIdleCallback" in window) {
+			(window as Window).requestIdleCallback(processClips, { timeout: 100 });
+		} else {
+			setTimeout(processClips, 0);
+		}
 	}, []);
 
 	const handlePlayerJoined = useCallback((player: { username: string }) => {
@@ -442,7 +450,7 @@ function MatchContent({ localTimeRemaining, mainLayoutRef, maxClipsPerUser, matc
 	const MAX_LOAD_RETRIES = 5;
 
 	const ZONE_SIZE = 5; // size of each zone
-	const ZONE_PREFETCH = 1; // how early to start fetching next zone
+	const ZONE_PREFETCH = 2; // how early to start fetching next zone
 	const lastZoneRef = useRef<{ startTime: number; endTime: number } | null>(null);
 
 	const { playMatchStartSound, playCountdownTick } = useMatchSounds();
@@ -564,38 +572,43 @@ function MatchContent({ localTimeRemaining, mainLayoutRef, maxClipsPerUser, matc
 		[ws]
 	);
 
-	const handleCurrentTimeChange = useCallback(
-		(time: number) => {
-			if (!ws?.subscribeToZone) return;
+	const currentTimeForZoneRef = useRef(0);
+	const subscribeToZoneRef = useRef(ws?.subscribeToZone);
+	subscribeToZoneRef.current = ws?.subscribeToZone;
 
+	const handleCurrentTimeChange = useCallback((time: number) => {
+		currentTimeForZoneRef.current = time;
+	}, []);
+
+	useEffect(() => {
+		if (ws?.status !== "connected") return;
+
+		const initialZoneEnd = ZONE_SIZE * 2;
+		lastZoneRef.current = { startTime: 0, endTime: initialZoneEnd };
+		subscribeToZoneRef.current?.(0, initialZoneEnd);
+
+		const zoneInterval = setInterval(() => {
+			const subscribeToZone = subscribeToZoneRef.current;
+			if (!subscribeToZone) return;
+
+			const time = currentTimeForZoneRef.current;
 			const zoneIndex = Math.floor(time / ZONE_SIZE);
 			const zoneStart = zoneIndex * ZONE_SIZE;
 			const zoneEnd = zoneStart + ZONE_SIZE;
 
 			const lastZone = lastZoneRef.current;
-			const needsNewZone =
-				!lastZone ||
-				zoneStart !== lastZone.startTime || // different zone
-				time >= lastZone.endTime - ZONE_PREFETCH; // approaching end of current zone
+			const needsNewZone = !lastZone || zoneStart !== lastZone.startTime || time >= lastZone.endTime - ZONE_PREFETCH;
 
 			if (needsNewZone) {
 				const newZoneStart = zoneStart;
-				const newZoneEnd = zoneEnd + ZONE_SIZE; // include next zone
-
+				const newZoneEnd = zoneEnd + ZONE_SIZE;
 				lastZoneRef.current = { startTime: newZoneStart, endTime: newZoneEnd };
-				ws.subscribeToZone(newZoneStart, newZoneEnd);
+				subscribeToZone(newZoneStart, newZoneEnd);
 			}
-		},
-		[ws]
-	);
+		}, 500);
 
-	useEffect(() => {
-		if (ws?.status === "connected" && ws.subscribeToZone) {
-			const initialZoneEnd = ZONE_SIZE * 2;
-			lastZoneRef.current = { startTime: 0, endTime: initialZoneEnd };
-			ws.subscribeToZone(0, initialZoneEnd);
-		}
-	}, [ws?.status, ws?.subscribeToZone]);
+		return () => clearInterval(zoneInterval);
+	}, [ws?.status]);
 
 	return (
 		<div className="h-screen flex flex-col relative">

@@ -3,8 +3,9 @@ import { Clip, VideoClip, ImageClip, AudioClip } from "../types/timeline";
 import { useVideoThumbnails } from "../hooks/useVideoThumbnails";
 import { useAudioWaveform } from "../hooks/useAudioWaveform";
 import { viewSettingsStore } from "../store/viewSettingsStore";
+import { mediaStore } from "../store/mediaStore";
 import MemoizedIcon from "./MemoizedIcon";
-import { SnowIcon } from "@hugeicons/core-free-icons";
+import { SnowIcon, Loading03Icon } from "@hugeicons/core-free-icons";
 
 interface RemoteSelector {
 	userId: string;
@@ -55,7 +56,8 @@ function areClipPropsEqual(prev: TimelineClipProps, next: TimelineClipProps): bo
 			a.sourceIn !== b.sourceIn ||
 			a.src !== b.src ||
 			a.name !== b.name ||
-			a.thumbnail !== b.thumbnail
+			a.thumbnail !== b.thumbnail ||
+			a.isLoading !== b.isLoading
 		) {
 			return false;
 		}
@@ -127,6 +129,21 @@ function TimelineClip({
 	const [localNotifications, setLocalNotifications] = useState<ClipChangeNotification[]>([]);
 	const [showRemoteSelections, setShowRemoteSelections] = useState(viewSettingsStore.getSettings().showRemoteSelections);
 	const [showRemoteNotifications, setShowRemoteNotifications] = useState(viewSettingsStore.getSettings().showRemoteClipNotifications);
+	const [isMediaLoading, setIsMediaLoading] = useState(false);
+
+	useEffect(() => {
+		const checkMediaLoading = () => {
+			let mediaItem = clip.mediaId ? mediaStore.getItemById(clip.mediaId) : null;
+			if (!mediaItem) {
+				mediaItem = mediaStore.getItemByUrl(clip.src);
+			}
+			setIsMediaLoading(mediaItem?.isDownloading ?? mediaItem?.isUploading ?? clip.isLoading ?? false);
+		};
+
+		checkMediaLoading();
+		const unsubscribe = mediaStore.subscribe(checkMediaLoading);
+		return () => { unsubscribe(); };
+	}, [clip.mediaId, clip.src, clip.isLoading]);
 
 	useEffect(() => {
 		const unsubscribe = viewSettingsStore.subscribe(() => {
@@ -354,6 +371,12 @@ function TimelineClip({
 				{clip.type === "video" && (clip as VideoClip).properties.freezeFrame && (
 					<div className="absolute top-1 right-1 pointer-events-none">
 						<MemoizedIcon icon={SnowIcon} className="w-4 h-4 text-cyan-400 drop-shadow-md" />
+					</div>
+				)}
+
+				{isMediaLoading && (
+					<div className="absolute inset-0 bg-black/50 flex items-center justify-center pointer-events-none z-20">
+						<MemoizedIcon icon={Loading03Icon} className="w-5 h-5 text-white animate-spin" />
 					</div>
 				)}
 
