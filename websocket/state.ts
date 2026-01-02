@@ -8,6 +8,7 @@ export interface ClientZone {
 export interface WebSocketData {
 	id: string;
 	matchId: string | null;
+	lobbyId: string | null;
 	userId: string | null;
 	username: string | null;
 	userImage: string | null;

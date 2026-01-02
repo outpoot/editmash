@@ -32,6 +32,8 @@ import {
 	isZoneSubscribeMessage,
 	isClipBatchUpdateMessage,
 	isChatMessage,
+	isJoinLobbyMessage,
+	isLeaveLobbyMessage,
 	createPlayerLeftMessage,
 	createMatchStatusMessage,
 	createLobbiesUpdateMessage,
@@ -58,6 +60,10 @@ import {
 	handleClipSelection,
 	handleZoneSubscribe,
 	handleChatMessage,
+	notifyPlayerDisconnected,
+	notifyLobbyPlayerDisconnected,
+	handleJoinLobby,
+	handleLeaveLobby,
 } from "./handlers";
 
 function secureCompare(a: string | null | undefined, b: string | null | undefined): boolean {
@@ -156,6 +162,16 @@ function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | 
 			return;
 		}
 
+		if (isJoinLobbyMessage(message)) {
+			handleJoinLobby(ws, message);
+			return;
+		}
+
+		if (isLeaveLobbyMessage(message)) {
+			handleLeaveLobby(ws, message);
+			return;
+		}
+
 		if (isChatMessage(message)) {
 			handleChatMessage(ws, message);
 			return;
@@ -169,7 +185,7 @@ function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | 
 }
 
 function handleClose(ws: ServerWebSocket<WebSocketData>): void {
-	const { id, matchId, userId, username, subscribedToLobbies } = ws.data;
+	const { id, matchId, lobbyId, userId, username, subscribedToLobbies } = ws.data;
 
 	connections.delete(id);
 
@@ -198,6 +214,12 @@ function handleClose(ws: ServerWebSocket<WebSocketData>): void {
 		}
 
 		broadcast(matchId, createPlayerLeftMessage(matchId, userId));
+
+		notifyPlayerDisconnected(matchId, userId);
+	}
+
+	if (lobbyId && userId && !matchId) {
+		notifyLobbyPlayerDisconnected(lobbyId, userId);
 	}
 
 	console.log(`[WS] Connection closed: ${id} (user: ${username || "unknown"})`);
@@ -298,6 +320,7 @@ const server = Bun.serve({
 				data: {
 					id: connectionId,
 					matchId: null,
+					lobbyId: null,
 					userId: null,
 					username: null,
 					userImage: null,

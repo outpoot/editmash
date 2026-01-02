@@ -19,14 +19,7 @@ import { LobbyListItemWithConfig, LobbyStatus } from "./types/lobby";
 import { MatchConfig, DEFAULT_MATCH_CONFIG } from "./types/match";
 import { MatchModifierBadges } from "./components/MatchModifierBadges";
 import { UserMenu } from "./components/UserMenu";
-import {
-	type WSMessage,
-	MessageType,
-	isLobbiesUpdateMessage,
-	serializeMessage,
-	deserializeMessage,
-	createSubscribeLobbiesMessage,
-} from "@/websocket/types";
+import { isLobbiesUpdateMessage, serializeMessage, deserializeMessage, createSubscribeLobbiesMessage } from "@/websocket/types";
 
 export default function MatchmakingPage() {
 	const router = useRouter();
@@ -61,6 +54,8 @@ export default function MatchmakingPage() {
 	const [joinCode, setJoinCode] = useState("");
 	const [joiningLobbyId, setJoiningLobbyId] = useState<string | null>(null);
 	const [showActiveMatchDialog, setShowActiveMatchDialog] = useState(false);
+	const [showActiveLobbyDialog, setShowActiveLobbyDialog] = useState(false);
+	const [activeLobbyError, setActiveLobbyError] = useState<{ lobbyId: string; lobbyName: string } | null>(null);
 
 	const wsRef = useRef<WebSocket | null>(null);
 	const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -173,6 +168,11 @@ export default function MatchmakingPage() {
 	const handleCreateLobby = async () => {
 		if (!isAuthenticated || !lobbyName.trim()) return;
 
+		if (activeMatch) {
+			setShowActiveMatchDialog(true);
+			return;
+		}
+
 		try {
 			setIsCreating(true);
 			const response = await fetch("/api/lobbies", {
@@ -186,6 +186,11 @@ export default function MatchmakingPage() {
 
 			if (!response.ok) {
 				const data = await response.json();
+				if (data.activeLobby) {
+					setActiveLobbyError(data.activeLobby);
+					setShowActiveLobbyDialog(true);
+					return;
+				}
 				throw new Error(data.error || "Failed to create lobby");
 			}
 
@@ -224,6 +229,12 @@ export default function MatchmakingPage() {
 				// If already in lobby, just redirect instead of showing error
 				if (errorMessage === "Player already in lobby") {
 					router.push(`/lobby/${lobbyId}`);
+					return;
+				}
+
+				if (data.activeLobby) {
+					setActiveLobbyError(data.activeLobby);
+					setShowActiveLobbyDialog(true);
 					return;
 				}
 
@@ -507,6 +518,62 @@ export default function MatchmakingPage() {
 								<Button className="w-full" onClick={() => router.push(`/match/${activeMatch?.matchId}`)}>
 									<HugeiconsIcon icon={LinkSquare01Icon} className="w-4 h-4" />
 									Continue
+								</Button>
+							</DialogFooter>
+						</DialogContent>
+					</Dialog>
+
+					<Dialog
+						open={showActiveLobbyDialog}
+						onOpenChange={(open) => {
+							setShowActiveLobbyDialog(open);
+							if (!open) setActiveLobbyError(null);
+						}}
+					>
+						<DialogContent className="max-w-sm">
+							<DialogHeader>
+								<DialogTitle>Wait!</DialogTitle>
+								<DialogDescription>
+									You&apos;re already in <span className="font-semibold">{activeLobbyError?.lobbyName}</span>. You need to leave that lobby
+									before joining or creating another.
+								</DialogDescription>
+							</DialogHeader>
+							<DialogFooter className="flex w-full justify-between">
+								<Button
+									className="w-full"
+									variant="ghost"
+									onClick={() => {
+										setShowActiveLobbyDialog(false);
+										setActiveLobbyError(null);
+									}}
+								>
+									Cancel
+								</Button>
+								<Button
+									className="w-full"
+									variant="destructive"
+									onClick={async () => {
+										try {
+											const response = await fetch(`/api/lobbies/${activeLobbyError?.lobbyId}/leave`, {
+												method: "POST",
+											});
+											if (!response.ok) {
+												const data = await response.json();
+												throw new Error(data.error || "Failed to leave lobby");
+											}
+											setShowActiveLobbyDialog(false);
+											setActiveLobbyError(null);
+											window.location.reload();
+										} catch (err) {
+											toast.error(err instanceof Error ? err.message : "Failed to leave lobby");
+										}
+									}}
+								>
+									Leave
+								</Button>
+								<Button className="w-full" onClick={() => router.push(`/lobby/${activeLobbyError?.lobbyId}`)}>
+									<HugeiconsIcon icon={LinkSquare01Icon} className="w-4 h-4" />
+									Go to Lobby
 								</Button>
 							</DialogFooter>
 						</DialogContent>

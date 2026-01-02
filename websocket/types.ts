@@ -53,6 +53,10 @@ import {
 	LobbyUpdatedPayloadSchema,
 	type LobbyDeletedPayload,
 	LobbyDeletedPayloadSchema,
+	type JoinLobbyPayload,
+	JoinLobbyPayloadSchema,
+	type LeaveLobbyPayload,
+	LeaveLobbyPayloadSchema,
 	type ErrorPayload,
 	ErrorPayloadSchema,
 	type PingPayload,
@@ -120,6 +124,8 @@ export {
 	type LobbyCreatedPayload,
 	type LobbyUpdatedPayload,
 	type LobbyDeletedPayload,
+	type JoinLobbyPayload,
+	type LeaveLobbyPayload,
 	type ErrorPayload,
 	type PingPayload,
 	type PongPayload,
@@ -281,6 +287,14 @@ export function isZoneClipsMessage(msg: WSMessageProto): msg is WSMessageProto &
 	return msg.type === MessageType.ZONE_CLIPS && msg.payload?.case === "zoneClips";
 }
 
+export function isJoinLobbyMessage(msg: WSMessageProto): msg is WSMessageProto & { payload: { case: "joinLobby" } } {
+	return msg.type === MessageType.JOIN_LOBBY && msg.payload?.case === "joinLobby";
+}
+
+export function isLeaveLobbyMessage(msg: WSMessageProto): msg is WSMessageProto & { payload: { case: "leaveLobby" } } {
+	return msg.type === MessageType.LEAVE_LOBBY && msg.payload?.case === "leaveLobby";
+}
+
 export function createJoinMatchMessage(matchId: string, userId: string, username: string, userImage?: string, highlightColor?: string): WSMessageProto {
 	return create(WSMessageSchema, {
 		type: MessageType.JOIN_MATCH,
@@ -299,6 +313,28 @@ export function createLeaveMatchMessage(matchId: string, userId: string): WSMess
 		payload: {
 			case: "leaveMatch",
 			value: create(LeaveMatchPayloadSchema, { matchId, userId }),
+		},
+	});
+}
+
+export function createJoinLobbyMessage(lobbyId: string, userId: string, username: string): WSMessageProto {
+	return create(WSMessageSchema, {
+		type: MessageType.JOIN_LOBBY,
+		timestamp: BigInt(Date.now()),
+		payload: {
+			case: "joinLobby",
+			value: create(JoinLobbyPayloadSchema, { lobbyId, userId, username }),
+		},
+	});
+}
+
+export function createLeaveLobbyMessage(lobbyId: string, userId: string): WSMessageProto {
+	return create(WSMessageSchema, {
+		type: MessageType.LEAVE_LOBBY,
+		timestamp: BigInt(Date.now()),
+		payload: {
+			case: "leaveLobby",
+			value: create(LeaveLobbyPayloadSchema, { lobbyId, userId }),
 		},
 	});
 }
