@@ -184,9 +184,11 @@ function handleClose(ws: ServerWebSocket<WebSocketData>): void {
 		lobbySubscribers.delete(id);
 	}
 
+	let wasLastConnection = false;
 	if (userId) {
 		const userConns = userConnections.get(userId);
 		if (userConns) {
+			wasLastConnection = userConns.size === 1 && userConns.has(id);
 			userConns.delete(id);
 			if (userConns.size === 0) {
 				userConnections.delete(userId);
@@ -204,12 +206,13 @@ function handleClose(ws: ServerWebSocket<WebSocketData>): void {
 			}
 		}
 
-		broadcast(matchId, createPlayerLeftMessage(matchId, userId));
-
-		notifyPlayerDisconnected(matchId, userId);
+		if (wasLastConnection) {
+			broadcast(matchId, createPlayerLeftMessage(matchId, userId));
+			notifyPlayerDisconnected(matchId, userId);
+		}
 	}
 
-	if (lobbyId && userId && !matchId) {
+	if (lobbyId && userId && !matchId && wasLastConnection) {
 		notifyLobbyPlayerDisconnected(lobbyId, userId);
 	}
 
@@ -319,6 +322,7 @@ const server = Bun.serve({
                 data: {
                     id: connectionId,
                     matchId: null,
+                    lobbyId: null,
                     userId: null,
                     username: null,
                     userImage: null,

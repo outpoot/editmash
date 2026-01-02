@@ -122,10 +122,21 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 		};
 
 		return () => {
-			if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-				wsRef.current.send(serializeMessage(createLeaveLobbyMessage(lobbyId, playerId)));
+			if (wsRef.current) {
+				if (wsRef.current.readyState === WebSocket.OPEN) {
+					wsRef.current.send(serializeMessage(createLeaveLobbyMessage(lobbyId, playerId)));
+					wsRef.current.close();
+				} else if (wsRef.current.readyState === WebSocket.CONNECTING) {
+					const ws = wsRef.current;
+					const handleConnectedLeave = () => {
+						ws.send(serializeMessage(createLeaveLobbyMessage(lobbyId, playerId)));
+						ws.close();
+					};
+					ws.addEventListener('open', handleConnectedLeave, { once: true });
+				} else {
+					wsRef.current.close();
+				}
 			}
-			wsRef.current?.close();
 			wsRef.current = null;
 			joinedRef.current = false;
 		};
