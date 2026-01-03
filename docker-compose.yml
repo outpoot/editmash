@@ -14,7 +14,9 @@ services:
       - websocket
     restart: unless-stopped
     networks:
-      - shared_backend
+      shared_backend:
+        aliases:
+          - app
 
   websocket:
     container_name: editmash-websocket
