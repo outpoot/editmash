@@ -5,12 +5,33 @@ import fs from "fs/promises";
 import fsSync from "fs";
 import os from "os";
 
+const FFMPEG_THREADS = 2; // max threads ffmpeg can use (otherwise it eats up all the cpu)
+
 const getFFmpegPath = (): string => {
+	// check if ffmpeg path is specified in env variables, useful if you want to use another install of ffmpeg other than the system's
+	if (process.env.FFMPEG_PATH && fsSync.existsSync(process.env.FFMPEG_PATH)) {
+		return process.env.FFMPEG_PATH;
+	}
+
 	const platform = process.platform;
+	const isWin = platform === "win32";
+	const ffmpegBinary = isWin ? "ffmpeg.exe" : "ffmpeg";
+
+	// check PATH for ffmeg binary 
+	const envPath = process.env.PATH || "";
+	const pathDirs = envPath.split(path.delimiter);
+
+	for (const dir of pathDirs) {
+		const fullPath = path.join(dir, ffmpegBinary);
+		if (fsSync.existsSync(fullPath)) {
+			return fullPath;
+		}
+	}
+
+	// fallback to possible ffmpeg locations
 	let possiblePaths: string[] = [];
 
-	if (platform === "win32") {
-		// Windows
+	if (isWin) { // gaming os
 		possiblePaths = [
 			"C:\\Program Files\\FFmpeg\\bin\\ffmpeg.exe",
 			"C:\\Program Files\\ShareX\\ffmpeg.exe",
@@ -19,8 +40,7 @@ const getFFmpegPath = (): string => {
 			path.join(os.homedir(), "ffmpeg", "bin", "ffmpeg.exe"),
 			path.join(os.homedir(), "ffmpeg", "ffmpeg.exe"),
 		];
-	} else if (platform === "darwin") {
-		// macOS
+	} else if (platform === "darwin") { // macos 
 		possiblePaths = [
 			"/opt/homebrew/bin/ffmpeg",
 			"/usr/local/bin/ffmpeg",
@@ -28,26 +48,24 @@ const getFFmpegPath = (): string => {
 			path.join(os.homedir(), ".local", "bin", "ffmpeg"),
 			path.join(os.homedir(), "bin", "ffmpeg"),
 		];
-	} else {
-		// Linux
+	} else { // lunix users
 		possiblePaths = [
 			"/usr/bin/ffmpeg",
 			"/usr/local/bin/ffmpeg",
 			"/snap/bin/ffmpeg",
-			"/usr/bin/local/ffmpeg",
 			path.join(os.homedir(), ".local", "bin", "ffmpeg"),
 			path.join(os.homedir(), "bin", "ffmpeg"),
 		];
 	}
 
-	for (const ffmpegPath of possiblePaths) {
-		if (fsSync.existsSync(ffmpegPath)) {
-			return ffmpegPath;
+	for (const p of possiblePaths) {
+		if (fsSync.existsSync(p)) {
+			return p;
 		}
 	}
-
-	return "ffmpeg";
+	return ffmpegBinary;
 };
+
 
 let cachedFFmpegPath: string;
 
@@ -500,7 +518,7 @@ export async function renderTimeline(
 				.inputOptions(["-f", "lavfi"])
 				.input(`anullsrc=channel_layout=stereo:sample_rate=48000:d=${timeline.duration || 1}`)
 				.inputOptions(["-f", "lavfi"])
-				.outputOptions(["-c:v libx264", "-preset medium", "-crf 23", "-c:a aac", "-b:a 192k", "-pix_fmt yuv420p", "-shortest"])
+				.outputOptions(["-threads", String(FFMPEG_THREADS), "-c:v libx264", "-preset medium", "-crf 23", "-c:a aac", "-b:a 192k", "-pix_fmt yuv420p", "-shortest"])
 				.output(outputPath);
 
 			command.on("progress", (progress) => {
@@ -537,6 +555,7 @@ export async function renderTimeline(
 		command
 			.complexFilter(complexFilter)
 			.outputOptions([
+				"-threads", String(FFMPEG_THREADS),
 				"-map",
 				"[vout]",
 				"-map",
