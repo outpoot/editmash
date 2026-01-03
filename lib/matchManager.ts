@@ -64,14 +64,16 @@ async function clearLobbyStatusTransition(lobbyId: string): Promise<void> {
 	await getRedis().del(lockKey);
 }
 
-export async function startMatchFromLobby(lobbyId: string): Promise<{ success: boolean; matchId?: string; message: string }> {
+export async function startMatchFromLobby(
+	lobbyId: string
+): Promise<{ success: boolean; matchId?: string; joinCode?: string; message: string }> {
 	const lockToken = await acquireLobbyLock(lobbyId);
 	if (!lockToken) {
 		return { success: false, message: "Another start operation is in progress for this lobby" };
 	}
 
 	try {
-		const lobby = await storage.getLobbyById(lobbyId);
+		const lobby = await storage.getLobbyByIdInternal(lobbyId);
 		if (!lobby) {
 			return { success: false, message: "Lobby not found" };
 		}
@@ -98,32 +100,32 @@ export async function startMatchFromLobby(lobbyId: string): Promise<{ success: b
 			return { success: false, message: configValidation.reason || "Invalid match configuration" };
 		}
 
-		let createdMatchId: string | undefined;
+		let createdMatch: string | undefined;
 		try {
 			await storage.updateLobbyStatus(lobbyId, "starting");
 
 			await storage.clearSystemLobbyFlag(lobbyId);
 
-			createdMatchId = await storage.createMatch(lobbyId, lobby.name, lobby.matchConfig, lobby.players);
+			createdMatch = await storage.createMatch(lobbyId, lobby.name, lobby.matchConfig, lobby.players);
 
-			await storage.updateLobbyStatus(lobbyId, "in_match", createdMatchId);
-			await storage.updateMatchStatus(createdMatchId, "active");
+			await storage.updateLobbyStatus(lobbyId, "starting", createdMatch);
+			await storage.updateMatchStatus(createdMatch, "active");
 
-			scheduleMatchCompletion(createdMatchId, lobby.matchConfig.matchDuration * 60);
+			scheduleMatchCompletion(createdMatch, lobby.matchConfig.matchDuration * 60);
 
 			await clearLobbyStatusTransition(lobbyId);
 
-			return { success: true, matchId: createdMatchId, message: "Match started successfully" };
+			return { success: true, matchId: createdMatch, joinCode: lobby.joinCode, message: "Match started successfully" };
 		} catch (error) {
 			console.error("Error starting match:", error);
 
-			if (createdMatchId) {
-				clearMatchTimer(createdMatchId);
+			if (createdMatch) {
+				clearMatchTimer(createdMatch);
 				try {
-					await storage.deleteMatch(createdMatchId);
-					console.error(`Deleted orphaned match ${createdMatchId} after failure`);
+					await storage.deleteMatch(createdMatch);
+					console.error(`Deleted orphaned match ${createdMatch} after failure`);
 				} catch (delErr) {
-					console.error(`Failed to delete orphaned match ${createdMatchId}:`, delErr);
+					console.error(`Failed to delete orphaned match ${createdMatch}:`, delErr);
 				}
 			}
 
@@ -170,7 +172,7 @@ export function clearMatchTimer(matchId: string): void {
 }
 
 export async function completeMatch(matchId: string): Promise<{ success: boolean; message: string }> {
-	const match = await storage.getMatchById(matchId);
+	const match = await storage.getMatchByIdInternal(matchId);
 	if (!match) {
 		return { success: false, message: "Match not found" };
 	}
@@ -222,10 +224,10 @@ async function triggerRender(matchId: string): Promise<void> {
 
 	const renderableTimeline = {
 		...match.timeline,
-		tracks: match.timeline.tracks.map(track => ({
+		tracks: match.timeline.tracks.map((track) => ({
 			...track,
-			clips: track.clips.filter(clip => !clip.src.startsWith("blob:"))
-		}))
+			clips: track.clips.filter((clip) => !clip.src.startsWith("blob:")),
+		})),
 	};
 
 	const outputDir = path.join(os.tmpdir(), "editmash", "renders");
@@ -239,7 +241,7 @@ async function triggerRender(matchId: string): Promise<void> {
 		const outputBuffer = await fs.readFile(outputPath);
 		const b2FileName = `renders/${outputFileName}`;
 		const uploadedFile = await uploadToB2(outputBuffer, b2FileName, "video/mp4");
-		
+
 		const proxiedUrl = `/api/media/${encodeURIComponent(uploadedFile.fileName)}`;
 		await storage.updateMatchRender(matchId, undefined, proxiedUrl);
 		await storage.updateMatchStatus(matchId, "completed");

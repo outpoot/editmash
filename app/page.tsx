@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { UserGroupIcon, Add01Icon, Copy01Icon, Tick01Icon, QrCode01Icon, LinkSquare01Icon } from "@hugeicons/core-free-icons";
@@ -30,6 +31,7 @@ export default function MatchmakingPage() {
 	const [showCreateDialog, setShowCreateDialog] = useState(false);
 	const [lobbyName, setLobbyName] = useState("");
 	const [matchConfig, setMatchConfig] = useState<MatchConfig>(DEFAULT_MATCH_CONFIG);
+	const [isListed, setIsListed] = useState(true);
 	const [isCreating, setIsCreating] = useState(false);
 
 	const [lobbyPlaceholder] = useState(() => {
@@ -55,7 +57,7 @@ export default function MatchmakingPage() {
 	const [joiningLobbyId, setJoiningLobbyId] = useState<string | null>(null);
 	const [showActiveMatchDialog, setShowActiveMatchDialog] = useState(false);
 	const [showActiveLobbyDialog, setShowActiveLobbyDialog] = useState(false);
-	const [activeLobbyError, setActiveLobbyError] = useState<{ lobbyId: string; lobbyName: string } | null>(null);
+	const [activeLobbyError, setActiveLobbyError] = useState<{ joinCode: string; lobbyName: string } | null>(null);
 
 	const wsRef = useRef<WebSocket | null>(null);
 	const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -181,6 +183,7 @@ export default function MatchmakingPage() {
 				body: JSON.stringify({
 					name: lobbyName.trim(),
 					matchConfig,
+					isListed,
 				}),
 			});
 
@@ -196,7 +199,7 @@ export default function MatchmakingPage() {
 			}
 
 			const data = await response.json();
-			router.push(`/lobby/${data.lobbyId}`);
+			router.push(`/lobby/${data.joinCode}`);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : "Failed to create lobby");
 		} finally {
@@ -204,7 +207,7 @@ export default function MatchmakingPage() {
 		}
 	};
 
-	const handleJoinLobby = async (lobbyId: string) => {
+	const handleJoinLobby = async (joinCode: string) => {
 		if (!isAuthenticated) {
 			toast.error("Please sign in to join a lobby");
 			return;
@@ -216,8 +219,8 @@ export default function MatchmakingPage() {
 		}
 
 		try {
-			setJoiningLobbyId(lobbyId);
-			const response = await fetch(`/api/lobbies/${lobbyId}/join`, {
+			setJoiningLobbyId(joinCode);
+			const response = await fetch(`/api/lobbies/${joinCode}/join`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({}),
@@ -229,7 +232,7 @@ export default function MatchmakingPage() {
 
 				// If already in lobby, just redirect instead of showing error
 				if (errorMessage === "Player already in lobby") {
-					router.push(`/lobby/${lobbyId}`);
+					router.push(`/lobby/${joinCode}`);
 					return;
 				}
 
@@ -243,7 +246,7 @@ export default function MatchmakingPage() {
 				throw new Error(errorMessage);
 			}
 
-			router.push(`/lobby/${lobbyId}`);
+			router.push(`/lobby/${joinCode}`);
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : "Failed to join lobby");
 		} finally {
@@ -314,6 +317,13 @@ export default function MatchmakingPage() {
 								<div className="space-y-2">
 									<Label htmlFor="lobby-name">Name</Label>
 									<Input id="lobby-name" placeholder={lobbyPlaceholder} value={lobbyName} onChange={(e) => setLobbyName(e.target.value)} />
+								</div>
+
+								<div className="flex items-center gap-2">
+									<Checkbox id="is-private" checked={!isListed} onCheckedChange={(checked) => setIsListed(!checked)} />
+									<Label htmlFor="is-private" className="text-sm font-normal cursor-pointer">
+										Private lobby (join by code only)
+									</Label>
 								</div>
 
 								<Separator />
@@ -459,24 +469,17 @@ export default function MatchmakingPage() {
 						<DialogContent className="max-w-sm">
 							<DialogHeader>
 								<DialogTitle>Join</DialogTitle>
-								<DialogDescription>Enter the 6-character lobby code to join.</DialogDescription>
+								<DialogDescription>Enter the 8-character lobby code to join.</DialogDescription>
 							</DialogHeader>
-
 							<div className="py-4">
-								<Input
-									placeholder="ABC123"
-									value={joinCode}
-									onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-									maxLength={6}
-									className="text-center text-2xl tracking-widest font-mono"
-								/>
+								<Input placeholder="23B7A4AJ" value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} maxLength={8} />
 							</div>
 
 							<DialogFooter>
 								<Button variant="ghost" onClick={() => setShowJoinDialog(false)}>
 									Cancel
 								</Button>
-								<Button onClick={handleJoinByCode} disabled={joinCode.length !== 6 || joiningLobbyId !== null}>
+								<Button onClick={handleJoinByCode} disabled={joinCode.length !== 8 || joiningLobbyId !== null}>
 									{joiningLobbyId !== null ? "..." : "Go"}
 								</Button>
 							</DialogFooter>
@@ -517,7 +520,7 @@ export default function MatchmakingPage() {
 								>
 									Leave
 								</Button>
-								<Button className="w-full" onClick={() => router.push(`/match/${activeMatch?.matchId}`)}>
+								<Button className="w-full" onClick={() => router.push(`/match/${activeMatch?.joinCode}`)}>
 									<HugeiconsIcon icon={LinkSquare01Icon} className="w-4 h-4" />
 									Continue
 								</Button>
@@ -556,7 +559,7 @@ export default function MatchmakingPage() {
 									variant="destructive"
 									onClick={async () => {
 										try {
-											const response = await fetch(`/api/lobbies/${activeLobbyError?.lobbyId}/leave`, {
+											const response = await fetch(`/api/lobbies/${activeLobbyError?.joinCode}/leave`, {
 												method: "POST",
 											});
 											if (!response.ok) {
@@ -573,7 +576,7 @@ export default function MatchmakingPage() {
 								>
 									Leave
 								</Button>
-								<Button className="w-full" onClick={() => router.push(`/lobby/${activeLobbyError?.lobbyId}`)}>
+								<Button className="w-full" onClick={() => router.push(`/lobby/${activeLobbyError?.joinCode}`)}>
 									<HugeiconsIcon icon={LinkSquare01Icon} className="w-4 h-4" />
 									Go to Lobby
 								</Button>
@@ -607,8 +610,8 @@ export default function MatchmakingPage() {
 									<LobbyCard
 										key={lobby.id}
 										lobby={lobby}
-										onJoin={() => handleJoinLobby(lobby.id)}
-										isJoining={joiningLobbyId === lobby.id}
+										onJoin={() => handleJoinLobby(lobby.joinCode)}
+										isJoining={joiningLobbyId === lobby.joinCode}
 									/>
 								))}
 						</div>

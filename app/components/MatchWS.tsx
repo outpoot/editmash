@@ -530,7 +530,7 @@ export function MatchWS({
 						url: media.url,
 						uploadedBy: { userId: media.uploadedBy.userId, username: media.uploadedBy.username },
 					};
-					mediaStore.addRemoteItem(media.id, media.name, mediaTypeToString(media.type), media.url);
+					mediaStore.addRemoteItem(media.id, media.name, mediaTypeToString(media.type), media.url, false, media.uploadedBy.userId, media.uploadedBy.username);
 					callbacksRef.current.onRemoteMediaUploaded?.(mediaData);
 				}
 				return;

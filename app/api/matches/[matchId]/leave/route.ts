@@ -43,8 +43,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
 			return NextResponse.json({ error: "Match not found" }, { status: 404 });
 		}
 
-		// Mark player as disconnected from the match
-		await markPlayerDisconnected(matchId, userId);
+		await markPlayerDisconnected(match.id, userId);
 
 		// Also remove player from the associated lobby so they don't show in the lobby list
 		if (match.lobbyId) {

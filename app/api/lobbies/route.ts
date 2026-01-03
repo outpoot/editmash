@@ -40,7 +40,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<CreateLob
 			return NextResponse.json({ error: configValidation.reason || "Invalid match configuration" }, { status: 400 });
 		}
 
-		const result = await createLobby(body.name, matchConfig, userId);
+		const isListed = body.isListed !== false;
+
+		const result = await createLobby(body.name, matchConfig, userId, false, isListed);
 
 		notifyWsServer("/notify/lobbies", { lobbyId: result.lobbyId, userId, action: "lobby_created" });
 

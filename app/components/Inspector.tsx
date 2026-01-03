@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, memo } from "react";
+import React, { useState, useEffect, memo, useMemo } from "react";
 import { Clip, VideoClip, ImageClip, AudioClip, VideoClipProperties, AudioClipProperties } from "../types/timeline";
 import MemoizedIcon from "./MemoizedIcon";
 import {
@@ -17,6 +17,7 @@ import { Slider } from "@/components/ui/slider";
 import { Checkbox } from "@/components/ui/checkbox";
 import DragNumberInput from "./DragNumberInput";
 import { useMatchWebSocketOptional } from "./MatchWS";
+import { mediaStore, MediaItem } from "../store/mediaStore";
 
 const DEFAULT_VIDEO_PROPERTIES: VideoClipProperties = {
 	position: { x: 0, y: 0 },
@@ -49,12 +50,30 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 	const [speedExpanded, setSpeedExpanded] = useState(true);
 	const [audioExpanded, setAudioExpanded] = useState(true);
 	const [activeTab, setActiveTab] = useState<string>("video");
+	const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
 
 	const matchWs = useMatchWebSocketOptional();
 	const audioMaxDb = matchWs?.matchConfig?.audioMaxDb ?? 30;
 
+	useEffect(() => {
+		const unsubscribe = mediaStore.subscribe(() => {
+			setMediaItems(mediaStore.getItems());
+		});
+		setMediaItems(mediaStore.getItems());
+		return () => { unsubscribe(); };
+	}, []);
+
 	const clip = selectedClips?.[selectedClips.length - 1]?.clip;
 	const trackId = selectedClips?.[selectedClips.length - 1]?.trackId;
+
+	const mediaItem = useMemo(() => {
+		if (!clip) return null;
+		if (clip.mediaId) {
+			const byId = mediaItems.find(item => item.id === clip.mediaId);
+			if (byId) return byId;
+		}
+		return mediaItems.find(item => item.url === clip.src) ?? null;
+	}, [clip, mediaItems]);
 
 	const video = (() => {
 		if (!clip || (clip.type !== "video" && clip.type !== "image")) return DEFAULT_VIDEO_PROPERTIES;
@@ -772,6 +791,10 @@ function Inspector({ selectedClips, onClipUpdate, currentTime }: InspectorProps)
 										<span className="text-muted-foreground">Source:</span>
 										<span className="text-foreground truncate ml-2">{clip.src.split("/").pop()}</span>
 									</div>
+								<div className="flex justify-between">
+									<span className="text-muted-foreground">Uploader:</span>
+									<span className="text-foreground">{mediaItem?.uploaderName || "Unknown"}</span>
+								</div>
 									<div className="flex justify-between">
 										<span className="text-muted-foreground">Start Time:</span>
 										<span className="text-foreground">{clip.startTime.toFixed(2)}s</span>

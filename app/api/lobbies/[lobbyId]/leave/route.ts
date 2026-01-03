@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { removePlayerFromLobby, getLobbyById, getLobbyByJoinCode } from "@/lib/storage";
+import { removePlayerFromLobby, getLobbyById } from "@/lib/storage";
 import { LeaveLobbyResponse } from "@/app/types/lobby";
 import { getServerSession } from "@/lib/auth";
 import { notifyWsServer } from "@/lib/wsNotify";
@@ -39,11 +39,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
 			userId = session.user.id;
 		}
 
-		let lobby = await getLobbyById(lobbyId);
-		if (!lobby) {
-			lobby = await getLobbyByJoinCode(lobbyId);
-		}
-
+		const lobby = await getLobbyById(lobbyId);
 		if (!lobby) {
 			return NextResponse.json({ success: false, message: "Lobby not found" }, { status: 404 });
 		}

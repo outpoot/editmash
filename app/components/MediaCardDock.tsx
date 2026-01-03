@@ -133,6 +133,17 @@ const MediaCardDock = forwardRef<MediaCardDockRef, MediaCardDockProps>(({ maxCli
 				const hasAudio = await videoHasAudio(file);
 
 				if (hasAudio) {
+					const currentCount = mediaStore.getItems().filter((item) => !item.isRemote).length;
+					const wouldExceedLimit = !isUnlimited && currentCount >= maxClips;
+
+					if (wouldExceedLimit) {
+						toast.warning("Cannot split video with audio", {
+							description: `Would exceed ${maxClips} clip limit. Remove a clip first.`,
+							duration: 5000,
+						});
+						return;
+					}
+
 					toast("This video has audio", {
 						description: "Split into separate video and audio? (Counts as 2 media cards)",
 						duration: 5000,

@@ -4,7 +4,7 @@ export async function videoHasAudio(file: File): Promise<boolean> {
 		const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
 
 		try {
-			const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+			const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 			await audioContext.close();
 
 			return audioBuffer.numberOfChannels > 0 && audioBuffer.length > 0;
@@ -24,7 +24,7 @@ export async function extractAudioFromVideo(file: File): Promise<Blob | null> {
 		const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
 
 		try {
-			const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+			const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 			await audioContext.close();
 
 			const wavBlob = audioBufferToWav(audioBuffer);

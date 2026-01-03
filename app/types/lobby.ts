@@ -20,6 +20,7 @@ export interface Lobby {
 	matchConfig: MatchConfig;
 	players: LobbyPlayer[];
 	matchId: string | null;
+	isListed: boolean;
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -27,6 +28,7 @@ export interface Lobby {
 export interface CreateLobbyRequest {
 	name: string;
 	matchConfig?: Partial<MatchConfig>;
+	isListed?: boolean;
 }
 
 export interface CreateLobbyResponse {

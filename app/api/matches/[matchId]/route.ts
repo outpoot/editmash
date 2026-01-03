@@ -77,7 +77,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 		const { timeline } = body as { timeline?: TimelineState };
 
 		if (timeline) {
-			await updateMatchTimeline(matchId, timeline);
+			await updateMatchTimeline(match.id, timeline);
 		}
 
 		return NextResponse.json({ success: true });

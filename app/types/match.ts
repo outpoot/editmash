@@ -63,6 +63,7 @@ export interface StartMatchRequest {
 export interface StartMatchResponse {
 	success: boolean;
 	matchId?: string;
+	joinCode?: string;
 	message: string;
 }
 

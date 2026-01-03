@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getLobbyById, getLobbyByJoinCode } from "@/lib/storage";
+import { getLobbyById } from "@/lib/storage";
 import { Lobby } from "@/app/types/lobby";
 
 interface RouteParams {
@@ -16,12 +16,7 @@ export async function GET(request: NextRequest, { params }: RouteParams): Promis
 			return NextResponse.json({ error: "Lobby ID is required" }, { status: 400 });
 		}
 
-		let lobby = await getLobbyById(lobbyId);
-
-		if (!lobby) {
-			lobby = await getLobbyByJoinCode(lobbyId);
-		}
-
+		const lobby = await getLobbyById(lobbyId);
 		if (!lobby) {
 			return NextResponse.json({ error: "Lobby not found" }, { status: 404 });
 		}
