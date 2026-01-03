@@ -27,6 +27,7 @@ import {
 	Tick01Icon,
 	PencilEdit01Icon,
 	Camera01Icon,
+	Download04Icon,
 } from "@hugeicons/core-free-icons";
 
 export default function AccountPage() {
@@ -48,6 +49,7 @@ export default function AccountPage() {
 	const [displayName, setDisplayName] = useState<string | null>(null);
 	const [highlightColor, setHighlightColor] = useState("#3b82f6");
 	const [isSavingHighlightColor, setIsSavingHighlightColor] = useState(false);
+	const [isExportingData, setIsExportingData] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const previewUrlsRef = useRef<Set<string>>(new Set());
 
@@ -264,6 +266,37 @@ export default function AccountPage() {
 
 	const handleHighlightColorChange = useDebouncedCallback(saveHighlightColor, 500);
 
+	const handleExportData = async () => {
+		setIsExportingData(true);
+		try {
+			const response = await fetch("/api/user/export");
+
+			if (!response.ok) {
+				throw new Error("Failed to export data");
+			}
+
+			const blob = await response.blob();
+			const contentDisposition = response.headers.get("Content-Disposition");
+			const filenameMatch = contentDisposition?.match(/filename="(.+)"/);
+			const filename = filenameMatch?.[1] || "editmash-data-export.json";
+
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = filename;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+
+			toast.success("Data exported successfully");
+		} catch {
+			toast.error("Failed to export data");
+		} finally {
+			setIsExportingData(false);
+		}
+	};
+
 	if (isPending) {
 		return (
 			<div className="min-h-screen bg-background flex items-center justify-center">
@@ -464,6 +497,20 @@ export default function AccountPage() {
 							<CardDescription>Manage your account security</CardDescription>
 						</CardHeader>
 						<CardContent className="space-y-4">
+							<div className="flex items-center justify-between">
+								<div>
+									<p className="font-medium">My data</p>
+									<p className="text-sm text-muted-foreground">Export all your personal data as a JSON file</p>
+								</div>
+								<Button variant="outline" onClick={handleExportData} disabled={isExportingData}>
+									{isExportingData ? (
+										<HugeiconsIcon icon={Loading03Icon} className="w-4 h-4 animate-spin" />
+									) : (
+										<HugeiconsIcon icon={Download04Icon} className="w-4 h-4" />
+									)}
+									<span>{isExportingData ? "Exporting..." : "Download"}</span>
+								</Button>
+							</div>
 							<div className="flex items-center justify-between">
 								<div>
 									<p className="font-medium">Sign out</p>
