@@ -394,6 +394,21 @@ export async function handleJoinMatch(ws: ServerWebSocket<WebSocketData>, msg: W
 
 	await fetchMatchConfig(matchId);
 
+	// record player joining in database (handles late-joiners after match start)
+	try {
+		const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+		await fetch(`${apiUrl}/api/matches/${matchId}/join`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${WS_API_KEY}`,
+			},
+			body: JSON.stringify({ userId }),
+		});
+	} catch (error) {
+		console.error(`[WS] Failed to record player join for ${userId} in match ${matchId}:`, error);
+	}
+
 	const playerCount = matchPlayers.get(matchId)!.size;
 	ws.send(serializeMessage(createPlayerCountMessage(matchId, playerCount)));
 

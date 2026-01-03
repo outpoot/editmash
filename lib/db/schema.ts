@@ -120,6 +120,7 @@ export const lobbies = pgTable("lobbies", {
 	matchConfigJson: jsonb("match_config").$type<MatchConfig>().notNull(),
 	matchId: uuid("match_id"),
 	isSystemLobby: boolean("is_system_lobby").notNull().default(false),
+	isListed: boolean("is_listed").notNull().default(true),
 	createdAt: timestamp("created_at").notNull().defaultNow(),
 	updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

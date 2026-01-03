@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { matchMedia, matches } from "@/lib/db/schema";
+import { matchMedia, matches, user, lobbies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
@@ -15,7 +15,31 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 	try {
 		const { matchId } = await params;
 
-		const media = await db().select().from(matchMedia).where(eq(matchMedia.matchId, matchId));
+		const [lobbyRecord] = await db()
+			.select({ matchId: lobbies.matchId })
+			.from(lobbies)
+			.where(eq(lobbies.joinCode, matchId.toUpperCase()))
+			.limit(1);
+
+		if (!lobbyRecord?.matchId) {
+			return NextResponse.json({ error: "Match not found" }, { status: 404 });
+		}
+
+		const media = await db()
+			.select({
+				id: matchMedia.id,
+				matchId: matchMedia.matchId,
+				uploadedBy: matchMedia.uploadedBy,
+				uploaderName: user.name,
+				name: matchMedia.name,
+				type: matchMedia.type,
+				url: matchMedia.url,
+				fileId: matchMedia.fileId,
+				createdAt: matchMedia.createdAt,
+			})
+			.from(matchMedia)
+			.leftJoin(user, eq(matchMedia.uploadedBy, user.id))
+			.where(eq(matchMedia.matchId, lobbyRecord.matchId));
 
 		return NextResponse.json({ media });
 	} catch (error) {
@@ -40,7 +64,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 			return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
 		}
 
-		const match = await db().select().from(matches).where(eq(matches.id, matchId)).limit(1);
+		const [lobbyRecord] = await db()
+			.select({ matchId: lobbies.matchId })
+			.from(lobbies)
+			.where(eq(lobbies.joinCode, matchId.toUpperCase()))
+			.limit(1);
+
+		if (!lobbyRecord?.matchId) {
+			return NextResponse.json({ error: "Match not found" }, { status: 404 });
+		}
+
+		const actualMatchId = lobbyRecord.matchId;
+
+		const match = await db().select().from(matches).where(eq(matches.id, actualMatchId)).limit(1);
 		if (!match.length) {
 			return NextResponse.json({ error: "Match not found" }, { status: 404 });
 		}
@@ -48,20 +84,23 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 		const existing = await db()
 			.select()
 			.from(matchMedia)
-			.where(and(eq(matchMedia.url, url), eq(matchMedia.matchId, matchId)))
+			.where(and(eq(matchMedia.url, url), eq(matchMedia.matchId, actualMatchId)))
 			.limit(1);
 		if (existing.length) {
 			return NextResponse.json({ success: true, id: existing[0].id, message: "Media already exists" });
 		}
 
-		const [inserted] = await db().insert(matchMedia).values({
-			matchId,
-			uploadedBy: session.user.id,
-			name,
-			type,
-			url,
-			fileId,
-		}).returning({ id: matchMedia.id });
+		const [inserted] = await db()
+			.insert(matchMedia)
+			.values({
+				matchId: actualMatchId,
+				uploadedBy: session.user.id,
+				name,
+				type,
+				url,
+				fileId,
+			})
+			.returning({ id: matchMedia.id });
 
 		return NextResponse.json({ success: true, id: inserted.id });
 	} catch (error) {
@@ -86,9 +125,19 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 			return NextResponse.json({ error: "Media ID is required" }, { status: 400 });
 		}
 
+		const [lobbyRecord] = await db()
+			.select({ matchId: lobbies.matchId })
+			.from(lobbies)
+			.where(eq(lobbies.joinCode, matchId.toUpperCase()))
+			.limit(1);
+
+		if (!lobbyRecord?.matchId) {
+			return NextResponse.json({ error: "Match not found" }, { status: 404 });
+		}
+
 		const result = await db()
 			.delete(matchMedia)
-			.where(and(eq(matchMedia.id, mediaId), eq(matchMedia.matchId, matchId)))
+			.where(and(eq(matchMedia.id, mediaId), eq(matchMedia.matchId, lobbyRecord.matchId)))
 			.returning({ id: matchMedia.id });
 
 		if (result.length === 0) {

@@ -128,7 +128,7 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 				for (const media of data.media) {
 					if (!mediaStore.getItemById(media.id)) {
 						const isOwn = media.uploadedBy === currentUserId;
-						mediaStore.addRemoteItem(media.id, media.name, media.type, media.url, isOwn);
+						mediaStore.addRemoteItem(media.id, media.name, media.type, media.url, isOwn, media.uploadedBy, media.uploaderName);
 					}
 				}
 			}
@@ -178,7 +178,7 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 				setServerTimeRemaining(data.timeRemaining);
 				lastServerSyncRef.current = Date.now();
 
-				if (data.status === "completed" || data.status === "completing" || data.status === "rendering") {
+				if (data.status === "completed" || data.status === "completing" || data.status === "rendering" || data.status === "failed") {
 					router.push(`/results/${matchId}`);
 				}
 			}

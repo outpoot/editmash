@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import { TimelineState, VideoClip, ImageClip, AudioClip, Clip } from "../types/timeline";
 import * as Tone from "tone";
 
@@ -26,6 +26,10 @@ interface AudioNodes {
 
 const audioSourcesMap = new WeakMap<HTMLAudioElement, boolean>();
 
+const PRELOAD_WINDOW = 10;
+const MAX_VIDEO_ELEMENTS = 30;
+const MAX_AUDIO_ELEMENTS = 30;
+
 export default function VideoPreview({
 	timelineState,
 	currentTime,
@@ -46,13 +50,210 @@ export default function VideoPreview({
 	const audioContextRef = useRef<AudioContext | null>(null);
 	const animationFrameRef = useRef<number | null>(null);
 	const audioPlayPromisesRef = useRef<Map<string, Promise<void>>>(new Map());
+	const lastPreloadTimeRef = useRef<number>(0);
 
 	const [isDragging, setIsDragging] = useState(false);
 	const [dragType, setDragType] = useState<"move" | "resize" | "crop" | null>(null);
 	const [dragHandle, setDragHandle] = useState<"nw" | "ne" | "sw" | "se" | "n" | "e" | "s" | "w" | null>(null);
+	const [previewScale, setPreviewScale] = useState(1);
 
 	const CANVAS_WIDTH = 1920;
 	const CANVAS_HEIGHT = 1080;
+	const MIN_PREVIEW_SCALE = 0.25;
+	const MAX_PREVIEW_SCALE = 3;
+
+	const isClipInPreloadWindow = useCallback((clip: { startTime: number; duration: number }, time: number) => {
+		const clipEnd = clip.startTime + clip.duration;
+		const windowStart = time - PRELOAD_WINDOW;
+		const windowEnd = time + PRELOAD_WINDOW;
+		const isInWindow = clip.startTime <= windowEnd && clipEnd >= windowStart;
+		return isInWindow;
+	}, []);
+
+	const getOrCreateVideoElement = useCallback(
+		(clip: VideoClip): HTMLVideoElement | null => {
+			let videoEl = videoElementsRef.current.get(clip.id);
+			if (videoEl) return videoEl;
+
+			if (videoElementsRef.current.size >= MAX_VIDEO_ELEMENTS) {
+				const currentTimeValue = currentTimeRef.current;
+				let furthestId: string | null = null;
+				let furthestDistance = 0;
+
+				for (const [id, _el] of videoElementsRef.current) {
+					let clipData: VideoClip | null = null;
+					if (timelineState) {
+						for (const track of timelineState.tracks) {
+							const found = track.clips.find((c) => c.id === id && c.type === "video") as VideoClip | undefined;
+							if (found) {
+								clipData = found;
+								break;
+							}
+						}
+					}
+					if (clipData) {
+						const clipCenter = clipData.startTime + clipData.duration / 2;
+						const distance = Math.abs(clipCenter - currentTimeValue);
+						if (distance > furthestDistance) {
+							furthestDistance = distance;
+							furthestId = id;
+						}
+					}
+				}
+
+				if (furthestId) {
+					const evictedEl = videoElementsRef.current.get(furthestId);
+					if (evictedEl) {
+						evictedEl.pause();
+						evictedEl.src = "";
+						evictedEl.load();
+						videoElementsRef.current.delete(furthestId);
+					}
+				}
+			}
+
+			videoEl = document.createElement("video");
+			console.log('[VideoPreview] Creating video element:', { clipId: clip.id, src: clip.src, startTime: clip.startTime, duration: clip.duration });
+			videoEl.src = clip.src;
+			videoEl.preload = "auto";
+			videoEl.muted = true;
+			videoEl.playsInline = true;
+			videoEl.crossOrigin = "anonymous";
+			videoElementsRef.current.set(clip.id, videoEl);
+			return videoEl;
+		},
+		[currentTimeRef, timelineState]
+	);
+
+	const getOrCreateAudioNodes = useCallback(
+		(clip: AudioClip): AudioNodes | null => {
+			let nodes = audioNodesRef.current.get(clip.id);
+
+			const needsNewNodes = !nodes || nodes.gain.disposed || nodes.pitchShift.disposed || nodes.pan.disposed;
+
+			if (!needsNewNodes && nodes) return nodes;
+
+			if (audioNodesRef.current.size >= MAX_AUDIO_ELEMENTS && needsNewNodes) {
+				const currentTimeValue = currentTimeRef.current;
+				let furthestId: string | null = null;
+				let furthestDistance = 0;
+
+				for (const [id, _nodes] of audioNodesRef.current) {
+					let clipData: AudioClip | null = null;
+					if (timelineState) {
+						for (const track of timelineState.tracks) {
+							const found = track.clips.find((c) => c.id === id && c.type === "audio") as AudioClip | undefined;
+							if (found) {
+								clipData = found;
+								break;
+							}
+						}
+					}
+					if (clipData) {
+						const clipCenter = clipData.startTime + clipData.duration / 2;
+						const distance = Math.abs(clipCenter - currentTimeValue);
+						if (distance > furthestDistance) {
+							furthestDistance = distance;
+							furthestId = id;
+						}
+					}
+				}
+
+				if (furthestId) {
+					const evictedNodes = audioNodesRef.current.get(furthestId);
+					if (evictedNodes) {
+						evictedNodes.element.pause();
+						evictedNodes.source.disconnect();
+						if (!evictedNodes.gain.disposed) evictedNodes.gain.dispose();
+						if (!evictedNodes.pitchShift.disposed) evictedNodes.pitchShift.dispose();
+						if (!evictedNodes.pan.disposed) evictedNodes.pan.dispose();
+						audioSourcesMap.delete(evictedNodes.element);
+						evictedNodes.element.src = "";
+						evictedNodes.element.load();
+						audioNodesRef.current.delete(furthestId);
+						audioElementsRef.current.delete(furthestId);
+					}
+				}
+			}
+
+			if (nodes) {
+				nodes.source.disconnect();
+				audioSourcesMap.delete(nodes.element);
+			}
+
+			if (!audioContextRef.current) {
+				if (Tone.context.state === "suspended") {
+					Tone.context.resume().catch(() => {});
+				}
+				audioContextRef.current = Tone.context.rawContext as AudioContext;
+			}
+
+			const rawContext = Tone.context.rawContext as AudioContext;
+			if (rawContext.state === "closed") {
+				console.error("AudioContext is closed, cannot create audio source");
+				return null;
+			}
+
+			const audioEl = document.createElement("audio");
+			audioEl.src = clip.src;
+			audioEl.preload = "auto";
+			audioEl.volume = 1.0;
+			audioEl.crossOrigin = "anonymous";
+
+			if (audioSourcesMap.has(audioEl)) {
+				console.warn("Audio element already has a source node, skipping");
+				return null;
+			}
+
+			const source = rawContext.createMediaElementSource(audioEl);
+			audioSourcesMap.set(audioEl, true);
+
+			const gain = new Tone.Gain(clip.properties.volume);
+			const pitchShift = new Tone.PitchShift(clip.properties.pitch);
+			const pan = new Tone.Panner(clip.properties.pan);
+
+			source.connect(gain.input);
+			gain.connect(pitchShift);
+			pitchShift.connect(pan);
+			pan.toDestination();
+
+			nodes = { element: audioEl, source, gain, pitchShift, pan };
+			audioNodesRef.current.set(clip.id, nodes);
+			audioElementsRef.current.set(clip.id, audioEl);
+			return nodes;
+		},
+		[currentTimeRef, timelineState]
+	);
+
+	const preloadNearbyMedia = useCallback(() => {
+		if (!timelineState) return;
+
+		const currentTimeValue = currentTimeRef.current;
+
+		timelineState.tracks.forEach((track) => {
+			if (track.type === "video") {
+				track.clips.forEach((clip) => {
+					if (clip.type === "video" && isClipInPreloadWindow(clip, currentTimeValue)) {
+						getOrCreateVideoElement(clip as VideoClip);
+					} else if (clip.type === "image") {
+						const imageClip = clip as ImageClip;
+						if (!imageElementsRef.current.has(imageClip.id)) {
+							const imgEl = document.createElement("img");
+							imgEl.src = imageClip.src;
+							imgEl.crossOrigin = "anonymous";
+							imageElementsRef.current.set(imageClip.id, imgEl);
+						}
+					}
+				});
+			} else if (track.type === "audio") {
+				track.clips.forEach((clip) => {
+					if (isClipInPreloadWindow(clip, currentTimeValue)) {
+						getOrCreateAudioNodes(clip as AudioClip);
+					}
+				});
+			}
+		});
+	}, [timelineState, currentTimeRef, isClipInPreloadWindow, getOrCreateVideoElement, getOrCreateAudioNodes]);
 
 	useEffect(() => {
 		if (!timelineState) return;
@@ -64,107 +265,36 @@ export default function VideoPreview({
 			audioContextRef.current = Tone.context.rawContext as AudioContext;
 		}
 
-		const newVideoElements = new Map<string, HTMLVideoElement>();
-		const newImageElements = new Map<string, HTMLImageElement>();
-		const newAudioElements = new Map<string, HTMLAudioElement>();
-		const newAudioNodes = new Map<string, AudioNodes>();
+		const currentVideoClipIds = new Set<string>();
+		const currentImageClipIds = new Set<string>();
+		const currentAudioClipIds = new Set<string>();
 
-		// Create video elements
 		timelineState.tracks.forEach((track) => {
-			if (track.type === "video") {
-				track.clips.forEach((clip) => {
-					if (clip.type === "video") {
-						const videoClip = clip as VideoClip;
-						let videoEl = videoElementsRef.current.get(videoClip.id);
-						if (!videoEl) {
-							videoEl = document.createElement("video");
-							videoEl.src = videoClip.src;
-							videoEl.preload = "auto";
-							videoEl.muted = true; // mute to avoid audio conflict. ideally we'd wanna extract it into an audio clip, but this will be too disruptive to the user experience when multiplayer.
-							videoEl.playsInline = true;
-							videoEl.crossOrigin = "anonymous";
-						}
-						newVideoElements.set(videoClip.id, videoEl);
-					} else if (clip.type === "image") {
-						const imageClip = clip as ImageClip;
-						let imgEl = imageElementsRef.current.get(imageClip.id);
-						if (!imgEl) {
-							imgEl = document.createElement("img");
-							imgEl.src = imageClip.src;
-							imgEl.crossOrigin = "anonymous";
-						}
-						newImageElements.set(imageClip.id, imgEl);
-					}
-				});
-			} else if (track.type === "audio") {
-				track.clips.forEach((clip) => {
-					const audioClip = clip as AudioClip;
-					let nodes = audioNodesRef.current.get(audioClip.id);
-
-					const needsNewNodes = !nodes || nodes.gain.disposed || nodes.pitchShift.disposed || nodes.pan.disposed;
-
-					if (needsNewNodes) {
-						if (nodes) {
-							nodes.source.disconnect();
-							audioSourcesMap.delete(nodes.element);
-						}
-
-						const audioEl = document.createElement("audio");
-						audioEl.src = audioClip.src;
-						audioEl.preload = "auto";
-						audioEl.volume = 1.0;
-						audioEl.crossOrigin = "anonymous";
-
-						if (audioSourcesMap.has(audioEl)) {
-							console.warn("Audio element already has a source node, skipping");
-							return;
-						}
-
-						const rawContext = Tone.context.rawContext as AudioContext;
-
-						if (rawContext.state === "closed") {
-							console.error("AudioContext is closed, cannot create audio source");
-							return;
-						}
-
-						const source = rawContext.createMediaElementSource(audioEl);
-						audioSourcesMap.set(audioEl, true);
-
-						const gain = new Tone.Gain(audioClip.properties.volume);
-						const pitchShift = new Tone.PitchShift(audioClip.properties.pitch);
-						const pan = new Tone.Panner(audioClip.properties.pan);
-
-						source.connect(gain.input);
-						gain.connect(pitchShift);
-						pitchShift.connect(pan);
-						pan.toDestination();
-
-						nodes = { element: audioEl, source, gain, pitchShift, pan };
-					}
-
-					if (nodes) {
-						newAudioElements.set(audioClip.id, nodes.element);
-						newAudioNodes.set(audioClip.id, nodes);
-					}
-				});
-			}
+			track.clips.forEach((clip) => {
+				if (clip.type === "video") currentVideoClipIds.add(clip.id);
+				else if (clip.type === "image") currentImageClipIds.add(clip.id);
+				else if (clip.type === "audio") currentAudioClipIds.add(clip.id);
+			});
 		});
 
-		// Clean up elements that are no longer in the timeline
 		videoElementsRef.current.forEach((video, id) => {
-			if (!newVideoElements.has(id)) {
+			if (!currentVideoClipIds.has(id)) {
 				video.pause();
 				video.src = "";
 				video.load();
+				videoElementsRef.current.delete(id);
 			}
 		});
+
 		imageElementsRef.current.forEach((img, id) => {
-			if (!newImageElements.has(id)) {
+			if (!currentImageClipIds.has(id)) {
 				img.src = "";
+				imageElementsRef.current.delete(id);
 			}
 		});
+
 		audioNodesRef.current.forEach((nodes, id) => {
-			if (!newAudioNodes.has(id)) {
+			if (!currentAudioClipIds.has(id)) {
 				nodes.element.pause();
 				nodes.source.disconnect();
 				if (!nodes.gain.disposed) nodes.gain.dispose();
@@ -173,13 +303,12 @@ export default function VideoPreview({
 				audioSourcesMap.delete(nodes.element);
 				nodes.element.src = "";
 				nodes.element.load();
+				audioNodesRef.current.delete(id);
+				audioElementsRef.current.delete(id);
 			}
 		});
 
-		videoElementsRef.current = newVideoElements;
-		imageElementsRef.current = newImageElements;
-		audioElementsRef.current = newAudioElements;
-		audioNodesRef.current = newAudioNodes;
+		preloadNearbyMedia();
 
 		return () => {
 			videoElementsRef.current.forEach((video) => {
@@ -204,7 +333,7 @@ export default function VideoPreview({
 			});
 			audioPlayPromisesRef.current.clear();
 		};
-	}, [timelineState]);
+	}, [timelineState, preloadNearbyMedia]);
 
 	useEffect(() => {
 		if (!timelineState || !audioContextRef.current) return;
@@ -232,11 +361,12 @@ export default function VideoPreview({
 		const ctx = canvas.getContext("2d");
 		if (!ctx) return;
 
+		preloadNearbyMedia();
+
 		const renderFrame = () => {
 			const currentTimeValue = currentTimeRef.current;
 
-			ctx.fillStyle = "#000000";
-			ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+			preloadNearbyMedia();
 
 			const activeVideoClips: { clip: VideoClip | ImageClip; trackIndex: number }[] = [];
 			timelineState.tracks.forEach((track, trackIndex) => {
@@ -245,13 +375,19 @@ export default function VideoPreview({
 						if (clip.type === "video" || clip.type === "image") {
 							const visualClip = clip as VideoClip | ImageClip;
 							const clipEnd = visualClip.startTime + visualClip.duration;
-							if (currentTimeValue >= visualClip.startTime && currentTimeValue < clipEnd) {
+							const isActive = currentTimeValue >= visualClip.startTime && currentTimeValue < clipEnd;
+							if (isActive) {
 								activeVideoClips.push({ clip: visualClip, trackIndex });
 							}
 						}
 					});
 				}
 			});
+
+			if (activeVideoClips.length > 0 || isPlaying) {
+				ctx.fillStyle = "#000000";
+				ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+			}
 
 			activeVideoClips.sort((a, b) => b.trackIndex - a.trackIndex);
 
@@ -324,8 +460,15 @@ export default function VideoPreview({
 						console.error("Error rendering image frame:", err);
 					}
 				} else {
-					const videoEl = videoElementsRef.current.get(clip.id);
-					if (!videoEl) continue;
+					let videoEl: HTMLVideoElement | undefined = videoElementsRef.current.get(clip.id);
+					if (!videoEl) {
+						console.log('[VideoPreview] Video element not found, creating:', clip.id);
+						videoEl = getOrCreateVideoElement(clip) ?? undefined;
+					}
+					if (!videoEl) {
+						console.log('[VideoPreview] Failed to create video element for:', clip.id);
+						continue;
+					}
 
 					const timeInClip = currentTimeValue - clip.startTime;
 					const props = clip.properties;
@@ -355,7 +498,9 @@ export default function VideoPreview({
 
 						if (isPlaying && videoEl.paused) {
 							// Seek to correct position before starting playback
-							videoEl.currentTime = Math.max(0, Math.min(internalTime, clampMax));
+							if (Math.abs(videoEl.currentTime - internalTime) > 0.1) {
+								videoEl.currentTime = Math.max(0, Math.min(internalTime, clampMax));
+							}
 							videoEl.play().catch((err) => {
 								if (err.name !== "AbortError") {
 									console.error("Error playing video:", err);
@@ -383,6 +528,12 @@ export default function VideoPreview({
 
 					// transformations & crop
 					try {
+						if (videoEl.readyState < 2) {
+							console.log('[VideoPreview] Video not ready to render:', { clipId: clip.id, readyState: videoEl.readyState, src: videoEl.src });
+							continue;
+						}
+						console.log('[VideoPreview] Drawing video frame:', { clipId: clip.id, currentTime: videoEl.currentTime, internalTime, isPlaying });
+
 						const { x, y } = props.position;
 						const { width, height } = props.size;
 						const { zoom, rotation, flip, crop } = props;
@@ -457,11 +608,19 @@ export default function VideoPreview({
 				if (track.type === "audio") {
 					track.clips.forEach((clip) => {
 						const audioClip = clip as AudioClip;
-						const audioEl = audioElementsRef.current.get(audioClip.id);
-						if (!audioEl) return;
 
 						const clipEnd = audioClip.startTime + audioClip.duration;
 						const isActive = currentTimeValue >= audioClip.startTime && currentTimeValue < clipEnd;
+
+						let audioEl = audioElementsRef.current.get(audioClip.id);
+						if (isActive && !audioEl) {
+							const nodes = getOrCreateAudioNodes(audioClip);
+							audioEl = nodes?.element;
+						}
+
+						if (!audioEl) {
+							return;
+						}
 
 						if (isActive) {
 							const timeInClip = currentTimeValue - audioClip.startTime;
@@ -563,7 +722,7 @@ export default function VideoPreview({
 				cancelAnimationFrame(animationFrameRef.current);
 			}
 		};
-	}, [timelineState, isPlaying, currentTimeRef]);
+	}, [timelineState, isPlaying, currentTimeRef, getOrCreateVideoElement, getOrCreateAudioNodes, preloadNearbyMedia]);
 
 	const selectedVideoClip =
 		selectedClips && selectedClips.length === 1 && (selectedClips[0].clip.type === "video" || selectedClips[0].clip.type === "image")
@@ -868,18 +1027,43 @@ export default function VideoPreview({
 
 	const displayRect = selectedVideoClip && transformMode ? getDisplayRect(selectedVideoClip.clip) : null;
 
+	const previewContainerRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		const container = previewContainerRef.current;
+		if (!container) return;
+
+		const handleWheel = (e: WheelEvent) => {
+			e.preventDefault();
+			const delta = e.deltaY > 0 ? -0.1 : 0.1;
+			setPreviewScale((prev) => Math.min(MAX_PREVIEW_SCALE, Math.max(MIN_PREVIEW_SCALE, prev + delta)));
+		};
+
+		container.addEventListener('wheel', handleWheel, { passive: false });
+		return () => container.removeEventListener('wheel', handleWheel);
+	}, []);
+
 	return (
 		<div className="h-full bg-background flex flex-col">
-			<div className="flex-1 flex items-center justify-center p-4">
-				<div ref={containerRef} className="relative" style={{ maxWidth: "100%", maxHeight: "100%" }}>
+			<div ref={previewContainerRef} className="flex-1 flex items-center justify-center p-4 overflow-hidden">
+				<div
+					ref={containerRef}
+					className="relative"
+					style={{
+						maxWidth: previewScale === 1 ? "100%" : "none",
+						maxHeight: previewScale === 1 ? "100%" : "none",
+						transform: `scale(${previewScale})`,
+						transformOrigin: "center center",
+					}}
+				>
 					<canvas
 						ref={canvasRef}
 						width={CANVAS_WIDTH}
 						height={CANVAS_HEIGHT}
 						className="w-full h-full bg-black"
 						style={{
-							maxWidth: "100%",
-							maxHeight: "100%",
+							maxWidth: previewScale === 1 ? "100%" : "none",
+							maxHeight: previewScale === 1 ? "100%" : "none",
 							aspectRatio: "16/9",
 							cursor: transformMode ? "pointer" : "default",
 						}}

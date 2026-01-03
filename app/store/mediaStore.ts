@@ -14,6 +14,8 @@ interface MediaItem {
 	uploadError?: string;
 	downloadError?: string;
 	isRemote?: boolean; // true if uploaded by another player
+	uploadedBy?: string;
+	uploaderName?: string;
 }
 
 const DEFAULT_IMAGE_DURATION = 2;
@@ -110,10 +112,10 @@ class MediaStore {
 		return this.items.find((item) => item.url === url);
 	}
 
-	addRemoteItem(id: string, name: string, type: "video" | "audio" | "image", url: string, isOwn: boolean = false) {
+	addRemoteItem(id: string, name: string, type: "video" | "audio" | "image", url: string, isOwn: boolean = false, uploadedBy?: string, uploaderName?: string) {
 		if (this.getItemById(id)) return;
 
-		this.addItem({ id, name, type, url, duration: 0, isDownloading: true, isRemote: !isOwn });
+		this.addItem({ id, name, type, url, duration: 0, isDownloading: true, isRemote: !isOwn, uploadedBy, uploaderName });
 
 		if (type === "image") {
 			let img: HTMLImageElement | null = document.createElement("img");

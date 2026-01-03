@@ -92,7 +92,7 @@ function isValidUUID(str: string): boolean {
 function generateJoinCode(): string {
 	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 	let code = "";
-	for (let i = 0; i < 6; i++) {
+	for (let i = 0; i < 8; i++) {
 		code += chars[Math.floor(Math.random() * chars.length)];
 	}
 	return code;
@@ -106,67 +106,54 @@ export async function createLobby(
 	name: string,
 	matchConfig: MatchConfig,
 	hostUserId: string,
-	isSystemLobby: boolean = false
+	isSystemLobby: boolean = false,
+	isListed: boolean = true
 ): Promise<{ lobbyId: string; joinCode: string }> {
 	const database = db();
-	const joinCode = generateJoinCode();
 
-	const [lobby] = await database
-		.insert(lobbies)
-		.values({
-			name,
-			joinCode,
-			status: "waiting",
-			hostPlayerId: hostUserId,
-			matchConfigJson: matchConfig,
-			isSystemLobby,
-		})
-		.returning({ id: lobbies.id, joinCode: lobbies.joinCode });
+	const maxRetries = 5;
+	for (let attempt = 0; attempt < maxRetries; attempt++) {
+		const joinCode = generateJoinCode();
 
-	if (!isSystemLobby) {
-		await database.insert(lobbyPlayers).values({
-			lobbyId: lobby.id,
-			userId: hostUserId,
-			isHost: true,
-			isReady: true,
-		});
+		try {
+			const [lobby] = await database
+				.insert(lobbies)
+				.values({
+					name,
+					joinCode,
+					status: "waiting",
+					hostPlayerId: hostUserId,
+					matchConfigJson: matchConfig,
+					isSystemLobby,
+					isListed,
+				})
+				.returning({ id: lobbies.id, joinCode: lobbies.joinCode });
+
+			if (!isSystemLobby) {
+				await database.insert(lobbyPlayers).values({
+					lobbyId: lobby.id,
+					userId: hostUserId,
+					isHost: true,
+					isReady: true,
+				});
+			}
+
+			return { lobbyId: lobby.id, joinCode: lobby.joinCode };
+		} catch (error: any) {
+			if (error?.code === "23505" && error?.constraint === "lobbies_join_code_unique") {
+				if (attempt < maxRetries - 1) {
+					console.log(`Join code collision on attempt ${attempt + 1}, retrying...`);
+					continue;
+				}
+			}
+			throw error;
+		}
 	}
 
-	return { lobbyId: lobby.id, joinCode: lobby.joinCode };
+	throw new Error("Failed to generate unique join code after multiple attempts");
 }
 
-export async function getLobbyById(lobbyId: string): Promise<Lobby | null> {
-	if (!isValidUUID(lobbyId)) {
-		return null;
-	}
-
-	const database = db();
-
-	const [lobbyRecord] = await database.select().from(lobbies).where(eq(lobbies.id, lobbyId)).limit(1);
-
-	if (!lobbyRecord) {
-		return null;
-	}
-
-	const playersWithUsers = await database
-		.select({
-			id: lobbyPlayers.id,
-			lobbyId: lobbyPlayers.lobbyId,
-			userId: lobbyPlayers.userId,
-			isHost: lobbyPlayers.isHost,
-			isReady: lobbyPlayers.isReady,
-			joinedAt: lobbyPlayers.joinedAt,
-			userName: user.name,
-			userImage: user.image,
-		})
-		.from(lobbyPlayers)
-		.innerJoin(user, eq(lobbyPlayers.userId, user.id))
-		.where(eq(lobbyPlayers.lobbyId, lobbyId));
-
-	return mapLobbyRecordToLobby(lobbyRecord, playersWithUsers);
-}
-
-export async function getLobbyByJoinCode(joinCode: string): Promise<Lobby | null> {
+export async function getLobbyById(joinCode: string): Promise<Lobby | null> {
 	const database = db();
 
 	const [lobbyRecord] = await database.select().from(lobbies).where(eq(lobbies.joinCode, joinCode.toUpperCase())).limit(1);
@@ -193,16 +180,49 @@ export async function getLobbyByJoinCode(joinCode: string): Promise<Lobby | null
 	return mapLobbyRecordToLobby(lobbyRecord, playersWithUsers);
 }
 
+
+
+export async function getLobbyByIdInternal(lobbyId: string): Promise<Lobby | null> {
+	const database = db();
+
+	const [lobbyRecord] = await database.select().from(lobbies).where(eq(lobbies.id, lobbyId)).limit(1);
+
+	if (!lobbyRecord) {
+		return null;
+	}
+
+	const playersWithUsers = await database
+		.select({
+			id: lobbyPlayers.id,
+			lobbyId: lobbyPlayers.lobbyId,
+			userId: lobbyPlayers.userId,
+			isHost: lobbyPlayers.isHost,
+			isReady: lobbyPlayers.isReady,
+			joinedAt: lobbyPlayers.joinedAt,
+			userName: user.name,
+			userImage: user.image,
+		})
+		.from(lobbyPlayers)
+		.innerJoin(user, eq(lobbyPlayers.userId, user.id))
+		.where(eq(lobbyPlayers.lobbyId, lobbyRecord.id));
+
+	return mapLobbyRecordToLobby(lobbyRecord, playersWithUsers);
+}
+
 export async function listLobbies(status?: LobbyStatus): Promise<LobbyListItemWithConfig[]> {
 	const database = db();
 
-	let query = database.select().from(lobbies).orderBy(desc(lobbies.createdAt));
+	const baseConditions = [eq(lobbies.isListed, true)];
 
 	if (status) {
-		query = query.where(eq(lobbies.status, status)) as typeof query;
+		baseConditions.push(eq(lobbies.status, status));
 	}
 
-	const lobbyRecords = await query;
+	const lobbyRecords = await database
+		.select()
+		.from(lobbies)
+		.where(and(...baseConditions))
+		.orderBy(desc(lobbies.createdAt));
 
 	const result: LobbyListItemWithConfig[] = [];
 
@@ -226,11 +246,7 @@ export async function listLobbies(status?: LobbyStatus): Promise<LobbyListItemWi
 
 		let matchEndsAt: Date | null = null;
 		if (record.matchId && (record.status === "in_match" || record.status === "starting")) {
-			const [matchRecord] = await database
-				.select({ endsAt: matches.endsAt })
-				.from(matches)
-				.where(eq(matches.id, record.matchId))
-				.limit(1);
+			const [matchRecord] = await database.select({ endsAt: matches.endsAt }).from(matches).where(eq(matches.id, record.matchId)).limit(1);
 			matchEndsAt = matchRecord?.endsAt ?? null;
 		}
 
@@ -257,22 +273,17 @@ export async function listLobbies(status?: LobbyStatus): Promise<LobbyListItemWi
 	return result;
 }
 
-export async function getPlayerActiveLobby(userId: string): Promise<{ lobbyId: string; lobbyName: string } | null> {
+export async function getPlayerActiveLobby(userId: string): Promise<{ joinCode: string; lobbyName: string } | null> {
 	const database = db();
 
 	const result = await database
 		.select({
-			lobbyId: lobbyPlayers.lobbyId,
+			joinCode: lobbies.joinCode,
 			lobbyName: lobbies.name,
 		})
 		.from(lobbyPlayers)
 		.innerJoin(lobbies, eq(lobbyPlayers.lobbyId, lobbies.id))
-		.where(
-			and(
-				eq(lobbyPlayers.userId, userId),
-				inArray(lobbies.status, ['waiting', 'starting', 'in_match'])
-			)
-		)
+		.where(and(eq(lobbyPlayers.userId, userId), inArray(lobbies.status, ["waiting", "starting", "in_match"])))
 		.limit(1);
 
 	if (result.length === 0) {
@@ -280,24 +291,27 @@ export async function getPlayerActiveLobby(userId: string): Promise<{ lobbyId: s
 	}
 
 	return {
-		lobbyId: result[0].lobbyId,
+		joinCode: result[0].joinCode,
 		lobbyName: result[0].lobbyName,
 	};
 }
 
-export async function addPlayerToLobby(lobbyId: string, userId: string): Promise<{ success: boolean; message: string; activeLobby?: { lobbyId: string; lobbyName: string } }> {
+export async function addPlayerToLobby(
+	joinCode: string,
+	userId: string
+): Promise<{ success: boolean; message: string; activeLobby?: { joinCode: string; lobbyName: string } }> {
 	const database = db();
 
 	const existingLobby = await getPlayerActiveLobby(userId);
-	if (existingLobby && existingLobby.lobbyId !== lobbyId) {
-		return { 
-			success: false, 
+	if (existingLobby && existingLobby.joinCode !== joinCode.toUpperCase()) {
+		return {
+			success: false,
 			message: `You are already in lobby "${existingLobby.lobbyName}". Leave it first to join another.`,
-			activeLobby: existingLobby
+			activeLobby: existingLobby,
 		};
 	}
 
-	const lobby = await getLobbyById(lobbyId);
+	const lobby = await getLobbyById(joinCode);
 	if (!lobby) {
 		return { success: false, message: "Lobby not found" };
 	}
@@ -315,20 +329,17 @@ export async function addPlayerToLobby(lobbyId: string, userId: string): Promise
 		return { success: false, message: "Player already in lobby" };
 	}
 
-	const isFirstPlayerInSystemLobby = await isSystemLobbyEmpty(lobbyId);
-	
+	const isFirstPlayerInSystemLobby = await isSystemLobbyEmpty(lobby.id);
+
 	await database.insert(lobbyPlayers).values({
-		lobbyId,
+		lobbyId: lobby.id,
 		userId,
 		isHost: isFirstPlayerInSystemLobby,
 		isReady: isFirstPlayerInSystemLobby,
 	});
 
 	if (isFirstPlayerInSystemLobby) {
-		await database
-			.update(lobbies)
-			.set({ hostPlayerId: userId, updatedAt: new Date() })
-			.where(eq(lobbies.id, lobbyId));
+		await database.update(lobbies).set({ hostPlayerId: userId, updatedAt: new Date() }).where(eq(lobbies.id, lobby.id));
 	}
 
 	return { success: true, message: "Successfully joined lobby" };
@@ -336,23 +347,19 @@ export async function addPlayerToLobby(lobbyId: string, userId: string): Promise
 
 async function isSystemLobbyEmpty(lobbyId: string): Promise<boolean> {
 	const database = db();
-	
+
 	const [lobbyRecord] = await database
 		.select({ isSystemLobby: lobbies.isSystemLobby })
 		.from(lobbies)
 		.where(eq(lobbies.id, lobbyId))
 		.limit(1);
-	
+
 	if (!lobbyRecord?.isSystemLobby) {
 		return false;
 	}
-	
-	const players = await database
-		.select({ id: lobbyPlayers.id })
-		.from(lobbyPlayers)
-		.where(eq(lobbyPlayers.lobbyId, lobbyId))
-		.limit(1);
-	
+
+	const players = await database.select({ id: lobbyPlayers.id }).from(lobbyPlayers).where(eq(lobbyPlayers.lobbyId, lobbyId)).limit(1);
+
 	return players.length === 0;
 }
 
@@ -381,10 +388,27 @@ export async function ensureSystemLobbiesExist(): Promise<void> {
 export async function removePlayerFromLobby(lobbyId: string, userId: string): Promise<{ success: boolean; message: string }> {
 	const database = db();
 
-	const lobby = await getLobbyById(lobbyId);
-	if (!lobby) {
+	const [lobbyRecord] = await database.select().from(lobbies).where(eq(lobbies.id, lobbyId)).limit(1);
+	if (!lobbyRecord) {
 		return { success: false, message: "Lobby not found" };
 	}
+
+	const playersWithUsers = await database
+		.select({
+			id: lobbyPlayers.id,
+			lobbyId: lobbyPlayers.lobbyId,
+			userId: lobbyPlayers.userId,
+			isHost: lobbyPlayers.isHost,
+			isReady: lobbyPlayers.isReady,
+			joinedAt: lobbyPlayers.joinedAt,
+			userName: user.name,
+			userImage: user.image,
+		})
+		.from(lobbyPlayers)
+		.innerJoin(user, eq(lobbyPlayers.userId, user.id))
+		.where(eq(lobbyPlayers.lobbyId, lobbyId));
+
+	const lobby = mapLobbyRecordToLobby(lobbyRecord, playersWithUsers);
 
 	const player = lobby.players.find((p) => p.id === userId);
 	if (!player) {
@@ -402,10 +426,7 @@ export async function removePlayerFromLobby(lobbyId: string, userId: string): Pr
 				.update(lobbyPlayers)
 				.set({ isHost: true })
 				.where(and(eq(lobbyPlayers.lobbyId, lobbyId), eq(lobbyPlayers.userId, newHostId)));
-			await database
-				.update(lobbies)
-				.set({ hostPlayerId: newHostId, updatedAt: new Date() })
-				.where(eq(lobbies.id, lobbyId));
+			await database.update(lobbies).set({ hostPlayerId: newHostId, updatedAt: new Date() }).where(eq(lobbies.id, lobbyId));
 		} else if (lobby.status === "waiting") {
 			await database.update(lobbies).set({ status: "closed", updatedAt: new Date() }).where(eq(lobbies.id, lobbyId));
 		}
@@ -457,25 +478,16 @@ export async function cleanupStaleMatches(): Promise<number> {
 
 			if (match) {
 				const now = new Date();
-				const shouldClose = 
-					match.status === "completed" || 
-					match.status === "rendering" ||
-					match.status === "failed" ||
-					(match.endsAt && now > match.endsAt);
+				const shouldClose =
+					match.status === "completed" || match.status === "rendering" || match.status === "failed" || (match.endsAt && now > match.endsAt);
 
 				if (shouldClose) {
-					await database
-						.update(lobbies)
-						.set({ status: "closed", updatedAt: new Date() })
-						.where(eq(lobbies.id, lobby.id));
+					await database.update(lobbies).set({ status: "closed", updatedAt: new Date() }).where(eq(lobbies.id, lobby.id));
 					cleanedCount++;
 				}
 			}
 		} else {
-			await database
-				.update(lobbies)
-				.set({ status: "closed", updatedAt: new Date() })
-				.where(eq(lobbies.id, lobby.id));
+			await database.update(lobbies).set({ status: "closed", updatedAt: new Date() }).where(eq(lobbies.id, lobby.id));
 			cleanedCount++;
 		}
 	}
@@ -546,10 +558,39 @@ export async function deleteMatch(matchId: string): Promise<void> {
 	await database.delete(matches).where(eq(matches.id, matchId));
 }
 
-export async function getMatchById(matchId: string): Promise<Match | null> {
+export async function getMatchById(joinCode: string): Promise<Match | null> {
 	const database = db();
 
-	const [matchRecord] = await database.select().from(matches).where(eq(matches.id, matchId)).limit(1);
+	const [lobbyRecord] = await database.select().from(lobbies).where(eq(lobbies.joinCode, joinCode.toUpperCase())).limit(1);
+	if (lobbyRecord && lobbyRecord.matchId) {
+		const [matchRecord] = await database.select().from(matches).where(eq(matches.id, lobbyRecord.matchId)).limit(1);
+		if (matchRecord) {
+			const playersWithUsers = await database
+				.select({
+					id: matchPlayers.id,
+					matchId: matchPlayers.matchId,
+					userId: matchPlayers.userId,
+					joinedAt: matchPlayers.joinedAt,
+					disconnectedAt: matchPlayers.disconnectedAt,
+					clipCount: matchPlayers.clipCount,
+					userName: user.name,
+					userImage: user.image,
+				})
+				.from(matchPlayers)
+				.innerJoin(user, eq(matchPlayers.userId, user.id))
+				.where(eq(matchPlayers.matchId, matchRecord.id));
+
+			return mapMatchRecordToMatch(matchRecord, playersWithUsers);
+		}
+	}
+
+	return null;
+}
+
+export async function getMatchByLobbyId(lobbyId: string): Promise<Match | null> {
+	const database = db();
+
+	const [matchRecord] = await database.select().from(matches).where(eq(matches.lobbyId, lobbyId)).limit(1);
 
 	if (!matchRecord) {
 		return null;
@@ -568,15 +609,15 @@ export async function getMatchById(matchId: string): Promise<Match | null> {
 		})
 		.from(matchPlayers)
 		.innerJoin(user, eq(matchPlayers.userId, user.id))
-		.where(eq(matchPlayers.matchId, matchId));
+		.where(eq(matchPlayers.matchId, matchRecord.id));
 
 	return mapMatchRecordToMatch(matchRecord, playersWithUsers);
 }
 
-export async function getMatchByLobbyId(lobbyId: string): Promise<Match | null> {
+export async function getMatchByIdInternal(matchId: string): Promise<Match | null> {
 	const database = db();
 
-	const [matchRecord] = await database.select().from(matches).where(eq(matches.lobbyId, lobbyId)).limit(1);
+	const [matchRecord] = await database.select().from(matches).where(eq(matches.id, matchId)).limit(1);
 
 	if (!matchRecord) {
 		return null;
@@ -609,10 +650,11 @@ export async function updateMatchStatus(matchId: string, status: MatchStatus): P
 	};
 
 	if (status === "active") {
-		const match = await getMatchById(matchId);
-		if (match) {
+		const [matchRecord] = await database.select({ configJson: matches.configJson }).from(matches).where(eq(matches.id, matchId)).limit(1);
+		if (matchRecord) {
+			const config = matchRecord.configJson as MatchConfig;
 			updates.startedAt = new Date();
-			updates.endsAt = new Date(Date.now() + match.config.matchDuration * 60 * 1000);
+			updates.endsAt = new Date(Date.now() + config.matchDuration * 60 * 1000);
 		}
 	} else if (status === "completed" || status === "failed") {
 		updates.completedAt = new Date();
@@ -650,12 +692,39 @@ export async function markPlayerDisconnected(matchId: string, userId: string): P
 		.where(and(eq(matchPlayers.matchId, matchId), eq(matchPlayers.userId, userId)));
 }
 
-export async function getPlayerActiveMatch(userId: string): Promise<{ matchId: string; lobbyName: string } | null> {
+export async function addPlayerToMatch(matchId: string, userId: string): Promise<boolean> {
+	const database = db();
+
+	const existing = await database
+		.select({ id: matchPlayers.id })
+		.from(matchPlayers)
+		.where(and(eq(matchPlayers.matchId, matchId), eq(matchPlayers.userId, userId)))
+		.limit(1);
+
+	if (existing.length > 0) {
+		await database
+			.update(matchPlayers)
+			.set({ disconnectedAt: null })
+			.where(and(eq(matchPlayers.matchId, matchId), eq(matchPlayers.userId, userId)));
+		return false;
+	}
+
+	await database.insert(matchPlayers).values({
+		matchId,
+		userId,
+		clipCount: 0,
+	});
+
+	return true;
+}
+
+export async function getPlayerActiveMatch(userId: string): Promise<{ matchId: string; joinCode: string; lobbyName: string } | null> {
 	const database = db();
 
 	const result = await database
 		.select({
 			matchId: matchPlayers.matchId,
+			lobbyId: matches.lobbyId,
 			lobbyName: matches.lobbyName,
 			matchStatus: matches.status,
 		})
@@ -664,10 +733,9 @@ export async function getPlayerActiveMatch(userId: string): Promise<{ matchId: s
 		.where(
 			and(
 				eq(matchPlayers.userId, userId),
+				inArray(matches.status, ["active", "preparing"]),
 				// Player hasn't left the match
-				sql`${matchPlayers.disconnectedAt} IS NULL`,
-				// Match is still active (not completed/failed)
-				sql`${matches.status} IN ('preparing', 'active')`
+				sql`${matchPlayers.disconnectedAt} IS NULL`
 			)
 		)
 		.limit(1);
@@ -676,8 +744,11 @@ export async function getPlayerActiveMatch(userId: string): Promise<{ matchId: s
 		return null;
 	}
 
+	const [lobby] = await database.select({ joinCode: lobbies.joinCode }).from(lobbies).where(eq(lobbies.id, result[0].lobbyId)).limit(1);
+
 	return {
 		matchId: result[0].matchId,
+		joinCode: lobby?.joinCode ?? "",
 		lobbyName: result[0].lobbyName,
 	};
 }
@@ -767,6 +838,7 @@ function mapLobbyRecordToLobby(
 		matchConfigJson: MatchConfig;
 		matchId: string | null;
 		isSystemLobby: boolean;
+		isListed: boolean;
 		createdAt: Date;
 		updatedAt: Date;
 	},
@@ -788,6 +860,7 @@ function mapLobbyRecordToLobby(
 			isReady: p.isReady,
 		})),
 		matchId: record.matchId,
+		isListed: record.isListed,
 		createdAt: record.createdAt,
 		updatedAt: record.updatedAt,
 	};

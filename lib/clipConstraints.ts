@@ -389,12 +389,22 @@ export function validateMatchConfig(config: Partial<ClipConstraintConfig>): Vali
 		return { valid: false, reason: "Audio max dB cannot be below -60 dB" };
 	}
 
-	if (config.maxVideoTracks !== undefined && config.maxVideoTracks < 1) {
-		return { valid: false, reason: "Must allow at least 1 video track" };
+	if (config.maxVideoTracks !== undefined) {
+		if (config.maxVideoTracks < 1) {
+			return { valid: false, reason: "Must allow at least 1 video track" };
+		}
+		if (config.maxVideoTracks > 100) {
+			return { valid: false, reason: "Video track count cannot exceed 100" };
+		}
 	}
 
-	if (config.maxAudioTracks !== undefined && config.maxAudioTracks < 0) {
-		return { valid: false, reason: "Audio track count cannot be negative" };
+	if (config.maxAudioTracks !== undefined) {
+		if (config.maxAudioTracks < 0) {
+			return { valid: false, reason: "Audio track count cannot be negative" };
+		}
+		if (config.maxAudioTracks > 100) {
+			return { valid: false, reason: "Audio track count cannot exceed 100" };
+		}
 	}
 
 	if (config.maxClipsPerUser !== undefined && config.maxClipsPerUser < 0) {

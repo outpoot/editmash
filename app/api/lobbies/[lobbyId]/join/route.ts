@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { addPlayerToLobby, getLobbyById, getLobbyByJoinCode } from "@/lib/storage";
+import { addPlayerToLobby, getLobbyById } from "@/lib/storage";
 import { JoinLobbyResponse } from "@/app/types/lobby";
 import { getServerSession } from "@/lib/auth";
 import { notifyWsServer } from "@/lib/wsNotify";
@@ -25,29 +25,21 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
 
 		const userId = session.user.id;
 
-		let lobby = await getLobbyById(lobbyId);
-		if (!lobby) {
-			lobby = await getLobbyByJoinCode(lobbyId);
-		}
-
-		if (!lobby) {
-			return NextResponse.json({ success: false, message: "Lobby not found" }, { status: 404 });
-		}
-
-		const result = await addPlayerToLobby(lobby.id, userId);
+		const result = await addPlayerToLobby(lobbyId, userId);
 
 		if (!result.success) {
 			return NextResponse.json(result, { status: 400 });
 		}
 
-		notifyWsServer("/notify/lobbies", { lobbyId: lobby.id, userId, action: "player_joined" });
-
-		const updatedLobby = await getLobbyById(lobby.id);
+		const lobby = await getLobbyById(lobbyId);
+		if (lobby) {
+			notifyWsServer("/notify/lobbies", { lobbyId: lobby.id, userId, action: "player_joined" });
+		}
 
 		return NextResponse.json({
 			success: true,
 			message: result.message,
-			lobby: updatedLobby || undefined,
+			lobby: lobby || undefined,
 		});
 	} catch (error) {
 		console.error("Error joining lobby:", error);

@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 
 interface ActiveMatch {
 	matchId: string;
+	joinCode: string;
 	lobbyName: string;
 }
 

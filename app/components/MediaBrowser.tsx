@@ -9,6 +9,7 @@ import { validateFile, getAcceptAttribute } from "@/lib/validation";
 import { toast } from "sonner";
 import { useAudioWaveform } from "../hooks/useAudioWaveform";
 import { useMatchWebSocketOptional } from "./MatchWS";
+import { usePlayer } from "../hooks/usePlayer";
 
 let currentDragItem: MediaItem | null = null;
 
@@ -81,6 +82,7 @@ export default function MediaBrowser() {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	const matchWs = useMatchWebSocketOptional();
+	const { playerId, username } = usePlayer();
 
 	const folders = ["All", "Footage", "Audio", "Graphics", "Titles", "Effects"];
 
@@ -198,22 +200,11 @@ export default function MediaBrowser() {
 						height: img.naturalHeight,
 						thumbnail,
 						isUploading: true,
+						uploadedBy: playerId ?? undefined,
+						uploaderName: username ?? undefined,
 					};
 
-					mediaStore.addItem(mediaItem);
 
-					try {
-						const formData = new FormData();
-						formData.append("file", file);
-
-						const xhr = new XMLHttpRequest();
-
-						xhr.upload.addEventListener("progress", (e) => {
-							if (e.lengthComputable) {
-								const progress = Math.round((e.loaded / e.total) * 100);
-								mediaStore.updateItem(itemId, { uploadProgress: progress });
-							}
-						});
 
 						const uploadPromise = new Promise<{ url: string; fileId: string }>((resolve, reject) => {
 							xhr.addEventListener("load", () => {
@@ -283,21 +274,11 @@ export default function MediaBrowser() {
 					width: type === "video" ? (element as HTMLVideoElement).videoWidth : undefined,
 					height: type === "video" ? (element as HTMLVideoElement).videoHeight : undefined,
 					isUploading: true,
+					uploadedBy: playerId ?? undefined,
+					uploaderName: username ?? undefined,
 				};
 
-				// generate thumbnail
-				mediaStore.addItem(mediaItem);
 
-				if (type === "video") {
-					const video = element as HTMLVideoElement;
-					video.currentTime = 0.1;
-					video.addEventListener(
-						"seeked",
-						() => {
-							const thumbnail = generateThumbnail(video, video.videoWidth, video.videoHeight);
-							mediaStore.updateItem(itemId, { thumbnail });
-						},
-						{ once: true }
 					);
 				}
 

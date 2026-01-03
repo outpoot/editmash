@@ -56,9 +56,11 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 			const data: Lobby = await response.json();
 			setLobby(data);
 
-			if (data.status === "in_match" && data.matchId) {
-				router.push(`/match/${data.matchId}`);
-				return;
+			if (data.status === "starting" || data.status === "in_match") {
+				if (data.matchId) {
+					router.push(`/match/${data.joinCode}`);
+					return;
+				}
 			}
 
 			if (data.status === "closed") {
@@ -140,8 +142,8 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 						clearTimeout(timeoutId);
 						ws.close();
 					};
-					ws.addEventListener('open', handleConnectedLeave, { once: true });
-					ws.addEventListener('error', handleError, { once: true });
+					ws.addEventListener("open", handleConnectedLeave, { once: true });
+					ws.addEventListener("error", handleError, { once: true });
 				} else {
 					wsRef.current.close();
 				}
@@ -175,7 +177,7 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 			}
 
 			const data = await response.json();
-			router.push(`/match/${data.matchId}`);
+			router.push(`/match/${data.joinCode}`);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to start match");
 		} finally {
@@ -258,7 +260,7 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 							Nevermind
 						</Button>
 						<Button variant="destructive" onClick={handleLeaveLobby} disabled={isLeaving}>
-							{isLeaving ? "Leaving..." : "Yes"}
+							{isLeaving ? "..." : "Yes"}
 						</Button>
 					</DialogFooter>
 				</DialogContent>

@@ -8,6 +8,7 @@ import { mediaStore, MediaItem, generateThumbnail, DEFAULT_IMAGE_DURATION } from
 import { validateFile, getAcceptAttribute } from "@/lib/validation";
 import { toast } from "sonner";
 import { useMatchWebSocketOptional } from "./MatchWS";
+import { videoHasAudio, extractAudioFromVideo } from "@/lib/audioExtraction";
 
 interface MediaCardDockProps {
 	maxClips?: number;
@@ -128,6 +129,149 @@ const MediaCardDock = forwardRef<MediaCardDockRef, MediaCardDockProps>(({ maxCli
 				}
 			}
 
+			if (type === "video") {
+				const hasAudio = await videoHasAudio(file);
+
+				if (hasAudio) {
+					const currentCount = mediaStore.getItems().filter((item) => !item.isRemote).length;
+					const wouldExceedLimit = !isUnlimited && currentCount >= maxClips;
+
+					if (wouldExceedLimit) {
+						toast.warning("Cannot split video with audio", {
+							description: `Would exceed ${maxClips} clip limit. Remove a clip first.`,
+							duration: 5000,
+						});
+						return;
+					}
+
+					toast("This video has audio", {
+						description: "Split into separate video and audio? (Counts as 2 media cards)",
+						duration: 5000,
+						action: {
+							label: "Split",
+							onClick: async () => {
+								const splitToastId = toast.loading("Extracting audio...", {
+									description: file.name,
+								});
+
+								try {
+									const audioBlob = await extractAudioFromVideo(file);
+									if (!audioBlob) {
+										toast.dismiss(splitToastId);
+										toast.error("Failed to extract audio", {
+											description: file.name,
+										});
+										return;
+									}
+
+									const audioFileName = file.name.replace(/\.[^/.]+$/, "") + "_audio.wav";
+									const audioFile = new File([audioBlob], audioFileName, { type: "audio/wav" });
+									const audioTempUrl = URL.createObjectURL(audioBlob);
+									const audioItemId = `${Date.now()}-${Math.random()}`;
+
+									const audioElement = document.createElement("audio");
+									audioElement.src = audioTempUrl;
+
+									audioElement.addEventListener("loadedmetadata", async () => {
+										const audioMediaItem: MediaItem = {
+											id: audioItemId,
+											name: audioFileName,
+											type: "audio",
+											url: audioTempUrl,
+											duration: audioElement.duration,
+											isUploading: true,
+										};
+
+										mediaStore.addItem(audioMediaItem);
+
+										try {
+											const audioFormData = new FormData();
+											audioFormData.append("file", audioFile);
+
+											const audioXhr = new XMLHttpRequest();
+
+											audioXhr.upload.addEventListener("progress", (e) => {
+												if (e.lengthComputable) {
+													const progress = Math.round((e.loaded / e.total) * 100);
+													mediaStore.updateItem(audioItemId, { uploadProgress: progress });
+												}
+											});
+
+											const audioUploadPromise = new Promise<{ url: string; fileId: string }>((resolve, reject) => {
+												audioXhr.addEventListener("load", () => {
+													if (audioXhr.status >= 200 && audioXhr.status < 300) {
+														resolve(JSON.parse(audioXhr.responseText));
+													} else {
+														reject(new Error(`Upload failed: ${audioXhr.status}`));
+													}
+												});
+												audioXhr.addEventListener("error", () => reject(new Error("Network error")));
+												audioXhr.addEventListener("abort", () => reject(new Error("Upload cancelled")));
+
+												audioXhr.open("POST", "/api/upload");
+												audioXhr.send(audioFormData);
+											});
+
+											const audioData = await audioUploadPromise;
+
+											mediaStore.updateItem(audioItemId, {
+												url: audioData.url,
+												fileId: audioData.fileId,
+												isUploading: false,
+												uploadProgress: 100,
+											});
+
+											const audioDbId = await saveMediaToDatabase(audioItemId, audioFileName, "audio", audioData.url, audioData.fileId);
+											if (!audioDbId) {
+												toast.warning("Audio uploaded but may not persist after refresh", {
+													description: audioFileName,
+												});
+											} else if (matchWs?.status === "connected") {
+												const updatedAudioItem = mediaStore.getItemById(audioDbId);
+												if (updatedAudioItem) {
+													matchWs.broadcastMediaUploaded({ ...updatedAudioItem, url: audioData.url, fileId: audioData.fileId });
+												}
+											}
+
+											toast.dismiss(splitToastId);
+											toast.success("Audio extracted successfully", {
+												description: audioFileName,
+											});
+
+											URL.revokeObjectURL(audioTempUrl);
+										} catch (error) {
+											console.error("Error uploading extracted audio:", error);
+											toast.dismiss(splitToastId);
+											toast.error("Failed to upload extracted audio", {
+												description: error instanceof Error ? error.message : "Upload failed",
+											});
+											mediaStore.updateItem(audioItemId, {
+												isUploading: false,
+												uploadError: error instanceof Error ? error.message : "Upload failed",
+											});
+											URL.revokeObjectURL(audioTempUrl);
+										}
+									});
+
+									audioElement.addEventListener("error", () => {
+										toast.dismiss(splitToastId);
+										toast.error("Failed to process extracted audio", {
+											description: file.name,
+										});
+										URL.revokeObjectURL(audioTempUrl);
+									});
+								} catch (error) {
+									toast.dismiss(splitToastId);
+									toast.error("Failed to extract audio", {
+										description: error instanceof Error ? error.message : "Unknown error",
+									});
+								}
+							},
+						},
+					});
+				}
+			}
+
 			URL.revokeObjectURL(tempUrl);
 		} catch (error) {
 			console.error("Error uploading:", error);
@@ -195,7 +339,7 @@ const MediaCardDock = forwardRef<MediaCardDockRef, MediaCardDockProps>(({ maxCli
 			URL.revokeObjectURL(tempUrl);
 			toast.error("Failed to load media", { description: file.name });
 		});
-		
+
 		element.addEventListener("loadedmetadata", async () => {
 			const mediaItem: MediaItem = {
 				id: itemId,
@@ -279,35 +423,42 @@ const MediaCardDock = forwardRef<MediaCardDockRef, MediaCardDockProps>(({ maxCli
 		currentDragItem = null;
 	}, []);
 
-	const processFilesFromDrop = useCallback(async (files: FileList) => {
-		const currentCount = myMediaItems.length;
+	const processFilesFromDrop = useCallback(
+		async (files: FileList) => {
+			const currentCount = myMediaItems.length;
 
-		let filesToProcess: File[];
-		if (isUnlimited) {
-			filesToProcess = Array.from(files);
-		} else {
-			const remainingSlots = maxClips - currentCount;
+			let filesToProcess: File[];
+			if (isUnlimited) {
+				filesToProcess = Array.from(files);
+			} else {
+				const remainingSlots = maxClips - currentCount;
 
-			if (remainingSlots <= 0) {
-				toast.error(`Maximum ${maxClips} clips allowed`);
-				return;
+				if (remainingSlots <= 0) {
+					toast.error(`Maximum ${maxClips} clips allowed`);
+					return;
+				}
+
+				filesToProcess = Array.from(files).slice(0, remainingSlots);
+
+				if (files.length > remainingSlots) {
+					toast.warning(`Only ${remainingSlots} more clip${remainingSlots === 1 ? "" : "s"} allowed. Some files were not imported.`);
+				}
 			}
 
-			filesToProcess = Array.from(files).slice(0, remainingSlots);
-
-			if (files.length > remainingSlots) {
-				toast.warning(`Only ${remainingSlots} more clip${remainingSlots === 1 ? "" : "s"} allowed. Some files were not imported.`);
+			for (const file of filesToProcess) {
+				await processFile(file);
 			}
-		}
+		},
+		[myMediaItems.length, maxClips, isUnlimited, processFile]
+	);
 
-		for (const file of filesToProcess) {
-			await processFile(file);
-		}
-	}, [myMediaItems.length, maxClips, isUnlimited, processFile]);
-
-	useImperativeHandle(ref, () => ({
-		handleExternalDrop: processFilesFromDrop
-	}), [processFilesFromDrop]);
+	useImperativeHandle(
+		ref,
+		() => ({
+			handleExternalDrop: processFilesFromDrop,
+		}),
+		[processFilesFromDrop]
+	);
 
 	const remainingSlots = isUnlimited ? Infinity : maxClips - myMediaItems.length;
 	const showAddButton = remainingSlots > 0;
