@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, use } from "react";
+import { useState, useEffect, useCallback, use, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { usePlayer } from "@/app/hooks/usePlayer";
 import { Button } from "@/components/ui/button";
@@ -24,11 +24,12 @@ import {
 } from "@hugeicons/core-free-icons";
 import { Lobby, LobbyPlayer } from "@/app/types/lobby";
 import { MatchModifierBadges } from "@/app/components/MatchModifierBadges";
+import { serializeMessage, createJoinLobbyMessage, createLeaveLobbyMessage } from "@/websocket/types";
 
 export default function LobbyPage({ params }: { params: Promise<{ lobbyId: string }> }) {
 	const { lobbyId } = use(params);
 	const router = useRouter();
-	const { playerId, isLoading: playerLoading, isAuthenticated } = usePlayer();
+	const { playerId, username, isLoading: playerLoading, isAuthenticated } = usePlayer();
 
 	const [lobby, setLobby] = useState<Lobby | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
@@ -38,6 +39,9 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 	const [isLeaving, setIsLeaving] = useState(false);
 	const [showLeaveDialog, setShowLeaveDialog] = useState(false);
 	const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
+
+	const wsRef = useRef<WebSocket | null>(null);
+	const joinedRef = useRef(false);
 
 	const fetchLobby = useCallback(async () => {
 		try {
@@ -96,6 +100,56 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 			});
 		}
 	}, [lobby, playerId, playerLoading, isAuthenticated, lobbyId, fetchLobby]);
+
+	useEffect(() => {
+		if (!playerId || !username || playerLoading || !isAuthenticated || joinedRef.current) return;
+
+		const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
+		if (!wsUrl) return;
+
+		const ws = new WebSocket(wsUrl);
+		ws.binaryType = "arraybuffer";
+		wsRef.current = ws;
+
+		ws.onopen = () => {
+			ws.send(serializeMessage(createJoinLobbyMessage(lobbyId, playerId, username)));
+			joinedRef.current = true;
+			console.log(`[WS] Joined lobby ${lobbyId} for presence tracking`);
+		};
+
+		ws.onerror = () => {
+			console.warn("[WS] Lobby presence WebSocket error (connection may have failed)");
+		};
+
+		return () => {
+			if (wsRef.current) {
+				if (wsRef.current.readyState === WebSocket.OPEN) {
+					wsRef.current.send(serializeMessage(createLeaveLobbyMessage(lobbyId, playerId)));
+					wsRef.current.close();
+				} else if (wsRef.current.readyState === WebSocket.CONNECTING) {
+					const ws = wsRef.current;
+					const timeoutId = setTimeout(() => {
+						ws.close();
+					}, 5000);
+					const handleConnectedLeave = () => {
+						clearTimeout(timeoutId);
+						ws.send(serializeMessage(createLeaveLobbyMessage(lobbyId, playerId)));
+						ws.close();
+					};
+					const handleError = () => {
+						clearTimeout(timeoutId);
+						ws.close();
+					};
+					ws.addEventListener('open', handleConnectedLeave, { once: true });
+					ws.addEventListener('error', handleError, { once: true });
+				} else {
+					wsRef.current.close();
+				}
+			}
+			wsRef.current = null;
+			joinedRef.current = false;
+		};
+	}, [lobbyId, playerId, username, playerLoading, isAuthenticated]);
 
 	const copyCode = () => {
 		if (!lobby) return;

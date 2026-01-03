@@ -5,7 +5,7 @@ import { user, session, account, lobbyPlayers, matchPlayers } from "@/lib/db/sch
 import { eq } from "drizzle-orm";
 import { uploadToB2, deleteFileByName, listFileVersions } from "@/lib/b2";
 import { processImage } from "@/lib/image";
-import { getPlayerActiveMatch } from "@/lib/storage";
+import { getPlayerActiveMatch, getPlayerActiveLobby } from "@/lib/storage";
 
 export async function GET() {
 	try {
@@ -22,10 +22,12 @@ export async function GET() {
 		}
 
 		const activeMatch = await getPlayerActiveMatch(currentSession.user.id);
+		const activeLobby = await getPlayerActiveLobby(currentSession.user.id);
 
 		return NextResponse.json({ 
 			user: userData[0],
 			activeMatch,
+			activeLobby,
 		});
 	} catch (error) {
 		console.error("Error fetching user:", error);

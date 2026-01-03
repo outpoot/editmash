@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { db, lobbies, lobbyPlayers, matches, matchPlayers, clipEditOperations, user, matchMedia } from "./db";
 import type { Lobby, LobbyPlayer, LobbyStatus, LobbyListItemWithConfig } from "../app/types/lobby";
 import type { Match, MatchStatus, MatchConfig, ClipEditOperation } from "../app/types/match";
@@ -257,8 +257,45 @@ export async function listLobbies(status?: LobbyStatus): Promise<LobbyListItemWi
 	return result;
 }
 
-export async function addPlayerToLobby(lobbyId: string, userId: string): Promise<{ success: boolean; message: string }> {
+export async function getPlayerActiveLobby(userId: string): Promise<{ lobbyId: string; lobbyName: string } | null> {
 	const database = db();
+
+	const result = await database
+		.select({
+			lobbyId: lobbyPlayers.lobbyId,
+			lobbyName: lobbies.name,
+		})
+		.from(lobbyPlayers)
+		.innerJoin(lobbies, eq(lobbyPlayers.lobbyId, lobbies.id))
+		.where(
+			and(
+				eq(lobbyPlayers.userId, userId),
+				inArray(lobbies.status, ['waiting', 'starting', 'in_match'])
+			)
+		)
+		.limit(1);
+
+	if (result.length === 0) {
+		return null;
+	}
+
+	return {
+		lobbyId: result[0].lobbyId,
+		lobbyName: result[0].lobbyName,
+	};
+}
+
+export async function addPlayerToLobby(lobbyId: string, userId: string): Promise<{ success: boolean; message: string; activeLobby?: { lobbyId: string; lobbyName: string } }> {
+	const database = db();
+
+	const existingLobby = await getPlayerActiveLobby(userId);
+	if (existingLobby && existingLobby.lobbyId !== lobbyId) {
+		return { 
+			success: false, 
+			message: `You are already in lobby "${existingLobby.lobbyName}". Leave it first to join another.`,
+			activeLobby: existingLobby
+		};
+	}
 
 	const lobby = await getLobbyById(lobbyId);
 	if (!lobby) {
@@ -360,11 +397,16 @@ export async function removePlayerFromLobby(lobbyId: string, userId: string): Pr
 	if (player.isHost) {
 		const remainingPlayers = lobby.players.filter((p) => p.id !== userId);
 		if (remainingPlayers.length > 0) {
+			const newHostId = remainingPlayers[0].id;
 			await database
 				.update(lobbyPlayers)
 				.set({ isHost: true })
-				.where(and(eq(lobbyPlayers.lobbyId, lobbyId), eq(lobbyPlayers.userId, remainingPlayers[0].id)));
-		} else {
+				.where(and(eq(lobbyPlayers.lobbyId, lobbyId), eq(lobbyPlayers.userId, newHostId)));
+			await database
+				.update(lobbies)
+				.set({ hostPlayerId: newHostId, updatedAt: new Date() })
+				.where(eq(lobbies.id, lobbyId));
+		} else if (lobby.status === "waiting") {
 			await database.update(lobbies).set({ status: "closed", updatedAt: new Date() }).where(eq(lobbies.id, lobbyId));
 		}
 	}

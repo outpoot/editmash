@@ -8,14 +8,21 @@ interface ActiveMatch {
 	lobbyName: string;
 }
 
+interface ActiveLobby {
+	lobbyId: string;
+	lobbyName: string;
+}
+
 export function usePlayer() {
 	const { data: session, isPending } = useSession();
 	const [activeMatch, setActiveMatch] = useState<ActiveMatch | null>(null);
+	const [activeLobby, setActiveLobby] = useState<ActiveLobby | null>(null);
 	const [activeMatchLoading, setActiveMatchLoading] = useState(false);
 
 	useEffect(() => {
 		if (!session?.user?.id) {
 			setActiveMatch(null);
+			setActiveLobby(null);
 			return;
 		}
 
@@ -32,9 +39,11 @@ export function usePlayer() {
 					const data = await response.json();
 					if (controller.signal.aborted) return;
 					setActiveMatch(data.activeMatch || null);
+					setActiveLobby(data.activeLobby || null);
 				} else {
 					console.error(`Error fetching active match: ${response.status} ${response.statusText}`);
 					setActiveMatch(null);
+					setActiveLobby(null);
 				}
 			} catch (error) {
 				if (error instanceof DOMException && error.name === "AbortError") {
@@ -64,6 +73,7 @@ export function usePlayer() {
 		isAuthenticated: !!session,
 		session,
 		activeMatch,
+		activeLobby,
 		activeMatchLoading,
 	};
 }

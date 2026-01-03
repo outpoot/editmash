@@ -1,5 +1,4 @@
 import type { ServerWebSocket } from "bun";
-import { timingSafeEqual, createHash } from "crypto";
 import {
 	connections,
 	matchPlayers,
@@ -32,6 +31,8 @@ import {
 	isZoneSubscribeMessage,
 	isClipBatchUpdateMessage,
 	isChatMessage,
+	isJoinLobbyMessage,
+	isLeaveLobbyMessage,
 	createPlayerLeftMessage,
 	createMatchStatusMessage,
 	createLobbiesUpdateMessage,
@@ -58,16 +59,12 @@ import {
 	handleClipSelection,
 	handleZoneSubscribe,
 	handleChatMessage,
+	notifyPlayerDisconnected,
+	notifyLobbyPlayerDisconnected,
+	handleJoinLobby,
+	handleLeaveLobby,
 } from "./handlers";
-
-function secureCompare(a: string | null | undefined, b: string | null | undefined): boolean {
-	if (!a || !b) return false;
-
-	const hashA = createHash("sha256").update(a).digest();
-	const hashB = createHash("sha256").update(b).digest();
-
-	return timingSafeEqual(hashA, hashB);
-}
+import { secureCompare } from "@/lib/security";
 
 function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | Buffer | ArrayBuffer): void {
 	try {
@@ -156,6 +153,16 @@ function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | 
 			return;
 		}
 
+		if (isJoinLobbyMessage(message)) {
+			handleJoinLobby(ws, message);
+			return;
+		}
+
+		if (isLeaveLobbyMessage(message)) {
+			handleLeaveLobby(ws, message);
+			return;
+		}
+
 		if (isChatMessage(message)) {
 			handleChatMessage(ws, message);
 			return;
@@ -169,7 +176,7 @@ function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | 
 }
 
 function handleClose(ws: ServerWebSocket<WebSocketData>): void {
-	const { id, matchId, userId, username, subscribedToLobbies } = ws.data;
+	const { id, matchId, lobbyId, userId, username, subscribedToLobbies } = ws.data;
 
 	connections.delete(id);
 
@@ -177,9 +184,11 @@ function handleClose(ws: ServerWebSocket<WebSocketData>): void {
 		lobbySubscribers.delete(id);
 	}
 
+	let wasLastConnection = false;
 	if (userId) {
 		const userConns = userConnections.get(userId);
 		if (userConns) {
+			wasLastConnection = userConns.size === 1 && userConns.has(id);
 			userConns.delete(id);
 			if (userConns.size === 0) {
 				userConnections.delete(userId);
@@ -197,7 +206,14 @@ function handleClose(ws: ServerWebSocket<WebSocketData>): void {
 			}
 		}
 
-		broadcast(matchId, createPlayerLeftMessage(matchId, userId));
+		if (wasLastConnection) {
+			broadcast(matchId, createPlayerLeftMessage(matchId, userId));
+			notifyPlayerDisconnected(matchId, userId);
+		}
+	}
+
+	if (lobbyId && userId && !matchId && wasLastConnection) {
+		notifyLobbyPlayerDisconnected(lobbyId, userId);
 	}
 
 	console.log(`[WS] Connection closed: ${id} (user: ${username || "unknown"})`);
@@ -306,6 +322,7 @@ const server = Bun.serve({
                 data: {
                     id: connectionId,
                     matchId: null,
+                    lobbyId: null,
                     userId: null,
                     username: null,
                     userImage: null,

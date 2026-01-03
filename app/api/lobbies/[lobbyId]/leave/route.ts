@@ -3,6 +3,7 @@ import { removePlayerFromLobby, getLobbyById, getLobbyByJoinCode } from "@/lib/s
 import { LeaveLobbyResponse } from "@/app/types/lobby";
 import { getServerSession } from "@/lib/auth";
 import { notifyWsServer } from "@/lib/wsNotify";
+import { secureCompare } from "@/lib/security";
 
 interface RouteParams {
 	params: Promise<{
@@ -12,18 +13,31 @@ interface RouteParams {
 
 export async function POST(request: NextRequest, { params }: RouteParams): Promise<NextResponse<LeaveLobbyResponse | { error: string }>> {
 	try {
-		const session = await getServerSession();
-		if (!session) {
-			return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-		}
-
 		const { lobbyId } = await params;
 
 		if (!lobbyId) {
 			return NextResponse.json({ error: "Lobby ID is required" }, { status: 400 });
 		}
 
-		const userId = session.user.id;
+		const authHeader = request.headers.get("Authorization");
+		const wsApiKey = process.env.WS_API_KEY;
+		const providedKey = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+		let userId: string;
+
+		if (secureCompare(providedKey, wsApiKey)) {
+			const body = await request.json().catch(() => ({}));
+			if (!body.userId) {
+				return NextResponse.json({ error: "userId is required" }, { status: 400 });
+			}
+			userId = body.userId;
+		} else {
+			const session = await getServerSession();
+			if (!session) {
+				return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+			}
+			userId = session.user.id;
+		}
 
 		let lobby = await getLobbyById(lobbyId);
 		if (!lobby) {

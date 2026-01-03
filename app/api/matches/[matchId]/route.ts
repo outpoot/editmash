@@ -4,16 +4,7 @@ import { MatchStateResponse } from "@/app/types/match";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import type { TimelineState } from "@/app/types/timeline";
-import { timingSafeEqual, createHash } from "crypto";
-
-function secureCompare(a: string | null | undefined, b: string | null | undefined): boolean {
-	if (!a || !b) return false;
-
-	const hashA = createHash("sha256").update(a).digest();
-	const hashB = createHash("sha256").update(b).digest();
-
-	return timingSafeEqual(hashA, hashB);
-}
+import { secureCompare } from "@/lib/security";
 
 interface RouteParams {
 	params: Promise<{
@@ -21,7 +12,10 @@ interface RouteParams {
 	}>;
 }
 
-export async function GET(request: NextRequest, { params }: RouteParams): Promise<NextResponse<MatchStateResponse | { error: string } | { redirect: string }>> {
+export async function GET(
+	request: NextRequest,
+	{ params }: RouteParams
+): Promise<NextResponse<MatchStateResponse | { error: string } | { redirect: string }>> {
 	try {
 		const { matchId } = await params;
 
@@ -65,13 +59,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 		const authHeader = request.headers.get("Authorization");
 		const wsApiKey = process.env.WS_API_KEY;
 		const providedKey = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-		const isWsAuth = secureCompare(providedKey, wsApiKey);
 
-		if (!isWsAuth) {
-			const session = await auth.api.getSession({ headers: await headers() });
-			if (!session?.user) {
-				return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-			}
+		if (!secureCompare(providedKey, wsApiKey)) {
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 		}
 
 		const match = await getMatchById(matchId);

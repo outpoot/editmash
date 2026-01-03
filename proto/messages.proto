@@ -38,6 +38,8 @@ message WSMessage {
     LobbyCreatedPayload lobby_created = 43;
     LobbyUpdatedPayload lobby_updated = 44;
     LobbyDeletedPayload lobby_deleted = 45;
+    JoinLobbyPayload join_lobby = 46;
+    LeaveLobbyPayload leave_lobby = 47;
     
     // Utility messages
     ErrorPayload error = 50;
@@ -83,6 +85,8 @@ enum MessageType {
   MESSAGE_TYPE_CLIP_ID_MAPPING = 29;
   MESSAGE_TYPE_CHAT_MESSAGE = 30;
   MESSAGE_TYPE_CHAT_BROADCAST = 31;
+  MESSAGE_TYPE_JOIN_LOBBY = 32;
+  MESSAGE_TYPE_LEAVE_LOBBY = 33;
 }
 
 message UserInfo {
@@ -342,6 +346,17 @@ message LobbyUpdatedPayload {
 
 message LobbyDeletedPayload {
   string lobby_id = 1;
+}
+
+message JoinLobbyPayload {
+  string lobby_id = 1;
+  string user_id = 2;
+  string username = 3;
+}
+
+message LeaveLobbyPayload {
+  string lobby_id = 1;
+  string user_id = 2;
 }
 
 message ErrorPayload {

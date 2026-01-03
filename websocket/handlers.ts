@@ -155,6 +155,83 @@ export async function fetchLobbies() {
 	}
 }
 
+export async function notifyPlayerDisconnected(matchId: string, userId: string): Promise<void> {
+	try {
+		const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+		const response = await fetch(`${apiUrl}/api/matches/${matchId}/leave`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${WS_API_KEY}`,
+			},
+			body: JSON.stringify({ userId }),
+		});
+
+		if (!response.ok) {
+			console.warn(`[WS] Failed to notify player disconnect for ${userId} in match ${matchId}: ${response.status}`);
+		} else {
+			console.log(`[WS] Notified API of player ${userId} disconnect from match ${matchId}`);
+		}
+	} catch (error) {
+		console.error(`[WS] Error notifying player disconnect:`, error);
+	}
+}
+
+export async function notifyLobbyPlayerDisconnected(lobbyId: string, userId: string): Promise<void> {
+	try {
+		const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+		const response = await fetch(`${apiUrl}/api/lobbies/${lobbyId}/leave`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${WS_API_KEY}`,
+			},
+			body: JSON.stringify({ userId }),
+		});
+
+		if (!response.ok) {
+			console.warn(`[WS] Failed to notify player disconnect for ${userId} in lobby ${lobbyId}: ${response.status}`);
+		} else {
+			console.log(`[WS] Notified API of player ${userId} disconnect from lobby ${lobbyId}`);
+		}
+	} catch (error) {
+		console.error(`[WS] Error notifying lobby player disconnect:`, error);
+	}
+}
+
+export function handleJoinLobby(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
+	if (msg.payload.case !== "joinLobby" || !msg.payload.value) return;
+	const { lobbyId, userId, username } = msg.payload.value;
+
+	ws.data.lobbyId = lobbyId;
+	ws.data.userId = userId;
+	ws.data.username = username;
+
+	if (!userConnections.has(userId)) {
+		userConnections.set(userId, new Set());
+	}
+	userConnections.get(userId)!.add(ws.data.id);
+
+	console.log(`[WS] Player ${username} (${userId}) joined lobby ${lobbyId}`);
+}
+
+export function handleLeaveLobby(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
+	if (msg.payload.case !== "leaveLobby" || !msg.payload.value) return;
+	const { lobbyId, userId } = msg.payload.value;
+
+	ws.data.lobbyId = null;
+
+	const userConns = userConnections.get(userId);
+	if (userConns) {
+		userConns.delete(ws.data.id);
+		if (userConns.size === 0) {
+			userConnections.delete(userId);
+		}
+	}
+
+	console.log(`[WS] Player ${userId} left lobby ${lobbyId}`);
+}
+
 async function fetchMatchConfig(matchId: string): Promise<MatchConfigCache | null> {
 	const cached = matchConfigs.get(matchId);
 	if (cached) return cached;

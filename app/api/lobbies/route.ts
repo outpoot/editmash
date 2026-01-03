@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createLobby, listLobbies, ensureSystemLobbiesExist, cleanupStaleMatches } from "@/lib/storage";
+import { createLobby, listLobbies, ensureSystemLobbiesExist, cleanupStaleMatches, getPlayerActiveLobby } from "@/lib/storage";
 import { validateMatchConfig } from "@/lib/clipConstraints";
 import { DEFAULT_MATCH_CONFIG, MatchConfig } from "@/app/types/match";
 import { CreateLobbyRequest, CreateLobbyResponse, LobbyListResponse, LobbyStatus } from "@/app/types/lobby";
@@ -20,6 +20,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<CreateLob
 		}
 
 		const userId = session.user.id;
+
+		const existingLobby = await getPlayerActiveLobby(userId);
+		if (existingLobby) {
+			return NextResponse.json({ 
+				error: `You are already in lobby "${existingLobby.lobbyName}". Leave it first to create a new one.`,
+				activeLobby: existingLobby
+			}, { status: 400 });
+		}
 
 		const matchConfig: MatchConfig = {
 			...DEFAULT_MATCH_CONFIG,
