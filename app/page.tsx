@@ -615,6 +615,21 @@ export default function MatchmakingPage() {
 					)}
 				</div>
 			</main>
+
+			<footer className="fixed bottom-4 right-4 flex gap-4 text-xs text-muted-foreground">
+				<a href="/help" className="hover:text-foreground transition-colors">
+					Help
+				</a>
+				<a href="/terms" className="hover:text-foreground transition-colors">
+					Terms
+				</a>
+				<a href="/privacy" className="hover:text-foreground transition-colors">
+					Privacy
+				</a>
+				<a href="https://discord.gg/editmash" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">
+					Discord
+				</a>
+			</footer>
 		</div>
 	);
 }
