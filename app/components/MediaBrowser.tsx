@@ -291,9 +291,7 @@ export default function MediaBrowser() {
 					uploaderName: username ?? undefined,
 				};
 
-
-					);
-				}
+				mediaStore.addItem(mediaItem);
 
 				// upload to server
 				try {
