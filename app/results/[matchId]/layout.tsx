@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 			const images = match.renderUrl
 				? [{ url: match.renderUrl.replace(/\.mp4$/, "_thumb.jpg"), width: 1280, height: 720, alt: match.lobbyName }]
-				: undefined;
+				: [{ url: "/apple-touch-icon.png", width: 512, height: 512, alt: "EditMash Logo" }];
 
 			return {
 				title,

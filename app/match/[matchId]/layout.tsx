@@ -25,10 +25,19 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 				openGraph: {
 					title,
 					description,
+					images: [
+						{
+							url: "/apple-touch-icon.png",
+							width: 512,
+							height: 512,
+							alt: "EditMash Logo",
+						},
+					],
 				},
 				twitter: {
 					title,
 					description,
+					images: ["/thumbnail.png"],
 				},
 				robots: {
 					index: false,
