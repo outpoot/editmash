@@ -20,6 +20,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<CreateLob
 			return NextResponse.json({ error: "Lobby name is required" }, { status: 400 });
 		}
 
+		if (body.name.trim().length > 32) {
+			return NextResponse.json({ error: "Lobby name must be 32 characters or less" }, { status: 400 });
+		}
+
 		const isAppropriate = await isNameAppropriate(body.name);
 		if (!isAppropriate) {
 			return NextResponse.json({ error: "Lobby name contains inappropriate content" }, { status: 400 });
