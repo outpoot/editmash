@@ -392,7 +392,6 @@ export default function AccountPage() {
 											onChange={(e) => setNewName(e.target.value)}
 											placeholder="Enter your name"
 											className="flex-1"
-											maxLength={100}
 											autoFocus
 											maxLength={32}
 										/>
