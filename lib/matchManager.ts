@@ -245,6 +245,7 @@ async function triggerRender(matchId: string): Promise<void> {
 		const proxiedUrl = `/api/media/${encodeURIComponent(uploadedFile.fileName)}`;
 		await storage.updateMatchRender(matchId, undefined, proxiedUrl);
 		await storage.updateMatchStatus(matchId, "completed");
+		await storage.updateLobbyMatchId(match.lobbyId, matchId);
 
 		await fs.unlink(outputPath).catch(() => {});
 
@@ -271,6 +272,7 @@ async function triggerRender(matchId: string): Promise<void> {
 		const proxiedUrl = `/api/media/${encodeURIComponent(uploadedFile.fileName)}`;
 		await storage.updateMatchRender(matchId, matchId, proxiedUrl);
 		await storage.updateMatchStatus(matchId, "completed");
+		await storage.updateLobbyMatchId(match.lobbyId, matchId);
 
 		await fs.unlink(outputPath).catch(() => {});
 

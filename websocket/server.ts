@@ -64,7 +64,7 @@ import {
 	handleJoinLobby,
 	handleLeaveLobby,
 } from "./handlers";
-import { secureCompare } from "@/lib/security";
+import { secureCompare } from "../lib/security";
 
 function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | Buffer | ArrayBuffer): void {
 	try {

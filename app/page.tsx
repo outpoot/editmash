@@ -20,6 +20,7 @@ import { LobbyListItemWithConfig, LobbyStatus } from "./types/lobby";
 import { MatchConfig, DEFAULT_MATCH_CONFIG } from "./types/match";
 import { MatchModifierBadges } from "./components/MatchModifierBadges";
 import { UserMenu } from "./components/UserMenu";
+import { DataUsageWarning } from "./components/DataUsageWarning";
 import { isLobbiesUpdateMessage, serializeMessage, deserializeMessage, createSubscribeLobbiesMessage } from "@/websocket/types";
 
 export default function MatchmakingPage() {
@@ -618,6 +619,8 @@ export default function MatchmakingPage() {
 					)}
 				</div>
 			</main>
+
+			<DataUsageWarning />
 
 			<footer className="fixed bottom-4 right-4 flex gap-4 text-xs text-muted-foreground">
 				<a href="/help" className="hover:text-foreground transition-colors">

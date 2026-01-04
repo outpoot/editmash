@@ -37,6 +37,7 @@ COPY websocket/*.ts ./websocket/
 
 COPY src/gen ./src/gen
 COPY lib/clipConstraints.ts ./lib/clipConstraints.ts
+COPY lib/security.ts ./lib/security.ts
 
 RUN bun add -d bun-types @bufbuild/protobuf
 
@@ -66,6 +67,7 @@ COPY websocket/tsconfig.json ./
 COPY websocket/*.ts ./
 COPY src/gen /src/gen
 COPY lib/clipConstraints.ts /lib/clipConstraints.ts
+COPY lib/security.ts /lib/security.ts
 
 # Install dependencies
 RUN bun add -d bun-types @bufbuild/protobuf

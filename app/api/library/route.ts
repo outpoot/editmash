@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { matches, videoLikes, matchPlayers } from "@/lib/db/schema";
+import { matches, videoLikes, matchPlayers, lobbies } from "@/lib/db/schema";
 import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
@@ -46,8 +46,10 @@ export async function GET(request: NextRequest) {
 			timelineJson: matches.timelineJson,
 			likeCount: sql<number>`COALESCE(${likesSubquery.likeCount}, 0)`,
 			liked: userLikeSubquery ? sql<boolean>`COALESCE(${userLikeSubquery.liked}, false)` : sql<boolean>`false`,
+			joinCode: lobbies.joinCode,
 		})
 		.from(matches)
+		.innerJoin(lobbies, eq(matches.lobbyId, lobbies.id))
 		.leftJoin(likesSubquery, eq(matches.id, likesSubquery.matchId))
 		.where(and(eq(matches.status, "completed"), sql`${matches.renderUrl} IS NOT NULL`))
 		.limit(limit)
@@ -87,10 +89,12 @@ export async function GET(request: NextRequest) {
 			timelineJson: TimelineState;
 			likeCount: number;
 			liked: boolean;
+			joinCode: string;
 		}) => {
 			const contentDuration = r.timelineJson?.tracks?.length ? calculateContentDuration(r.timelineJson) : 0;
 			return {
 				id: r.id,
+				joinCode: r.joinCode,
 				lobbyName: r.lobbyName,
 				renderUrl: r.renderUrl,
 				completedAt: r.completedAt,

@@ -693,6 +693,12 @@ export async function updateMatchRender(matchId: string, renderJobId?: string, r
 		.where(eq(matches.id, matchId));
 }
 
+export async function updateLobbyMatchId(lobbyId: string, matchId: string): Promise<void> {
+	const database = db();
+
+	await database.update(lobbies).set({ matchId, updatedAt: new Date() }).where(eq(lobbies.id, lobbyId));
+}
+
 export async function markPlayerDisconnected(matchId: string, userId: string): Promise<void> {
 	const database = db();
 

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMatchById, updateMatchTimeline } from "@/lib/storage";
+import { getMatchById, getMatchByIdInternal, updateMatchTimeline } from "@/lib/storage";
 import { MatchStateResponse } from "@/app/types/match";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
 import type { TimelineState } from "@/app/types/timeline";
 import { secureCompare } from "@/lib/security";
+
+const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface RouteParams {
 	params: Promise<{
@@ -23,14 +23,15 @@ export async function GET(
 			return NextResponse.json({ error: "Match ID is required" }, { status: 400 });
 		}
 
-		const match = await getMatchById(matchId);
+		const url = new URL(request.url);
+		const isResultsRequest = url.searchParams.get("results") === "true" || request.headers.get("referer")?.includes("/results/");
+
+		const isUUID = regex.test(matchId);
+		const match = isUUID ? await getMatchByIdInternal(matchId) : await getMatchById(matchId);
 
 		if (!match) {
 			return NextResponse.json({ error: "Match not found" }, { status: 404 });
 		}
-
-		const url = new URL(request.url);
-		const isResultsRequest = url.searchParams.get("results") === "true" || request.headers.get("referer")?.includes("/results/");
 
 		if (!isResultsRequest && (match.status === "completed" || match.status === "rendering" || match.status === "failed")) {
 			return NextResponse.json({ redirect: `/results/${matchId}` });
@@ -64,7 +65,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 		}
 
-		const match = await getMatchById(matchId);
+		const isUUID = regex.test(matchId);
+		const match = isUUID ? await getMatchByIdInternal(matchId) : await getMatchById(matchId);
+
 		if (!match) {
 			return NextResponse.json({ error: "Match not found" }, { status: 404 });
 		}

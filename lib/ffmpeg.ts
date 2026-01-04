@@ -51,6 +51,7 @@ const getFFmpegPath = (): string => {
 
 let cachedFFmpegPath: string;
 
+const FFMPEG_THREADS = 2;
 const CANVAS_WIDTH = 1920;
 const CANVAS_HEIGHT = 1080;
 
@@ -520,6 +521,7 @@ export async function renderTimeline(
 					"-c:v libx264",
 					"-preset medium",
 					"-crf 23",
+					"-threads", FFMPEG_THREADS.toString(),
 					"-c:a aac",
 					"-b:a 192k",
 					"-pix_fmt yuv420p",
@@ -568,6 +570,7 @@ export async function renderTimeline(
 				"-c:v libx264",
 				"-preset medium",
 				"-crf 23",
+				"-threads", FFMPEG_THREADS.toString(),
 				"-c:a aac",
 				"-b:a 192k",
 				"-r 30", // 30 fps

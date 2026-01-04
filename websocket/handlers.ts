@@ -66,6 +66,15 @@ export async function fetchLobbies() {
 			fetch(`${apiUrl}/api/lobbies?status=in_match`),
 		]);
 		console.log(`[WS] Response status - waiting: ${waitingRes.status}, inMatch: ${inMatchRes.status}`);
+		
+		if (!waitingRes.ok) {
+			const errorText = await waitingRes.text();
+			console.error(`[WS] Waiting lobbies error (${waitingRes.status}):`, errorText.substring(0, 500));
+		}
+		if (!inMatchRes.ok) {
+			const errorText = await inMatchRes.text();
+			console.error(`[WS] In-match lobbies error (${inMatchRes.status}):`, errorText.substring(0, 500));
+		}
 
 		const lobbies: {
 			id: string;

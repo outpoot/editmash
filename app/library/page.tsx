@@ -7,12 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, FavouriteIcon, Calendar03Icon, UserGroupIcon, Video01Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowLeft02Icon, ArrowRight02Icon, FavouriteIcon, Calendar03Icon, UserGroupIcon, Video01Icon } from "@hugeicons/core-free-icons";
 import { UserMenu } from "../components/UserMenu";
 
 interface LibraryVideo {
 	id: string;
+	joinCode: string;
 	lobbyName: string;
 	renderUrl: string;
 	completedAt: string;
@@ -23,31 +25,39 @@ interface LibraryVideo {
 	playerCount: number;
 }
 
+const VIDEOS_PER_PAGE = 20;
+
 export default function LibraryPage() {
 	const router = useRouter();
 	const [videos, setVideos] = useState<LibraryVideo[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const [sortBy, setSortBy] = useState<"date" | "likes">("date");
+	const [currentPage, setCurrentPage] = useState(1);
+	const [hasMore, setHasMore] = useState(true);
 
 	const fetchVideos = useCallback(async () => {
 		try {
-			const response = await fetch(`/api/library?sort=${sortBy}`);
+			const offset = (currentPage - 1) * VIDEOS_PER_PAGE;
+			const response = await fetch(`/api/library?sort=${sortBy}&limit=${VIDEOS_PER_PAGE}&offset=${offset}`);
 			if (!response.ok) throw new Error("Failed to fetch library");
 			const data = await response.json();
 			setVideos(data.videos);
+			setHasMore(data.videos.length === VIDEOS_PER_PAGE);
 		} catch (err) {
 			toast.error("Failed to load library");
 		} finally {
 			setIsLoading(false);
 		}
-	}, [sortBy]);
+	}, [sortBy, currentPage]);
 
 	useEffect(() => {
-		if (videos.length === 0) {
-			setIsLoading(true);
-		}
+		setIsLoading(true);
 		fetchVideos();
 	}, [fetchVideos]);
+
+	useEffect(() => {
+		setCurrentPage(1);
+	}, [sortBy]);
 
 	const handleLike = async (matchId: string, e: React.MouseEvent) => {
 		e.stopPropagation();
@@ -141,11 +151,51 @@ export default function LibraryPage() {
 						</div>
 					</Card>
 				) : (
-					<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-						{videos.map((video) => (
-							<VideoCard key={video.id} video={video} onLike={handleLike} formatDate={formatDate} />
-						))}
-					</div>
+					<>
+						<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+							{videos.map((video) => (
+								<VideoCard key={video.id} video={video} onLike={handleLike} formatDate={formatDate} />
+							))}
+						</div>
+
+						{(currentPage > 1 || hasMore) && (
+							<div className="mt-8">
+								<Pagination>
+									<PaginationContent>
+										<PaginationItem>
+											<Button
+												variant="ghost"
+												size="default"
+												onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+												disabled={currentPage === 1 || isLoading}
+												className="gap-1 px-2.5 sm:pl-2.5"
+												aria-label="Go to previous page"
+											>
+												<HugeiconsIcon icon={ArrowLeft02Icon} className="size-4" />
+												<span className="hidden sm:block">Previous</span>
+											</Button>
+										</PaginationItem>
+										<PaginationItem>
+											<span className="text-sm text-muted-foreground px-4">Page {currentPage}</span>
+										</PaginationItem>
+										<PaginationItem>
+											<Button
+												variant="ghost"
+												size="default"
+												onClick={() => setCurrentPage((p) => p + 1)}
+												disabled={!hasMore || isLoading}
+												className="gap-1 px-2.5 sm:pr-2.5"
+												aria-label="Go to next page"
+											>
+												<span className="hidden sm:block">Next</span>
+												<HugeiconsIcon icon={ArrowRight02Icon} className="size-4" />
+											</Button>
+										</PaginationItem>
+									</PaginationContent>
+								</Pagination>
+							</div>
+						)}
+					</>
 				)}
 			</main>
 		</div>
@@ -166,7 +216,7 @@ function VideoCard({
 	return (
 		<Card
 			className="overflow-hidden hover:border-primary/20 transition-colors cursor-pointer group"
-			onClick={() => router.push(`/results/${video.id}`)}
+			onClick={() => router.push(`/results/${video.joinCode}`)}
 		>
 			<div className="aspect-video bg-black relative">
 				<video
