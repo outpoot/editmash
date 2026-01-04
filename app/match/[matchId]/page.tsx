@@ -104,7 +104,7 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 			const matchData = data as MatchResponse;
 
 			if (matchData.match.status === "completed" || matchData.match.status === "rendering" || matchData.match.status === "failed") {
-				router.push(`/results/${matchId}`);
+				router.push(`/results/${matchData.match.joinCode}`);
 				return;
 			}
 
@@ -179,6 +179,14 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 				lastServerSyncRef.current = Date.now();
 
 				if (data.status === "completed" || data.status === "completing" || data.status === "rendering" || data.status === "failed") {
+					const matchResponse = await fetch(`/api/matches/${matchId}`);
+					if (matchResponse.ok) {
+						const matchData = await matchResponse.json();
+						if (matchData.match?.joinCode) {
+							router.push(`/results/${matchData.match.joinCode}`);
+							return;
+						}
+					}
 					router.push(`/results/${matchId}`);
 				}
 			}
@@ -345,10 +353,14 @@ export default function MatchPage({ params }: { params: Promise<{ matchId: strin
 	const handleMatchStatusChange = useCallback(
 		(status: string) => {
 			if (status === "rendering" || status === "completed" || status === "completing" || status === "failed") {
-				router.push(`/results/${matchId}`);
+				if (match?.joinCode) {
+					router.push(`/results/${match.joinCode}`);
+				} else {
+					router.push(`/results/${matchId}`);
+				}
 			}
 		},
-		[matchId, router]
+		[matchId, match?.joinCode, router]
 	);
 
 	const handleTimelineSyncRequested = useCallback((): TimelineData | null => {

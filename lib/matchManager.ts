@@ -204,7 +204,7 @@ export async function completeMatch(matchId: string): Promise<{ success: boolean
 }
 
 async function triggerRender(matchId: string): Promise<void> {
-	const match = await storage.getMatchById(matchId);
+	const match = await storage.getMatchByIdInternal(matchId);
 	if (!match) {
 		throw new Error("Match not found");
 	}

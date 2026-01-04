@@ -381,7 +381,7 @@ function PlayerCard({ player, isHost, isCurrentUser }: { player: LobbyPlayer; is
 
 			<div className="w-full text-center">
 				<div className="flex items-center justify-center gap-1">
-					{isHost && <HugeiconsIcon icon={CrownIcon} className="w-3 h-3 text-amber-600 flex-shrink-0" />}
+					{isHost && <HugeiconsIcon icon={CrownIcon} className="w-3 h-3 text-amber-600 shrink-0" />}
 					<span className="text-xs font-medium truncate">{player.username}</span>
 				</div>
 			</div>

@@ -204,20 +204,20 @@ export default function MediaBrowser() {
 						uploaderName: username ?? undefined,
 					};
 
-					mediaStore.addItem(mediaItem);
+				mediaStore.addItem(mediaItem);
 
-					try {
-						const formData = new FormData();
-						formData.append("file", file);
+				try {
+					const formData = new FormData();
+					formData.append("file", file);
 
-						const xhr = new XMLHttpRequest();
+					const xhr = new XMLHttpRequest();
 
-						xhr.upload.addEventListener("progress", (e) => {
-							if (e.lengthComputable) {
-								const progress = Math.round((e.loaded / e.total) * 100);
-								mediaStore.updateItem(itemId, { uploadProgress: progress });
-							}
-						});
+					xhr.upload.addEventListener("progress", (e) => {
+						if (e.lengthComputable) {
+							const progress = Math.round((e.loaded / e.total) * 100);
+							mediaStore.updateItem(itemId, { uploadProgress: progress });
+						}
+					});
 
 						const uploadPromise = new Promise<{ url: string; fileId: string }>((resolve, reject) => {
 							xhr.addEventListener("load", () => {
@@ -274,18 +274,22 @@ export default function MediaBrowser() {
 
 			// video/audio
 			const element = type === "video" ? document.createElement("video") : document.createElement("audio");
-			element.src = tempUrl;
 			element.preload = "metadata";
 
-			element.addEventListener("loadedmetadata", async () => {
+			let uploadStarted = false;
+
+			const startUpload = async (duration?: number, width?: number, height?: number) => {
+				if (uploadStarted) return;
+				uploadStarted = true;
+
 				const mediaItem: MediaItem = {
 					id: itemId,
 					name: file.name,
 					type,
 					url: tempUrl,
-					duration: element.duration,
-					width: type === "video" ? (element as HTMLVideoElement).videoWidth : undefined,
-					height: type === "video" ? (element as HTMLVideoElement).videoHeight : undefined,
+					duration: duration ?? 0,
+					width,
+					height,
 					isUploading: true,
 					uploadedBy: playerId ?? undefined,
 					uploaderName: username ?? undefined,
@@ -355,7 +359,28 @@ export default function MediaBrowser() {
 
 					URL.revokeObjectURL(tempUrl);
 				}
+			};
+
+			element.addEventListener("loadedmetadata", () => {
+				const duration = element.duration;
+				const width = type === "video" ? (element as HTMLVideoElement).videoWidth : undefined;
+				const height = type === "video" ? (element as HTMLVideoElement).videoHeight : undefined;
+				startUpload(duration, width, height);
 			});
+
+			element.addEventListener("error", () => {
+				console.warn(`Failed to load metadata for ${file.name}, proceeding with upload anyway`);
+				startUpload(0, undefined, undefined);
+			});
+
+			setTimeout(() => {
+				if (!uploadStarted) {
+					console.warn(`Metadata load timeout for ${file.name}, proceeding with upload`);
+					startUpload(0, undefined, undefined);
+				}
+			}, 5000);
+
+			element.src = tempUrl;
 		}
 
 		if (fileInputRef.current) {

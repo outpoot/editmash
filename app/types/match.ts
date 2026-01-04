@@ -41,6 +41,7 @@ export interface Match {
 	id: string;
 	lobbyId: string;
 	lobbyName: string;
+	joinCode: string;
 	status: MatchStatus;
 	config: MatchConfig;
 	players: MatchPlayer[];
