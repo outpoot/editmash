@@ -484,10 +484,15 @@ export function handleLeaveMatch(ws: ServerWebSocket<WebSocketData>, msg: WSMess
 
 export function handleMediaUploaded(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
 	if (msg.payload.case !== "mediaUploaded" || !msg.payload.value) return;
-	const { matchId } = msg.payload.value;
+	const { matchId, media } = msg.payload.value;
 
 	if (ws.data.matchId !== matchId) {
 		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
+		return;
+	}
+
+	if (media?.name && media.name.length > 200) {
+		ws.send(serializeMessage(createErrorMessage("INVALID_MEDIA", "Media name too long")));
 		return;
 	}
 
@@ -516,6 +521,11 @@ export async function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: W
 
 	if (ws.data.matchId !== matchId) {
 		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
+		return;
+	}
+
+	if (clip?.name && clip.name.length > 200) {
+		ws.send(serializeMessage(createErrorMessage("INVALID_CLIP", "Clip name too long")));
 		return;
 	}
 
