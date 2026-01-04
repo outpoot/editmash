@@ -261,18 +261,22 @@ export default function MediaBrowser() {
 
 			// video/audio
 			const element = type === "video" ? document.createElement("video") : document.createElement("audio");
-			element.src = tempUrl;
 			element.preload = "metadata";
 
-			element.addEventListener("loadedmetadata", async () => {
+			let uploadStarted = false;
+
+			const startUpload = async (duration?: number, width?: number, height?: number) => {
+				if (uploadStarted) return;
+				uploadStarted = true;
+
 				const mediaItem: MediaItem = {
 					id: itemId,
 					name: file.name,
 					type,
 					url: tempUrl,
-					duration: element.duration,
-					width: type === "video" ? (element as HTMLVideoElement).videoWidth : undefined,
-					height: type === "video" ? (element as HTMLVideoElement).videoHeight : undefined,
+					duration: duration ?? 0,
+					width,
+					height,
 					isUploading: true,
 					uploadedBy: playerId ?? undefined,
 					uploaderName: username ?? undefined,
@@ -344,7 +348,28 @@ export default function MediaBrowser() {
 
 					URL.revokeObjectURL(tempUrl);
 				}
+			};
+
+			element.addEventListener("loadedmetadata", () => {
+				const duration = element.duration;
+				const width = type === "video" ? (element as HTMLVideoElement).videoWidth : undefined;
+				const height = type === "video" ? (element as HTMLVideoElement).videoHeight : undefined;
+				startUpload(duration, width, height);
 			});
+
+			element.addEventListener("error", () => {
+				console.warn(`Failed to load metadata for ${file.name}, proceeding with upload anyway`);
+				startUpload(0, undefined, undefined);
+			});
+
+			setTimeout(() => {
+				if (!uploadStarted) {
+					console.warn(`Metadata load timeout for ${file.name}, proceeding with upload`);
+					startUpload(0, undefined, undefined);
+				}
+			}, 5000);
+
+			element.src = tempUrl;
 		}
 
 		if (fileInputRef.current) {
