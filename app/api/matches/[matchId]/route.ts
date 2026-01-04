@@ -39,6 +39,17 @@ export async function GET(
 		}
 
 		if (isResultsRequest) {
+			let queuePosition: number | null = null;
+			let renderProgress: number | null = null;
+
+			if (match.renderJobId && match.status === "rendering") {
+				const job = await getJobById(match.renderJobId);
+				if (job) {
+					queuePosition = job.status === "pending" ? await getQueuePosition(match.renderJobId) : null;
+					renderProgress = job.status === "processing" ? job.progress : null;
+				}
+			}
+
 			return NextResponse.json({
 				match: {
 					id: match.id,
@@ -57,6 +68,8 @@ export async function GET(
 					createdAt: match.createdAt,
 					updatedAt: match.updatedAt,
 				},
+				queuePosition,
+				renderProgress,
 			});
 		}
 
