@@ -108,7 +108,7 @@ export async function startMatchFromLobby(
 
 			createdMatch = await storage.createMatch(lobbyId, lobby.name, lobby.matchConfig, lobby.players);
 
-			await storage.updateLobbyStatus(lobbyId, "starting", createdMatch);
+			await storage.updateLobbyStatus(lobbyId, "in_match", createdMatch);
 			await storage.updateMatchStatus(createdMatch, "active");
 
 			scheduleMatchCompletion(createdMatch, lobby.matchConfig.matchDuration * 60);
