@@ -132,8 +132,8 @@ export async function PATCH(request: Request) {
 			}
 
 			const trimmedName = name.trim();
-			if (trimmedName.length < 1 || trimmedName.length > 100) {
-				return NextResponse.json({ error: "Name must be between 1 and 100 characters" }, { status: 400 });
+			if (trimmedName.length < 1 || trimmedName.length > 32) {
+				return NextResponse.json({ error: "Name must be between 1 and 32 characters" }, { status: 400 });
 			}
 
 			const isAppropriate = await isNameAppropriate(trimmedName);

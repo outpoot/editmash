@@ -130,6 +130,11 @@ export default function AccountPage() {
 			return;
 		}
 
+		if (newName.trim().length > 32) {
+			toast.error("Name must be 32 characters or less");
+			return;
+		}
+
 		setIsSavingName(true);
 		try {
 			const response = await fetch("/api/user", {
@@ -389,6 +394,7 @@ export default function AccountPage() {
 											className="flex-1"
 											maxLength={100}
 											autoFocus
+											maxLength={32}
 										/>
 										<Button size="sm" onClick={handleSaveName} disabled={isSavingName}>
 											{isSavingName ? (
