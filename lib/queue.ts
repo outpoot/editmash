@@ -8,13 +8,15 @@ import os from "os";
 
 const JOBS_KEY = "render:jobs";
 const QUEUE_KEY = "render:queue";
-const PROCESSING_KEY = "render:processing";
-const PROCESSING_LOCK_TTL = 60;
+const ACTIVE_SLOTS_KEY = "render:active_slots";
+const SLOT_TTL = 60;
 const HEARTBEAT_INTERVAL = 15000;
+
+const MAX_SLOTS = Math.max(Math.floor(os.cpus().length / 2) - 4, 1);
 
 const global = globalThis as unknown as {
 	heartbeatInterval: NodeJS.Timeout | undefined;
-	currentLockToken: string | null;
+	currentSlotToken: string | null;
 };
 
 async function getJob(jobId: string): Promise<RenderJob | null> {
@@ -36,61 +38,66 @@ async function getAllJobsFromRedis(): Promise<RenderJob[]> {
 	return Object.values(allJobs).map((jobData) => JSON.parse(jobData) as RenderJob);
 }
 
-async function tryAcquireProcessingLock(): Promise<string | null> {
-	const token = `${process.pid}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-	const result = await getRedis().set(PROCESSING_KEY, token, "EX", PROCESSING_LOCK_TTL, "NX");
+async function getActiveSlotCount(): Promise<number> {
+	const now = Date.now();
+	await getRedis().zremrangebyscore(ACTIVE_SLOTS_KEY, 0, now - SLOT_TTL * 1000);
+	return await getRedis().zcard(ACTIVE_SLOTS_KEY);
+}
 
-	if (result === "OK") {
-		global.currentLockToken = token;
-		console.log(`Processing lock acquired with token: ${token}`);
+async function tryAcquireSlot(): Promise<string | null> {
+	const token = `${process.pid}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+	const now = Date.now();
+
+	await getRedis().zremrangebyscore(ACTIVE_SLOTS_KEY, 0, now - SLOT_TTL * 1000);
+
+	const luaScript = `
+		local activeCount = redis.call("ZCARD", KEYS[1])
+		local maxSlots = tonumber(ARGV[1])
+		if activeCount >= maxSlots then
+			return 0
+		end
+		redis.call("ZADD", KEYS[1], ARGV[2], ARGV[3])
+		return 1
+	`;
+
+	const result = await getRedis().eval(luaScript, 1, ACTIVE_SLOTS_KEY, MAX_SLOTS, now, token);
+
+	if (result === 1) {
+		global.currentSlotToken = token;
+		console.log(`Slot acquired with token: ${token} (${await getActiveSlotCount()}/${MAX_SLOTS} active)`);
 		return token;
 	}
 
 	return null;
 }
 
-async function releaseProcessingLock(token: string): Promise<boolean> {
+async function releaseSlot(token: string): Promise<boolean> {
 	if (!token) return false;
 
-	const luaScript = `
-		if redis.call("get", KEYS[1]) == ARGV[1] then
-			return redis.call("del", KEYS[1])
-		else
-			return 0
-		end
-	`;
-
-	const result = await getRedis().eval(luaScript, 1, PROCESSING_KEY, token);
+	const result = await getRedis().zrem(ACTIVE_SLOTS_KEY, token);
 
 	if (result === 1) {
-		console.log(`Processing lock released for token: ${token}`);
-		if (global.currentLockToken === token) {
-			global.currentLockToken = null;
+		console.log(`Slot released for token: ${token}`);
+		if (global.currentSlotToken === token) {
+			global.currentSlotToken = null;
 		}
 		return true;
 	}
 
-	console.warn(`Failed to release lock - token mismatch or already released`);
+	console.warn(`Failed to release slot - token not found`);
 	return false;
 }
 
-async function renewProcessingLock(token: string): Promise<void> {
+async function renewSlot(token: string): Promise<void> {
 	if (!token) return;
 
-	const luaScript = `
-		if redis.call("get", KEYS[1]) == ARGV[1] then
-			return redis.call("expire", KEYS[1], ARGV[2])
-		else
-			return 0
-		end
-	`;
+	const now = Date.now();
+	const result = await getRedis().zadd(ACTIVE_SLOTS_KEY, "XX", now, token);
 
-	const result = await getRedis().eval(luaScript, 1, PROCESSING_KEY, token, PROCESSING_LOCK_TTL);
-
-	if (result === 1) {
-		console.log(`Processing lock renewed for token: ${token}`);
+	if (result === 0) {
+		console.log(`Slot renewed for token: ${token}`);
 	} else {
-		console.warn(`Failed to renew lock - token mismatch or expired`);
+		console.warn(`Failed to renew slot - token not found`);
 	}
 }
 
@@ -98,8 +105,8 @@ function startHeartbeat(token: string): void {
 	stopHeartbeat();
 
 	global.heartbeatInterval = setInterval(() => {
-		renewProcessingLock(token).catch((err) => {
-			console.error("Error renewing processing lock:", err);
+		renewSlot(token).catch((err) => {
+			console.error("Error renewing slot:", err);
 		});
 	}, HEARTBEAT_INTERVAL);
 
@@ -128,6 +135,18 @@ async function popFromQueue(): Promise<string | null> {
 
 async function getQueueLength(): Promise<number> {
 	return await getRedis().llen(QUEUE_KEY);
+}
+
+export async function getQueuePosition(jobId: string): Promise<number | null> {
+	const job = await getJob(jobId);
+	if (!job || job.status !== "pending") return null;
+
+	const queue = await getRedis().lrange(QUEUE_KEY, 0, -1);
+	const queueIndex = queue.indexOf(jobId);
+	if (queueIndex === -1) return null;
+
+	const activeCount = await getActiveSlotCount();
+	return queueIndex + activeCount + 1;
 }
 
 export async function createRenderJob(job: Omit<RenderJob, "id" | "status" | "progress" | "createdAt">): Promise<RenderJob> {
@@ -174,32 +193,33 @@ async function processNextJob(): Promise<void> {
 		return;
 	}
 
-	let lockToken: string | null = null;
+	let slotToken: string | null = null;
 	let jobId: string | null = null;
 
 	try {
+		slotToken = await tryAcquireSlot();
+		if (!slotToken) {
+			console.log(`No slots available, retrying in 1 second...`);
+			setTimeout(() => processNextJob(), 1000);
+			return;
+		}
+
 		jobId = await popFromQueue();
 
 		if (!jobId) {
 			console.log(`No job found in queue`);
+			await releaseSlot(slotToken);
 			return;
 		}
 
 		const job = await getJob(jobId);
 		if (!job) {
 			console.warn(`Job ${jobId} not found in storage`);
+			await releaseSlot(slotToken);
 			return;
 		}
 
-		lockToken = await tryAcquireProcessingLock();
-		if (!lockToken) {
-			await getRedis().lpush(QUEUE_KEY, jobId);
-			console.log(`Lock acquisition failed, retrying in 1 second...`);
-			setTimeout(() => processNextJob(), 1000);
-			return;
-		}
-
-		startHeartbeat(lockToken);
+		startHeartbeat(slotToken);
 
 		await updateJob(jobId, { status: "processing", startedAt: Date.now() });
 
@@ -273,9 +293,9 @@ async function processNextJob(): Promise<void> {
 		}
 		console.error(`Error processing job:`, error);
 	} finally {
-		if (lockToken) {
+		if (slotToken) {
 			stopHeartbeat();
-			await releaseProcessingLock(lockToken);
+			await releaseSlot(slotToken);
 
 			const remainingJobs = await getQueueLength();
 			if (remainingJobs > 0) {
@@ -315,11 +335,11 @@ export async function deleteJob(jobId: string): Promise<boolean> {
 export async function gracefulShutdown(): Promise<void> {
 	stopHeartbeat();
 
-	if (global.currentLockToken) {
+	if (global.currentSlotToken) {
 		try {
-			await releaseProcessingLock(global.currentLockToken);
+			await releaseSlot(global.currentSlotToken);
 		} catch (error) {
-			console.error("Error releasing processing lock on shutdown:", error);
+			console.error("Error releasing slot on shutdown:", error);
 		}
 	}
 

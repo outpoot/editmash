@@ -23,6 +23,8 @@ import { Match } from "@/app/types/match";
 
 interface MatchResponse {
 	match: Match;
+	queuePosition: number | null;
+	renderProgress: number | null;
 }
 
 export default function ResultsPage({ params }: { params: Promise<{ matchId: string }> }) {
@@ -30,6 +32,8 @@ export default function ResultsPage({ params }: { params: Promise<{ matchId: str
 	const router = useRouter();
 
 	const [match, setMatch] = useState<Match | null>(null);
+	const [queuePosition, setQueuePosition] = useState<number | null>(null);
+	const [renderProgress, setRenderProgress] = useState<number | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
@@ -45,6 +49,8 @@ export default function ResultsPage({ params }: { params: Promise<{ matchId: str
 			}
 			const data: MatchResponse = await response.json();
 			setMatch(data.match);
+			setQueuePosition(data.queuePosition);
+			setRenderProgress(data.renderProgress);
 			setError(null);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to load match");
@@ -111,7 +117,7 @@ export default function ResultsPage({ params }: { params: Promise<{ matchId: str
 								<CardTitle>Results</CardTitle>
 							</CardHeader>
 							<CardContent>
-								<RenderStatus match={match} />
+								<RenderStatus match={match} queuePosition={queuePosition} renderProgress={renderProgress} />
 							</CardContent>
 						</Card>
 					</div>
@@ -175,14 +181,31 @@ export default function ResultsPage({ params }: { params: Promise<{ matchId: str
 	);
 }
 
-function RenderStatus({ match }: { match: Match }) {
+function RenderStatus({ match, queuePosition, renderProgress }: { match: Match; queuePosition: number | null; renderProgress: number | null }) {
 	if (match.status === "rendering") {
 		return (
 			<div className="aspect-video bg-muted rounded-lg flex flex-col items-center justify-center gap-3">
 				<HugeiconsIcon icon={Loading03Icon} className="w-10 h-10 animate-spin text-primary" />
 				<div className="text-center">
-					<p className="text-sm font-medium">Rendering your video...</p>
-					<p className="text-xs text-muted-foreground">This may take a few minutes</p>
+					{queuePosition !== null ? (
+						<>
+							<p className="text-sm font-medium">Your position in the queue: {queuePosition}</p>
+							<p className="text-xs text-muted-foreground">Waiting for an available slot...</p>
+						</>
+					) : (
+						<>
+							<p className="text-sm font-medium">Rendering your video... {renderProgress !== null ? `${Math.round(renderProgress)}%` : ""}</p>
+							{renderProgress !== null && (
+								<div className="w-48 h-1.5 bg-muted-foreground/20 rounded-full mt-2 overflow-hidden">
+									<div
+										className="h-full bg-primary rounded-full transition-all duration-300"
+										style={{ width: `${renderProgress}%` }}
+									/>
+								</div>
+							)}
+							<p className="text-xs text-muted-foreground mt-1">This may take a few minutes</p>
+						</>
+					)}
 				</div>
 			</div>
 		);

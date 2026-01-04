@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getJobById } from "@/lib/queue";
+import { getJobById, getQueuePosition } from "@/lib/queue";
 import { RenderJobStatusResponse } from "@/app/types/render";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ jobId: string }> }) {
@@ -12,7 +12,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 			return NextResponse.json({ error: "Job not found" }, { status: 404 });
 		}
 
-		const response: RenderJobStatusResponse = { job };
+		const queuePosition = await getQueuePosition(jobId);
+
+		const response: RenderJobStatusResponse = { job, queuePosition };
 
 		return NextResponse.json(response);
 	} catch (error) {

@@ -114,6 +114,8 @@ export interface MatchStateResponse {
 	match: Match;
 	timeline: TimelineState;
 	timeRemaining: number | null;
+	queuePosition: number | null;
+	renderProgress: number | null;
 }
 
 export interface ClipEditOperation {

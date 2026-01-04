@@ -3,6 +3,7 @@ import { getMatchById, getMatchByIdInternal, updateMatchTimeline } from "@/lib/s
 import { MatchStateResponse } from "@/app/types/match";
 import type { TimelineState } from "@/app/types/timeline";
 import { secureCompare } from "@/lib/security";
+import { getQueuePosition, getJobById } from "@/lib/queue";
 
 const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -42,10 +43,22 @@ export async function GET(
 			timeRemaining = Math.max(0, (match.endsAt.getTime() - Date.now()) / 1000);
 		}
 
+		let queuePosition: number | null = null;
+		let renderProgress: number | null = null;
+		if (match.renderJobId && match.status === "rendering") {
+			const job = await getJobById(match.renderJobId);
+			if (job) {
+				queuePosition = job.status === "pending" ? await getQueuePosition(match.renderJobId) : null;
+				renderProgress = job.status === "processing" ? job.progress : null;
+			}
+		}
+
 		return NextResponse.json({
 			match,
 			timeline: match.timeline,
 			timeRemaining,
+			queuePosition,
+			renderProgress,
 		});
 	} catch (error) {
 		console.error("Error getting match:", error);
