@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
   experimental: {
     proxyClientMaxBodySize: "50mb",
   },
+  turbopack: {},
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.devtool = false;
