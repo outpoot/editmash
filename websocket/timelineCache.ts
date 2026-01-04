@@ -4,6 +4,7 @@ import {
 	matchClipIdMaps,
 	matchConfigs,
 	matchPlayerClipCounts,
+	matchEditCounts,
 	pendingBatches,
 	matchMessageQueues,
 	activeVoteKicks,
@@ -109,6 +110,7 @@ export function cleanupMatchResources(matchId: string): void {
 	matchClipIdMaps.delete(matchId);
 	matchConfigs.delete(matchId);
 	matchPlayerClipCounts.delete(matchId);
+	matchEditCounts.delete(matchId);
 	matchMessageQueues.delete(matchId);
 	activeVoteKicks.delete(matchId);
 	matchBannedUsers.delete(matchId);

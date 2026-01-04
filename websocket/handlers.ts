@@ -8,6 +8,7 @@ import {
 	matchConfigs,
 	matchPlayerClipCounts,
 	matchPlayerInfos,
+	matchEditCounts,
 	chatRateLimits,
 	userConnections,
 	activeVoteKicks,
@@ -589,6 +590,9 @@ export async function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: W
 		if (userId) {
 			incrementPlayerClipCount(matchId, userId);
 		}
+
+		const currentEditCount = matchEditCounts.get(matchId) ?? 0;
+		matchEditCounts.set(matchId, currentEditCount + 1);
 	}
 
 	broadcast(matchId, msg, ws.data.id);
@@ -636,6 +640,9 @@ export async function handleClipUpdated(ws: ServerWebSocket<WebSocketData>, msg:
 			...(updates.thumbnail && { thumbnail: updates.thumbnail }),
 			...(updates.properties && { properties: { ...updates.properties } as Record<string, unknown> }),
 		});
+
+		const currentEditCount = matchEditCounts.get(matchId) ?? 0;
+		matchEditCounts.set(matchId, currentEditCount + 1);
 	}
 
 	broadcast(matchId, msg, ws.data.id);
@@ -658,6 +665,9 @@ export function handleClipRemoved(ws: ServerWebSocket<WebSocketData>, msg: WSMes
 	if (userId) {
 		decrementPlayerClipCount(matchId, userId);
 	}
+
+	const currentEditCount = matchEditCounts.get(matchId) ?? 0;
+	matchEditCounts.set(matchId, currentEditCount + 1);
 
 	broadcast(matchId, msg, ws.data.id);
 	requestTimelineSync(matchId);
@@ -712,6 +722,9 @@ export async function handleClipBatchUpdate(ws: ServerWebSocket<WebSocketData>, 
 			}
 		}
 	}
+
+	const currentEditCount = matchEditCounts.get(matchId) ?? 0;
+	matchEditCounts.set(matchId, currentEditCount + updates.length);
 
 	broadcast(matchId, msg, ws.data.id);
 	requestTimelineSync(matchId);
@@ -792,6 +805,9 @@ export async function handleClipSplit(ws: ServerWebSocket<WebSocketData>, msg: W
 		incrementPlayerClipCount(matchId, userId);
 	}
 
+	const currentEditCount = matchEditCounts.get(matchId) ?? 0;
+	matchEditCounts.set(matchId, currentEditCount + 1);
+
 	broadcast(matchId, msg, ws.data.id);
 
 	requestTimelineSync(matchId);
@@ -860,6 +876,8 @@ export async function handleTimelineSync(ws: ServerWebSocket<WebSocketData>, msg
 		matchTimelines.set(matchId, timelineJson);
 	}
 
+	const editCount = matchEditCounts.get(matchId) ?? 0;
+
 	try {
 		const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 		const response = await fetch(`${apiUrl}/api/matches/${matchId}`, {
@@ -868,7 +886,7 @@ export async function handleTimelineSync(ws: ServerWebSocket<WebSocketData>, msg
 				"Content-Type": "application/json",
 				Authorization: `Bearer ${WS_API_KEY}`,
 			},
-			body: JSON.stringify({ timeline: timelineJson }),
+			body: JSON.stringify({ timeline: timelineJson, editCount }),
 		});
 
 		if (response.ok) {

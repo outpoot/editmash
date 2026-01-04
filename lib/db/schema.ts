@@ -200,20 +200,6 @@ export const matchMedia = pgTable(
 	]
 );
 
-export const clipEditOperations = pgTable("clip_edit_operations", {
-	id: uuid("id").primaryKey().defaultRandom(),
-	matchId: uuid("match_id")
-		.notNull()
-		.references(() => matches.id, { onDelete: "cascade" }),
-	playerId: text("player_id").notNull(),
-	operationType: text("operation_type").$type<"add" | "update" | "remove">().notNull(),
-	clipId: text("clip_id").notNull(),
-	trackId: text("track_id").notNull(),
-	clipDataJson: jsonb("clip_data"),
-	previousDataJson: jsonb("previous_data"),
-	createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-
 export const lobbiesRelations = relations(lobbies, ({ many, one }) => ({
 	players: many(lobbyPlayers),
 	match: one(matches, {
@@ -236,7 +222,6 @@ export const lobbyPlayersRelations = relations(lobbyPlayers, ({ one }) => ({
 export const matchesRelations = relations(matches, ({ many, one }) => ({
 	players: many(matchPlayers),
 	media: many(matchMedia),
-	editOperations: many(clipEditOperations),
 	lobby: one(lobbies, {
 		fields: [matches.lobbyId],
 		references: [lobbies.id],
@@ -262,13 +247,6 @@ export const matchMediaRelations = relations(matchMedia, ({ one }) => ({
 	uploader: one(user, {
 		fields: [matchMedia.uploadedBy],
 		references: [user.id],
-	}),
-}));
-
-export const clipEditOperationsRelations = relations(clipEditOperations, ({ one }) => ({
-	match: one(matches, {
-		fields: [clipEditOperations.matchId],
-		references: [matches.id],
 	}),
 }));
 
@@ -316,9 +294,6 @@ export type NewMatchRecord = typeof matches.$inferInsert;
 
 export type MatchPlayerRecord = typeof matchPlayers.$inferSelect;
 export type NewMatchPlayerRecord = typeof matchPlayers.$inferInsert;
-
-export type ClipEditOperationRecord = typeof clipEditOperations.$inferSelect;
-export type NewClipEditOperationRecord = typeof clipEditOperations.$inferInsert;
 
 export type MatchMediaRecord = typeof matchMedia.$inferSelect;
 export type NewMatchMediaRecord = typeof matchMedia.$inferInsert;
