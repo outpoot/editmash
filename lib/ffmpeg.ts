@@ -536,7 +536,7 @@ export async function renderTimeline(
 					"-c:a aac",
 					"-b:a 192k",
 					"-pix_fmt yuv420p",
-				  "-movflags", "+faststart",
+				    "-movflags", "+faststart",
 					"-t", String(timeline.duration || 1)
 				])
 				.output(outputPath);
