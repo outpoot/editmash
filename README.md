@@ -227,4 +227,5 @@ Before you begin, make sure you have the following installed:
 
 This project is licensed under the **Creative Commons Attribution-NonCommercial 4.0 International** License (**CC BY-NC 4.0**). See the [LICENSE](LICENSE) file for details.
 
-Made by [FaceDev](https://youtube.com/@FaceDevStuff) (:
+Made by [FaceDev](https://youtube.com/@FaceDevStuff) (:  
+Thank you to [furstxd](https://github.com/furstxd) for contributing to this project with a pull request :D
