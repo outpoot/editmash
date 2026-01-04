@@ -363,7 +363,8 @@ function buildComplexFilter(
 	timeline: TimelineState,
 	videoTracks: Track[],
 	audioTracks: Track[],
-	inputFileMap: Map<string, number>
+	inputFileMap: Map<string, number>,
+	watermarkInputIndex?: number
 ): string {
 	const filterChains: string[] = [];
 	const duration = timeline.duration || 1;
@@ -404,14 +405,14 @@ function buildComplexFilter(
 	filterChains.push(`color=c=black:s=${CANVAS_WIDTH}x${CANVAS_HEIGHT}:d=${duration}:r=30[base]`);
 
 	if (timelineSegments.length === 0) {
-		filterChains.push(`[base]copy[vout]`);
+		filterChains.push(`[base]copy[prewater]`);
 	} else {
 		timelineSegments.sort((a, b) => b.trackIndex - a.trackIndex);
 
 		let currentBase = "base";
 		timelineSegments.forEach((segment, idx) => {
 			const { label, clip } = segment;
-			const outputLabel = idx === timelineSegments.length - 1 ? "vout" : `overlay${idx}`;
+			const outputLabel = idx === timelineSegments.length - 1 ? "prewater" : `overlay${idx}`;
 
 			const { x, y } = calculateOverlayPosition(clip);
 
@@ -422,6 +423,12 @@ function buildComplexFilter(
 			filterChains.push(overlayFilter);
 			currentBase = outputLabel;
 		});
+	}
+
+	if (watermarkInputIndex !== undefined) {
+		filterChains.push(`[prewater][${watermarkInputIndex}:v]overlay=0:0[vout]`);
+	} else {
+		filterChains.push(`[prewater]copy[vout]`);
 	}
 
 	const audioOutputs: string[] = [];
@@ -487,6 +494,11 @@ export async function renderTimeline(
 		}
 	});
 
+	const watermarkPath = path.join(process.cwd(), "public", "watermark.png");
+	const watermarkInputIndex = inputIndex;
+	inputFiles.push(watermarkPath);
+	console.log(`[FFmpeg] Watermark input ${watermarkInputIndex}: ${watermarkPath}`);
+
 	if (!cachedFFmpegPath) cachedFFmpegPath = getFFmpegPath();
 	const ffmpegPath = cachedFFmpegPath;
 
@@ -496,11 +508,23 @@ export async function renderTimeline(
 			command.setFfmpegPath(ffmpegPath);
 
 			command
-			.input(`color=c=black:s=1920x1080:r=30:d=${timeline.duration || 1}`)
+				.input(`color=c=black:s=1920x1080:r=30:d=${timeline.duration || 1}`)
 				.inputOptions(["-f", "lavfi"])
+				.input(watermarkPath)
 				.input(`anullsrc=channel_layout=stereo:sample_rate=48000:d=${timeline.duration || 1}`)
 				.inputOptions(["-f", "lavfi"])
-				.outputOptions(["-c:v libx264", "-preset medium", "-crf 23", "-c:a aac", "-b:a 192k", "-pix_fmt yuv420p", "-shortest"])
+				.complexFilter("[0:v][1:v]overlay=0:0[vout]")
+				.outputOptions([
+					"-map", "[vout]",
+					"-map", "2:a",
+					"-c:v libx264",
+					"-preset medium",
+					"-crf 23",
+					"-c:a aac",
+					"-b:a 192k",
+					"-pix_fmt yuv420p",
+					"-shortest"
+				])
 				.output(outputPath);
 
 			command.on("progress", (progress) => {
@@ -525,7 +549,7 @@ export async function renderTimeline(
 		}
 
 		const timelineForRender = { ...timeline, duration: renderDuration };
-		const complexFilter = buildComplexFilter(timelineForRender, videoTracks, audioTracks, inputFileMap);
+		const complexFilter = buildComplexFilter(timelineForRender, videoTracks, audioTracks, inputFileMap, watermarkInputIndex);
 
 		const command = ffmpeg();
 		command.setFfmpegPath(ffmpegPath);
