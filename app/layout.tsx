@@ -89,27 +89,6 @@ export const metadata: Metadata = {
 	other: {
 		"theme-color": "#1447e6",
 	},
-	openGraph: {
-		title: "EditMash",
-		description:
-			"EditMash is a multiplayer video editor where large groups of people collaborate in real time to make short, chaotic, and entertaining videos together. Players join timed, rule-based sessions with limits on clips and length, shaping a shared timeline before time runs out.",
-		images: [
-			{
-				url: "/thumbnail.png",
-				width: 1200,
-				height: 630,
-				alt: "EditMash - Multiplayer Video Editor",
-			},
-		],
-		type: "website",
-	},
-	twitter: {
-		card: "summary_large_image",
-		title: "EditMash",
-		description:
-			"EditMash is a multiplayer video editor where large groups of people collaborate in real time to make short, chaotic, and entertaining videos together. Players join timed, rule-based sessions with limits on clips and length, shaping a shared timeline before time runs out.",
-		images: ["/thumbnail.png"],
-	},
 };
 
 export default function RootLayout({
