@@ -309,7 +309,7 @@ export default function HelpPage() {
 								Can&apos;t find what you&apos;re looking for? Encountered a bug? Have a feature request?
 							</p>
 							<div className="flex flex-col gap-2">
-								<a href="https://discord.gg/editmash" target="_blank" rel="noopener noreferrer">
+								<a href="https://discord.gg/facedev" target="_blank" rel="noopener noreferrer">
 									<Button className="w-full" variant="default">
 										Join our Discord server
 									</Button>

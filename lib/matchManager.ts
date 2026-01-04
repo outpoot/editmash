@@ -1,9 +1,10 @@
 import { MatchStatus } from "../app/types/match";
 import { validateMatchConfig } from "./clipConstraints";
 import * as storage from "./storage";
-import { renderTimeline, downloadMediaFiles, cleanupTempFiles } from "./ffmpeg";
+import { renderTimeline, downloadMediaFiles, cleanupTempFiles, hasContentClips } from "./ffmpeg";
 import { uploadToB2 } from "./b2";
 import { getRedis } from "./redis";
+import { setRenderProgress } from "./queue";
 import { notifyWsServer } from "./wsNotify";
 import path from "path";
 import fs from "fs/promises";
@@ -108,7 +109,7 @@ export async function startMatchFromLobby(
 
 			createdMatch = await storage.createMatch(lobbyId, lobby.name, lobby.matchConfig, lobby.players);
 
-			await storage.updateLobbyStatus(lobbyId, "starting", createdMatch);
+			await storage.updateLobbyStatus(lobbyId, "in_match", createdMatch);
 			await storage.updateMatchStatus(createdMatch, "active");
 
 			scheduleMatchCompletion(createdMatch, lobby.matchConfig.matchDuration * 60);
@@ -204,7 +205,7 @@ export async function completeMatch(matchId: string): Promise<{ success: boolean
 }
 
 async function triggerRender(matchId: string): Promise<void> {
-	const match = await storage.getMatchById(matchId);
+	const match = await storage.getMatchByIdInternal(matchId);
 	if (!match) {
 		throw new Error("Match not found");
 	}
@@ -235,7 +236,7 @@ async function triggerRender(matchId: string): Promise<void> {
 	const outputFileName = `render_${matchId}.mp4`;
 	const outputPath = path.join(outputDir, outputFileName);
 
-	if (Object.keys(mediaUrls).length === 0) {
+	if (!hasContentClips(renderableTimeline)) {
 		await renderTimeline(renderableTimeline, new Map(), outputPath);
 
 		const outputBuffer = await fs.readFile(outputPath);
@@ -259,8 +260,9 @@ async function triggerRender(matchId: string): Promise<void> {
 
 		await storage.updateMatchRender(matchId, matchId);
 
-		await renderTimeline(renderableTimeline, fileMap, outputPath, (progress) => {
+		await renderTimeline(renderableTimeline, fileMap, outputPath, async (progress) => {
 			console.log(`[Match ${matchId}] Render progress: ${progress.toFixed(1)}%`);
+			await setRenderProgress(matchId, progress);
 		});
 
 		const outputBuffer = await fs.readFile(outputPath);

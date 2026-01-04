@@ -8,17 +8,26 @@ import {
 	matchConfigs,
 	matchPlayerClipCounts,
 	matchPlayerInfos,
+	matchEditCounts,
 	chatRateLimits,
 	userConnections,
+	activeVoteKicks,
+	matchBannedUsers,
+	matchChatHistory,
+	MAX_CHAT_HISTORY,
 	WS_API_KEY,
 	ZONE_BUFFER,
 	CHAT_RATE_LIMIT_WINDOW,
 	CHAT_RATE_LIMIT_MAX_MESSAGES,
 	CHAT_COOLDOWN_MS,
+	VOTE_KICK_DURATION_MS,
+	VOTE_KICK_THRESHOLD,
 	type WebSocketData,
 	type TimelineClip,
 	type MatchConfigCache,
 	type PlayerInfoCache,
+	type ActiveVoteKick,
+	type StoredChatMessage,
 } from "./state";
 import {
 	type WSMessage,
@@ -66,7 +75,7 @@ export async function fetchLobbies() {
 			fetch(`${apiUrl}/api/lobbies?status=in_match`),
 		]);
 		console.log(`[WS] Response status - waiting: ${waitingRes.status}, inMatch: ${inMatchRes.status}`);
-		
+
 		if (!waitingRes.ok) {
 			const errorText = await waitingRes.text();
 			console.error(`[WS] Waiting lobbies error (${waitingRes.status}):`, errorText.substring(0, 500));
@@ -341,6 +350,12 @@ export async function handleJoinMatch(ws: ServerWebSocket<WebSocketData>, msg: W
 	if (msg.payload.case !== "joinMatch" || !msg.payload.value) return;
 	const { matchId, userId, username, userImage, highlightColor } = msg.payload.value;
 
+	const bannedUsers = matchBannedUsers.get(matchId);
+	if (bannedUsers && bannedUsers.has(userId)) {
+		ws.send(serializeMessage(createErrorMessage("VOTE_KICKED", "You have been vote kicked from this match and cannot rejoin.")));
+		return;
+	}
+
 	if (ws.data.matchId) {
 		handleLeaveMatch(ws, createLeaveMatchMessage(ws.data.matchId, ws.data.userId!));
 	}
@@ -411,6 +426,26 @@ export async function handleJoinMatch(ws: ServerWebSocket<WebSocketData>, msg: W
 
 	const playerCount = matchPlayers.get(matchId)!.size;
 	ws.send(serializeMessage(createPlayerCountMessage(matchId, playerCount)));
+
+	const chatHistory = matchChatHistory.get(matchId);
+	if (chatHistory && chatHistory.length > 0) {
+		for (const msg of chatHistory) {
+			ws.send(
+				serializeMessage(
+					createChatBroadcast(
+						matchId,
+						msg.messageId,
+						msg.userId,
+						msg.username,
+						msg.userImage,
+						msg.highlightColor,
+						msg.message,
+						msg.timestamp
+					)
+				)
+			);
+		}
+	}
 
 	broadcast(matchId, createPlayerJoinedMessage(matchId, { userId, username }), ws.data.id);
 }
@@ -555,6 +590,9 @@ export async function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: W
 		if (userId) {
 			incrementPlayerClipCount(matchId, userId);
 		}
+
+		const currentEditCount = matchEditCounts.get(matchId) ?? 0;
+		matchEditCounts.set(matchId, currentEditCount + 1);
 	}
 
 	broadcast(matchId, msg, ws.data.id);
@@ -602,6 +640,9 @@ export async function handleClipUpdated(ws: ServerWebSocket<WebSocketData>, msg:
 			...(updates.thumbnail && { thumbnail: updates.thumbnail }),
 			...(updates.properties && { properties: { ...updates.properties } as Record<string, unknown> }),
 		});
+
+		const currentEditCount = matchEditCounts.get(matchId) ?? 0;
+		matchEditCounts.set(matchId, currentEditCount + 1);
 	}
 
 	broadcast(matchId, msg, ws.data.id);
@@ -624,6 +665,9 @@ export function handleClipRemoved(ws: ServerWebSocket<WebSocketData>, msg: WSMes
 	if (userId) {
 		decrementPlayerClipCount(matchId, userId);
 	}
+
+	const currentEditCount = matchEditCounts.get(matchId) ?? 0;
+	matchEditCounts.set(matchId, currentEditCount + 1);
 
 	broadcast(matchId, msg, ws.data.id);
 	requestTimelineSync(matchId);
@@ -678,6 +722,9 @@ export async function handleClipBatchUpdate(ws: ServerWebSocket<WebSocketData>, 
 			}
 		}
 	}
+
+	const currentEditCount = matchEditCounts.get(matchId) ?? 0;
+	matchEditCounts.set(matchId, currentEditCount + updates.length);
 
 	broadcast(matchId, msg, ws.data.id);
 	requestTimelineSync(matchId);
@@ -758,6 +805,9 @@ export async function handleClipSplit(ws: ServerWebSocket<WebSocketData>, msg: W
 		incrementPlayerClipCount(matchId, userId);
 	}
 
+	const currentEditCount = matchEditCounts.get(matchId) ?? 0;
+	matchEditCounts.set(matchId, currentEditCount + 1);
+
 	broadcast(matchId, msg, ws.data.id);
 
 	requestTimelineSync(matchId);
@@ -826,6 +876,8 @@ export async function handleTimelineSync(ws: ServerWebSocket<WebSocketData>, msg
 		matchTimelines.set(matchId, timelineJson);
 	}
 
+	const editCount = matchEditCounts.get(matchId) ?? 0;
+
 	try {
 		const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 		const response = await fetch(`${apiUrl}/api/matches/${matchId}`, {
@@ -834,7 +886,7 @@ export async function handleTimelineSync(ws: ServerWebSocket<WebSocketData>, msg
 				"Content-Type": "application/json",
 				Authorization: `Bearer ${WS_API_KEY}`,
 			},
-			body: JSON.stringify({ timeline: timelineJson }),
+			body: JSON.stringify({ timeline: timelineJson, editCount }),
 		});
 
 		if (response.ok) {
@@ -961,10 +1013,38 @@ export function handleChatMessage(ws: ServerWebSocket<WebSocketData>, msg: WSMes
 	const sanitizedMessage = message.trim().slice(0, 200);
 	if (!sanitizedMessage) return;
 
+	if (sanitizedMessage.toLowerCase().startsWith("!kick ")) {
+		handleKickCommand(matchId, userId, username, sanitizedMessage.slice(6).trim());
+		return;
+	}
+
+	const lowerMessage = sanitizedMessage.toLowerCase();
+	if (lowerMessage === "y" || lowerMessage === "yes") {
+		handleVoteResponse(matchId, userId, username, true);
+		return;
+	}
+
 	const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 	const userImage = ws.data.userImage ?? undefined;
 	const highlightColor = ws.data.highlightColor ?? "#3b82f6";
 	const timestamp = BigInt(Date.now());
+
+	if (!matchChatHistory.has(matchId)) {
+		matchChatHistory.set(matchId, []);
+	}
+	const history = matchChatHistory.get(matchId)!;
+	history.push({
+		messageId,
+		userId,
+		username,
+		userImage,
+		highlightColor,
+		message: sanitizedMessage,
+		timestamp,
+	});
+	if (history.length > MAX_CHAT_HISTORY) {
+		history.shift();
+	}
 
 	const broadcastMsg = createChatBroadcast(matchId, messageId, userId, username, userImage, highlightColor, sanitizedMessage, timestamp);
 
@@ -976,6 +1056,259 @@ export function handleChatMessage(ws: ServerWebSocket<WebSocketData>, msg: WSMes
 			if (playerWs && playerWs.readyState === 1) {
 				playerWs.send(msgBytes);
 			}
+		}
+	}
+}
+
+function broadcastSystemMessage(matchId: string, message: string): void {
+	const players = matchPlayers.get(matchId);
+	if (!players) return;
+
+	const messageId = `sys_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+	const timestamp = BigInt(Date.now());
+
+	if (!matchChatHistory.has(matchId)) {
+		matchChatHistory.set(matchId, []);
+	}
+	const history = matchChatHistory.get(matchId)!;
+	history.push({
+		messageId,
+		userId: "system",
+		username: "System",
+		userImage: undefined,
+		highlightColor: "#f59e0b",
+		message,
+		timestamp,
+	});
+	if (history.length > MAX_CHAT_HISTORY) {
+		history.shift();
+	}
+
+	const systemMsg = createChatBroadcast(matchId, messageId, "system", "System", undefined, "#f59e0b", message, timestamp);
+
+	const msgBytes = serializeMessage(systemMsg);
+	for (const connId of players) {
+		const playerWs = connections.get(connId);
+		if (playerWs && playerWs.readyState === 1) {
+			playerWs.send(msgBytes);
+		}
+	}
+}
+
+function sendSystemMessageToUser(matchId: string, userId: string, message: string): void {
+	const userConns = userConnections.get(userId);
+	if (!userConns) return;
+
+	const messageId = `sys_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+	const timestamp = BigInt(Date.now());
+
+	const systemMsg = createChatBroadcast(matchId, messageId, "system", "System", undefined, "#f59e0b", message, timestamp);
+
+	const msgBytes = serializeMessage(systemMsg);
+	for (const connId of userConns) {
+		const ws = connections.get(connId);
+		if (ws && ws.readyState === 1 && ws.data.matchId === matchId) {
+			ws.send(msgBytes);
+		}
+	}
+}
+
+function getMatchPlayersInfo(matchId: string): Array<{ userId: string; username: string; connId: string }> {
+	const players = matchPlayers.get(matchId);
+	if (!players) return [];
+
+	const result: Array<{ userId: string; username: string; connId: string }> = [];
+	for (const connId of players) {
+		const ws = connections.get(connId);
+		if (ws && ws.data.userId && ws.data.username) {
+			result.push({
+				userId: ws.data.userId,
+				username: ws.data.username,
+				connId,
+			});
+		}
+	}
+	return result;
+}
+
+function fuzzyMatchPlayers(
+	query: string,
+	players: Array<{ userId: string; username: string; connId: string }>
+): Array<{ userId: string; username: string; connId: string }> {
+	const lowerQuery = query.toLowerCase();
+
+	const exactMatch = players.filter((p) => p.username.toLowerCase() === lowerQuery);
+	if (exactMatch.length > 0) return exactMatch;
+
+	const startsWithMatch = players.filter((p) => p.username.toLowerCase().startsWith(lowerQuery));
+	if (startsWithMatch.length > 0) return startsWithMatch;
+
+	const containsMatch = players.filter((p) => p.username.toLowerCase().includes(lowerQuery));
+	return containsMatch;
+}
+
+function getUniquePlayerCount(matchId: string): number {
+	const players = matchPlayers.get(matchId);
+	if (!players) return 0;
+
+	const uniqueUsers = new Set<string>();
+	for (const connId of players) {
+		const ws = connections.get(connId);
+		if (ws && ws.data.userId) {
+			uniqueUsers.add(ws.data.userId);
+		}
+	}
+	return uniqueUsers.size;
+}
+
+function handleKickCommand(matchId: string, initiatorUserId: string, initiatorUsername: string, targetQuery: string): void {
+	const existingVote = activeVoteKicks.get(matchId);
+	if (existingVote) {
+		if (Date.now() - existingVote.startedAt > VOTE_KICK_DURATION_MS) {
+			activeVoteKicks.delete(matchId);
+			broadcastSystemMessage(matchId, `Vote kick against ${existingVote.targetUsername} expired.`);
+		} else {
+			broadcastSystemMessage(matchId, `A vote kick is already in progress against ${existingVote.targetUsername}. Type 'y' to vote.`);
+			return;
+		}
+	}
+
+	if (!targetQuery) {
+		broadcastSystemMessage(matchId, "Usage: !kick <player name>");
+		return;
+	}
+
+	const allPlayers = getMatchPlayersInfo(matchId);
+
+	const uniquePlayers = new Map<string, { userId: string; username: string; connId: string }>();
+	for (const player of allPlayers) {
+		if (!uniquePlayers.has(player.userId)) {
+			uniquePlayers.set(player.userId, player);
+		}
+	}
+	const playersArray = Array.from(uniquePlayers.values());
+
+	const filteredPlayers = playersArray.filter((p) => p.userId !== initiatorUserId);
+
+	const matches = fuzzyMatchPlayers(targetQuery, filteredPlayers);
+
+	if (matches.length === 0) {
+		broadcastSystemMessage(matchId, `No player found matching "${targetQuery}".`);
+		return;
+	}
+
+	if (matches.length > 1) {
+		const names = matches.map((m) => m.username).join(", ");
+		broadcastSystemMessage(matchId, `Multiple players found: ${names}. Please be more specific.`);
+		return;
+	}
+
+	const target = matches[0];
+	const totalPlayers = getUniquePlayerCount(matchId);
+	const eligibleVoters = totalPlayers - 1;
+	const votesNeeded = Math.max(1, Math.ceil(eligibleVoters * VOTE_KICK_THRESHOLD));
+
+	const voteKick: ActiveVoteKick = {
+		targetUserId: target.userId,
+		targetUsername: target.username,
+		initiatorUserId,
+		initiatorUsername,
+		votesFor: new Set([initiatorUserId]),
+		startedAt: Date.now(),
+		messageId: `vote_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+	};
+
+	activeVoteKicks.set(matchId, voteKick);
+
+	if (voteKick.votesFor.size >= votesNeeded) {
+		activeVoteKicks.delete(matchId);
+
+		if (!matchBannedUsers.has(matchId)) {
+			matchBannedUsers.set(matchId, new Set());
+		}
+		matchBannedUsers.get(matchId)!.add(voteKick.targetUserId);
+
+		broadcastSystemMessage(matchId, `${voteKick.targetUsername} has been vote kicked! (${voteKick.votesFor.size}/${votesNeeded} votes)`);
+		kickUserFromMatch(matchId, voteKick.targetUserId);
+
+		return;
+	}
+
+	broadcastSystemMessage(
+		matchId,
+		`Vote kick ${target.username}? Type 'y' to vote. (${voteKick.votesFor.size}/${votesNeeded} votes, ${Math.ceil(
+			VOTE_KICK_DURATION_MS / 1000
+		)}s remaining)`
+	);
+
+	setTimeout(() => {
+		const currentVote = activeVoteKicks.get(matchId);
+		if (currentVote && currentVote.messageId === voteKick.messageId) {
+			activeVoteKicks.delete(matchId);
+			broadcastSystemMessage(matchId, `Vote kick against ${target.username} expired - not enough votes.`);
+		}
+	}, VOTE_KICK_DURATION_MS);
+}
+
+function handleVoteResponse(matchId: string, userId: string, username: string, voteYes: boolean): void {
+	const voteKick = activeVoteKicks.get(matchId);
+	if (!voteKick) {
+		return;
+	}
+
+	if (Date.now() - voteKick.startedAt > VOTE_KICK_DURATION_MS) {
+		activeVoteKicks.delete(matchId);
+		broadcastSystemMessage(matchId, `Vote kick against ${voteKick.targetUsername} expired.`);
+		return;
+	}
+
+	if (userId === voteKick.targetUserId) {
+		sendSystemMessageToUser(matchId, userId, "You cannot vote on your own kick.");
+		return;
+	}
+
+	if (voteKick.votesFor.has(userId)) {
+		return;
+	}
+
+	if (voteYes) {
+		voteKick.votesFor.add(userId);
+	}
+
+	const totalPlayers = getUniquePlayerCount(matchId);
+	const eligibleVoters = totalPlayers - 1;
+	const votesNeeded = Math.max(1, Math.ceil(eligibleVoters * VOTE_KICK_THRESHOLD));
+	const currentVotes = voteKick.votesFor.size;
+
+	if (currentVotes >= votesNeeded) {
+		activeVoteKicks.delete(matchId);
+
+		if (!matchBannedUsers.has(matchId)) {
+			matchBannedUsers.set(matchId, new Set());
+		}
+		matchBannedUsers.get(matchId)!.add(voteKick.targetUserId);
+
+		broadcastSystemMessage(matchId, `${voteKick.targetUsername} has been vote kicked! (${currentVotes}/${votesNeeded} votes)`);
+		kickUserFromMatch(matchId, voteKick.targetUserId);
+	} else {
+		const timeRemaining = Math.ceil((VOTE_KICK_DURATION_MS - (Date.now() - voteKick.startedAt)) / 1000);
+		broadcastSystemMessage(
+			matchId,
+			`Vote kick ${voteKick.targetUsername}? Type 'y' to vote. (${currentVotes}/${votesNeeded} votes, ${timeRemaining}s remaining)`
+		);
+	}
+}
+
+function kickUserFromMatch(matchId: string, targetUserId: string): void {
+	const userConns = userConnections.get(targetUserId);
+	if (!userConns) return;
+
+	for (const connId of userConns) {
+		const ws = connections.get(connId);
+		if (ws && ws.data.matchId === matchId) {
+			ws.send(serializeMessage(createErrorMessage("VOTE_KICKED", "You have been vote kicked from this match.")));
+
+			ws.close(4000, "Vote kicked");
 		}
 	}
 }

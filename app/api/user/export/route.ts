@@ -8,7 +8,6 @@ import {
 	lobbyPlayers,
 	matchPlayers,
 	matchMedia,
-	clipEditOperations,
 	videoLikes,
 	lobbies,
 	matches,
@@ -90,19 +89,6 @@ export async function GET() {
 			.from(matchMedia)
 			.where(eq(matchMedia.uploadedBy, userId));
 
-		const editOperations = await db
-			.select({
-				id: clipEditOperations.id,
-				matchId: clipEditOperations.matchId,
-				operationType: clipEditOperations.operationType,
-				clipId: clipEditOperations.clipId,
-				trackId: clipEditOperations.trackId,
-				clipData: clipEditOperations.clipDataJson,
-				createdAt: clipEditOperations.createdAt,
-			})
-			.from(clipEditOperations)
-			.where(eq(clipEditOperations.playerId, userId));
-
 		const likes = await db
 			.select({
 				matchId: videoLikes.matchId,
@@ -161,26 +147,10 @@ export async function GET() {
 				type: m.type,
 				uploadedAt: m.createdAt,
 			})),
-			editOperations: editOperations.map((op) => ({
-				id: op.id,
-				matchId: op.matchId,
-				operation: op.operationType,
-				clipId: op.clipId,
-				trackId: op.trackId,
-				clipData: op.clipData,
-				performedAt: op.createdAt,
-			})),
 			videoLikes: likes.map((l) => ({
 				matchId: l.matchId,
 				likedAt: l.createdAt,
 			})),
-			summary: {
-				totalLobbiesJoined: lobbyParticipation.length,
-				totalMatchesPlayed: matchParticipation.length,
-				totalMediaUploaded: uploadedMedia.length,
-				totalEditsPerformed: editOperations.length,
-				totalVideosLiked: likes.length,
-			},
 		};
 
 		const jsonString = JSON.stringify(exportData, null, 2);

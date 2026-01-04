@@ -1,5 +1,5 @@
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
-import { db, lobbies, lobbyPlayers, matches, matchPlayers, clipEditOperations, user, matchMedia } from "./db";
+import { db, lobbies, lobbyPlayers, matches, matchPlayers, user, matchMedia } from "./db";
 import type { Lobby, LobbyPlayer, LobbyStatus, LobbyListItemWithConfig } from "../app/types/lobby";
 import type { Match, MatchStatus, MatchConfig, ClipEditOperation } from "../app/types/match";
 import type { TimelineState, Clip, Track } from "../app/types/timeline";
@@ -179,8 +179,6 @@ export async function getLobbyById(joinCode: string): Promise<Lobby | null> {
 
 	return mapLobbyRecordToLobby(lobbyRecord, playersWithUsers);
 }
-
-
 
 export async function getLobbyByIdInternal(lobbyId: string): Promise<Lobby | null> {
 	const database = db();
@@ -562,26 +560,28 @@ export async function getMatchById(joinCode: string): Promise<Match | null> {
 	const database = db();
 
 	const [lobbyRecord] = await database.select().from(lobbies).where(eq(lobbies.joinCode, joinCode.toUpperCase())).limit(1);
-	if (lobbyRecord && lobbyRecord.matchId) {
-		const [matchRecord] = await database.select().from(matches).where(eq(matches.id, lobbyRecord.matchId)).limit(1);
-		if (matchRecord) {
-			const playersWithUsers = await database
-				.select({
-					id: matchPlayers.id,
-					matchId: matchPlayers.matchId,
-					userId: matchPlayers.userId,
-					joinedAt: matchPlayers.joinedAt,
-					disconnectedAt: matchPlayers.disconnectedAt,
-					clipCount: matchPlayers.clipCount,
-					userName: user.name,
-					userImage: user.image,
-				})
-				.from(matchPlayers)
-				.innerJoin(user, eq(matchPlayers.userId, user.id))
-				.where(eq(matchPlayers.matchId, matchRecord.id));
+	if (!lobbyRecord) {
+		return null;
+	}
 
-			return mapMatchRecordToMatch(matchRecord, playersWithUsers);
-		}
+	const [matchRecord] = await database.select().from(matches).where(eq(matches.lobbyId, lobbyRecord.id)).limit(1);
+	if (matchRecord) {
+		const playersWithUsers = await database
+			.select({
+				id: matchPlayers.id,
+				matchId: matchPlayers.matchId,
+				userId: matchPlayers.userId,
+				joinedAt: matchPlayers.joinedAt,
+				disconnectedAt: matchPlayers.disconnectedAt,
+				clipCount: matchPlayers.clipCount,
+				userName: user.name,
+				userImage: user.image,
+			})
+			.from(matchPlayers)
+			.innerJoin(user, eq(matchPlayers.userId, user.id))
+			.where(eq(matchPlayers.matchId, matchRecord.id));
+
+		return mapMatchRecordToMatch(matchRecord, playersWithUsers, lobbyRecord.joinCode);
 	}
 
 	return null;
@@ -596,30 +596,8 @@ export async function getMatchByLobbyId(lobbyId: string): Promise<Match | null> 
 		return null;
 	}
 
-	const playersWithUsers = await database
-		.select({
-			id: matchPlayers.id,
-			matchId: matchPlayers.matchId,
-			userId: matchPlayers.userId,
-			joinedAt: matchPlayers.joinedAt,
-			disconnectedAt: matchPlayers.disconnectedAt,
-			clipCount: matchPlayers.clipCount,
-			userName: user.name,
-			userImage: user.image,
-		})
-		.from(matchPlayers)
-		.innerJoin(user, eq(matchPlayers.userId, user.id))
-		.where(eq(matchPlayers.matchId, matchRecord.id));
-
-	return mapMatchRecordToMatch(matchRecord, playersWithUsers);
-}
-
-export async function getMatchByIdInternal(matchId: string): Promise<Match | null> {
-	const database = db();
-
-	const [matchRecord] = await database.select().from(matches).where(eq(matches.id, matchId)).limit(1);
-
-	if (!matchRecord) {
+	const [lobbyRecord] = await database.select({ joinCode: lobbies.joinCode }).from(lobbies).where(eq(lobbies.id, lobbyId)).limit(1);
+	if (!lobbyRecord) {
 		return null;
 	}
 
@@ -638,7 +616,43 @@ export async function getMatchByIdInternal(matchId: string): Promise<Match | nul
 		.innerJoin(user, eq(matchPlayers.userId, user.id))
 		.where(eq(matchPlayers.matchId, matchRecord.id));
 
-	return mapMatchRecordToMatch(matchRecord, playersWithUsers);
+	return mapMatchRecordToMatch(matchRecord, playersWithUsers, lobbyRecord.joinCode);
+}
+
+export async function getMatchByIdInternal(matchId: string): Promise<Match | null> {
+	const database = db();
+
+	const [matchRecord] = await database.select().from(matches).where(eq(matches.id, matchId)).limit(1);
+
+	if (!matchRecord) {
+		return null;
+	}
+
+	const [lobbyRecord] = await database
+		.select({ joinCode: lobbies.joinCode })
+		.from(lobbies)
+		.where(eq(lobbies.id, matchRecord.lobbyId))
+		.limit(1);
+	if (!lobbyRecord) {
+		return null;
+	}
+
+	const playersWithUsers = await database
+		.select({
+			id: matchPlayers.id,
+			matchId: matchPlayers.matchId,
+			userId: matchPlayers.userId,
+			joinedAt: matchPlayers.joinedAt,
+			disconnectedAt: matchPlayers.disconnectedAt,
+			clipCount: matchPlayers.clipCount,
+			userName: user.name,
+			userImage: user.image,
+		})
+		.from(matchPlayers)
+		.innerJoin(user, eq(matchPlayers.userId, user.id))
+		.where(eq(matchPlayers.matchId, matchRecord.id));
+
+	return mapMatchRecordToMatch(matchRecord, playersWithUsers, lobbyRecord.joinCode);
 }
 
 export async function updateMatchStatus(matchId: string, status: MatchStatus): Promise<void> {
@@ -663,10 +677,19 @@ export async function updateMatchStatus(matchId: string, status: MatchStatus): P
 	await database.update(matches).set(updates).where(eq(matches.id, matchId));
 }
 
-export async function updateMatchTimeline(matchId: string, timeline: TimelineState): Promise<void> {
+export async function updateMatchTimeline(matchId: string, timeline: TimelineState, editCount?: number): Promise<void> {
 	const database = db();
 
-	await database.update(matches).set({ timelineJson: timeline, updatedAt: new Date() }).where(eq(matches.id, matchId));
+	const updates: Record<string, any> = {
+		timelineJson: timeline,
+		updatedAt: new Date(),
+	};
+
+	if (editCount !== undefined) {
+		updates.editCount = editCount;
+	}
+
+	await database.update(matches).set(updates).where(eq(matches.id, matchId));
 }
 
 export async function updateMatchRender(matchId: string, renderJobId?: string, renderUrl?: string, renderError?: string): Promise<void> {
@@ -776,51 +799,6 @@ export async function incrementPlayerClipCount(matchId: string, userId: string, 
 	}
 }
 
-// Clip edit functions
-export async function recordClipEdit(
-	matchId: string,
-	playerId: string,
-	operationType: "add" | "update" | "remove",
-	clipId: string,
-	trackId: string,
-	clipData: Clip | null,
-	previousData: Clip | null
-): Promise<void> {
-	const database = db();
-
-	await database.insert(clipEditOperations).values({
-		matchId,
-		playerId,
-		operationType,
-		clipId,
-		trackId,
-		clipDataJson: clipData,
-		previousDataJson: previousData,
-	});
-}
-
-export async function getMatchEditHistory(matchId: string): Promise<ClipEditOperation[]> {
-	const database = db();
-
-	const records = await database
-		.select()
-		.from(clipEditOperations)
-		.where(eq(clipEditOperations.matchId, matchId))
-		.orderBy(desc(clipEditOperations.createdAt));
-
-	return records.map((r) => ({
-		id: r.id,
-		matchId: r.matchId,
-		playerId: r.playerId,
-		type: r.operationType,
-		clipId: r.clipId,
-		trackId: r.trackId,
-		clipData: r.clipDataJson as Clip | null,
-		previousData: r.previousDataJson as Clip | null,
-		timestamp: r.createdAt,
-	}));
-}
-
 // other functions
 
 type LobbyPlayerWithUser = {
@@ -901,12 +879,14 @@ function mapMatchRecordToMatch(
 		createdAt: Date;
 		updatedAt: Date;
 	},
-	players: MatchPlayerWithUser[]
+	players: MatchPlayerWithUser[],
+	joinCode: string
 ): Match {
 	return {
 		id: record.id,
 		lobbyId: record.lobbyId,
 		lobbyName: record.lobbyName,
+		joinCode,
 		status: record.status,
 		config: record.configJson,
 		timeline: record.timelineJson,
@@ -956,6 +936,13 @@ export async function getExpiredMatches(): Promise<Match[]> {
 
 	for (const record of records) {
 		if (record.endsAt && record.endsAt <= now) {
+			const [lobbyRecord] = await database
+				.select({ joinCode: lobbies.joinCode })
+				.from(lobbies)
+				.where(eq(lobbies.id, record.lobbyId))
+				.limit(1);
+			if (!lobbyRecord) continue;
+
 			const playersWithUsers = await database
 				.select({
 					id: matchPlayers.id,
@@ -970,7 +957,7 @@ export async function getExpiredMatches(): Promise<Match[]> {
 				.from(matchPlayers)
 				.innerJoin(user, eq(matchPlayers.userId, user.id))
 				.where(eq(matchPlayers.matchId, record.id));
-			expiredMatches.push(mapMatchRecordToMatch(record, playersWithUsers));
+			expiredMatches.push(mapMatchRecordToMatch(record, playersWithUsers, lobbyRecord.joinCode));
 		}
 	}
 

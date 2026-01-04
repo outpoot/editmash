@@ -1,7 +1,7 @@
 import type { WSMessage } from "@/websocket/types";
 import { serializeMessage, deserializeMessage, createJoinMatchMessage } from "@/websocket/types";
 
-type ConnectionStatus = "connecting" | "connected" | "disconnected" | "failed";
+type ConnectionStatus = "connecting" | "connected" | "disconnected" | "failed" | "kicked";
 type MessageHandler = (message: WSMessage) => void;
 type StatusHandler = (status: ConnectionStatus) => void;
 
@@ -137,10 +137,15 @@ function connect(conn: MatchConnection) {
 		}
 	};
 
-	ws.onclose = () => {
+	ws.onclose = (event) => {
 		if (conn.ws !== ws) return;
-		console.log(`[WS:${conn.matchId.slice(0, 8)}] Disconnected`);
+		console.log(`[WS:${conn.matchId.slice(0, 8)}] Disconnected (code: ${event.code}, reason: ${event.reason})`);
 		conn.ws = null;
+
+		if (event.code === 4000) {
+			setStatus(conn, "kicked");
+			return;
+		}
 
 		if (conn.refCount > 0) {
 			conn.reconnectAttempt++;

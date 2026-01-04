@@ -632,7 +632,7 @@ export default function MatchmakingPage() {
 				<a href="/privacy" className="hover:text-foreground transition-colors">
 					Privacy
 				</a>
-				<a href="https://discord.gg/editmash" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">
+				<a href="https://discord.gg/facedev" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">
 					Discord
 				</a>
 			</footer>

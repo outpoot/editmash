@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMatchById, getMatchByIdInternal, updateMatchTimeline } from "@/lib/storage";
-import { MatchStateResponse } from "@/app/types/match";
+import { MatchStateResponse, Match } from "@/app/types/match";
 import type { TimelineState } from "@/app/types/timeline";
 import { secureCompare } from "@/lib/security";
-import { getQueuePosition, getJobById } from "@/lib/queue";
+import { getQueuePosition, getJobById, getRenderProgress } from "@/lib/queue";
 
 const regex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -16,7 +16,7 @@ interface RouteParams {
 export async function GET(
 	request: NextRequest,
 	{ params }: RouteParams
-): Promise<NextResponse<MatchStateResponse | { error: string } | { redirect: string }>> {
+): Promise<NextResponse<MatchStateResponse | { match: Partial<Match> } | { error: string } | { redirect: string }>> {
 	try {
 		const { matchId } = await params;
 
@@ -39,6 +39,19 @@ export async function GET(
 		}
 
 		if (isResultsRequest) {
+			let queuePosition: number | null = null;
+			let renderProgress: number | null = null;
+
+			if (match.status === "rendering") {
+				if (match.renderJobId) {
+					const job = await getJobById(match.renderJobId);
+					if (job && job.status === "pending") {
+						queuePosition = await getQueuePosition(match.renderJobId);
+					}
+				}
+				renderProgress = await getRenderProgress(match.id);
+			}
+
 			return NextResponse.json({
 				match: {
 					id: match.id,
@@ -57,6 +70,8 @@ export async function GET(
 					createdAt: match.createdAt,
 					updatedAt: match.updatedAt,
 				},
+				queuePosition,
+				renderProgress,
 			});
 		}
 
@@ -67,12 +82,14 @@ export async function GET(
 
 		let queuePosition: number | null = null;
 		let renderProgress: number | null = null;
-		if (match.renderJobId && match.status === "rendering") {
-			const job = await getJobById(match.renderJobId);
-			if (job) {
-				queuePosition = job.status === "pending" ? await getQueuePosition(match.renderJobId) : null;
-				renderProgress = job.status === "processing" ? job.progress : null;
+		if (match.status === "rendering") {
+			if (match.renderJobId) {
+				const job = await getJobById(match.renderJobId);
+				if (job && job.status === "pending") {
+					queuePosition = await getQueuePosition(match.renderJobId);
+				}
 			}
+			renderProgress = await getRenderProgress(match.id);
 		}
 
 		return NextResponse.json({
@@ -112,10 +129,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 		}
 
 		const body = await request.json();
-		const { timeline } = body as { timeline?: TimelineState };
+		const { timeline, editCount } = body as { timeline?: TimelineState; editCount?: number };
 
 		if (timeline) {
-			await updateMatchTimeline(match.id, timeline);
+			await updateMatchTimeline(match.id, timeline, editCount);
 		}
 
 		return NextResponse.json({ success: true });

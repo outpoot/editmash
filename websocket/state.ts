@@ -97,11 +97,43 @@ export const matchPlayerClipCounts = new Map<string, Map<string, number>>();
 
 export const matchPlayerInfos = new Map<string, Map<string, PlayerInfoCache>>();
 
+export const matchEditCounts = new Map<string, number>();
+
 export const chatRateLimits = new Map<string, { lastMessageTime: number; messageCount: number; windowStart: number }>();
 
 export const CHAT_RATE_LIMIT_WINDOW = 10000; // 10 seconds
 export const CHAT_RATE_LIMIT_MAX_MESSAGES = 5; // max 5 messages per window
 export const CHAT_COOLDOWN_MS = 1000; // 1 second between messages
+
+export interface ActiveVoteKick {
+	targetUserId: string;
+	targetUsername: string;
+	initiatorUserId: string;
+	initiatorUsername: string;
+	votesFor: Set<string>;
+	startedAt: number;
+	messageId: string;
+}
+
+export const activeVoteKicks = new Map<string, ActiveVoteKick>();
+
+export const matchBannedUsers = new Map<string, Set<string>>();
+
+export const VOTE_KICK_DURATION_MS = 60000;
+export const VOTE_KICK_THRESHOLD = 0.5;
+
+export interface StoredChatMessage {
+	messageId: string;
+	userId: string;
+	username: string;
+	userImage?: string;
+	highlightColor: string;
+	message: string;
+	timestamp: bigint;
+}
+
+export const MAX_CHAT_HISTORY = 50;
+export const matchChatHistory = new Map<string, StoredChatMessage[]>();
 
 export const matchMessageQueues = new Map<string, {
 	processing: boolean;

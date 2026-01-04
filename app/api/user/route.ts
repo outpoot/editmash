@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { uploadToB2, deleteFileByName, listFileVersions } from "@/lib/b2";
 import { processImage } from "@/lib/image";
 import { getPlayerActiveMatch, getPlayerActiveLobby } from "@/lib/storage";
+import { isNameAppropriate } from "@/lib/moderation";
 
 export async function GET() {
 	try {
@@ -54,9 +55,9 @@ export async function PATCH(request: Request) {
 				return NextResponse.json({ error: "No file provided" }, { status: 400 });
 			}
 
-			const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+			const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
 			if (!allowedTypes.includes(file.type)) {
-				return NextResponse.json({ error: "Invalid file type. Allowed: JPEG, PNG, GIF, WebP" }, { status: 400 });
+				return NextResponse.json({ error: "Invalid file type. Allowed: JPEG, PNG, WebP" }, { status: 400 });
 			}
 
 			const maxSize = 5 * 1024 * 1024;
@@ -133,6 +134,11 @@ export async function PATCH(request: Request) {
 			const trimmedName = name.trim();
 			if (trimmedName.length < 1 || trimmedName.length > 100) {
 				return NextResponse.json({ error: "Name must be between 1 and 100 characters" }, { status: 400 });
+			}
+
+			const isAppropriate = await isNameAppropriate(trimmedName);
+			if (!isAppropriate) {
+				return NextResponse.json({ error: "Name contains inappropriate content" }, { status: 400 });
 			}
 
 			await db.update(user).set({ name: trimmedName }).where(eq(user.id, userId));

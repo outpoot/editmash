@@ -61,11 +61,14 @@ export default function ResultsPage({ params }: { params: Promise<{ matchId: str
 
 	useEffect(() => {
 		fetchMatch();
-		const interval = setInterval(() => {
-			fetchMatch();
-		}, 3000);
-		return () => clearInterval(interval);
-	}, [fetchMatch]);
+		
+		if (match?.status === "rendering") {
+			const interval = setInterval(() => {
+				fetchMatch();
+			}, 3000);
+			return () => clearInterval(interval);
+		}
+	}, [fetchMatch, match?.status]);
 
 	if (isLoading) {
 		return (

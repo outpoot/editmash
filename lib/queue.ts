@@ -9,8 +9,10 @@ import os from "os";
 const JOBS_KEY = "render:jobs";
 const QUEUE_KEY = "render:queue";
 const ACTIVE_SLOTS_KEY = "render:active_slots";
+const RENDER_PROGRESS_PREFIX = "render:progress:";
 const SLOT_TTL = 60;
 const HEARTBEAT_INTERVAL = 15000;
+const PROGRESS_TTL = 300;
 
 const MAX_SLOTS = Math.max(Math.floor(os.cpus().length / 2) - 4, 1);
 
@@ -148,6 +150,15 @@ export async function getQueuePosition(jobId: string): Promise<number | null> {
 	return queueIndex + 1;
 }
 
+export async function getRenderProgress(matchId: string): Promise<number | null> {
+	const progress = await getRedis().get(`${RENDER_PROGRESS_PREFIX}${matchId}`);
+	return progress ? parseFloat(progress) : null;
+}
+
+export async function setRenderProgress(matchId: string, progress: number): Promise<void> {
+	await getRedis().set(`${RENDER_PROGRESS_PREFIX}${matchId}`, progress.toString(), "EX", PROGRESS_TTL);
+}
+
 export async function createRenderJob(job: Omit<RenderJob, "id" | "status" | "progress" | "createdAt">): Promise<RenderJob> {
 	const renderJob: RenderJob = {
 		...job,
@@ -194,6 +205,7 @@ async function processNextJob(): Promise<void> {
 
 	let slotToken: string | null = null;
 	let jobId: string | null = null;
+	let job: RenderJob | null = null;
 
 	try {
 		slotToken = await tryAcquireSlot();
@@ -211,7 +223,7 @@ async function processNextJob(): Promise<void> {
 			return;
 		}
 
-		const job = await getJob(jobId);
+		job = await getJob(jobId);
 		if (!job) {
 			console.warn(`Job ${jobId} not found in storage`);
 			await releaseSlot(slotToken);
@@ -225,12 +237,15 @@ async function processNextJob(): Promise<void> {
 		const mediaUrls: Record<string, string> = {};
 
 		const allClips = job.timelineState.tracks.flatMap((track) => track.clips);
+		console.log(`[Queue] Job ${jobId}: Processing ${allClips.length} clips from ${job.timelineState.tracks.length} tracks`);
+		
 		allClips.forEach((clip) => {
 			if (!mediaUrls[clip.src]) {
 				mediaUrls[clip.src] = clip.src;
 			}
 		});
 
+		console.log(`[Queue] Job ${jobId}: Downloading ${Object.keys(mediaUrls).length} unique media files`);
 		const mediaFiles = await downloadMediaFiles(mediaUrls);
 		await updateJob(jobId, { progress: 10 });
 
@@ -239,6 +254,7 @@ async function processNextJob(): Promise<void> {
 		const outputFileName = `render_${jobId}.mp4`;
 		const outputPath = path.join(outputDir, outputFileName);
 
+		console.log(`[Queue] Job ${jobId}: Starting render to ${outputPath}`);
 		await renderTimeline(job.timelineState, mediaFiles, outputPath, (progress) => {
 			const adjustedProgress = 10 + (progress / 100) * 70;
 			updateJob(jobId || "", { progress: adjustedProgress }).catch((err) => {
@@ -246,6 +262,7 @@ async function processNextJob(): Promise<void> {
 			});
 		});
 
+		console.log(`[Queue] Job ${jobId}: Render complete, uploading to B2`);
 		await updateJob(jobId, { progress: 80 });
 
 		const outputBuffer = await fs.readFile(outputPath);
@@ -270,18 +287,6 @@ async function processNextJob(): Promise<void> {
 			outputFileId: uploadedFile.fileId,
 		});
 
-		if (job.sourceFileIds && job.sourceFileIds.length > 0) {
-			const deleteResults = await deleteMultipleFromB2(job.sourceFileIds);
-			const failures = deleteResults.filter((r) => !r.success);
-			if (failures.length > 0) {
-				console.error(
-					`Failed to delete ${failures.length}/${deleteResults.length} source files:`,
-					failures.map((f) => `${f.fileName}: ${f.error}`).join(", ")
-				);
-			} else {
-				console.log(`Successfully deleted ${deleteResults.length} source files`);
-			}
-		}
 	} catch (error) {
 		if (jobId) {
 			await updateJob(jobId, {
@@ -292,6 +297,23 @@ async function processNextJob(): Promise<void> {
 		}
 		console.error(`Error processing job:`, error);
 	} finally {
+		if (job && job.sourceFileIds && job.sourceFileIds.length > 0) {
+			try {
+				const deleteResults = await deleteMultipleFromB2(job.sourceFileIds);
+				const failures = deleteResults.filter((r) => !r.success);
+				if (failures.length > 0) {
+					console.error(
+						`Failed to delete ${failures.length}/${deleteResults.length} source files:`,
+						failures.map((f) => `${f.fileName}: ${f.error}`).join(", ")
+					);
+				} else {
+					console.log(`Successfully deleted ${deleteResults.length} source files`);
+				}
+			} catch (cleanupError) {
+				console.error(`Error during source file cleanup:`, cleanupError);
+			}
+		}
+
 		if (slotToken) {
 			stopHeartbeat();
 			await releaseSlot(slotToken);
@@ -303,6 +325,7 @@ async function processNextJob(): Promise<void> {
 		}
 	}
 }
+
 
 export async function cancelJob(jobId: string): Promise<boolean> {
 	const job = await getJob(jobId);

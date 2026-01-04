@@ -55,6 +55,15 @@ const FFMPEG_THREADS = 2;
 const CANVAS_WIDTH = 1920;
 const CANVAS_HEIGHT = 1080;
 
+export function hasContentClips(timeline: TimelineState): boolean {
+	for (const track of timeline.tracks) {
+		if (track.clips.length > 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
 export function calculateContentDuration(timeline: TimelineState): number {
 	let maxEndTime = 0;
 	for (const track of timeline.tracks) {
@@ -508,7 +517,9 @@ export async function renderTimeline(
 	const ffmpegPath = cachedFFmpegPath;
 
 	return new Promise((resolve, reject) => {
-		if (inputFiles.length === 0) {
+		const hasContent = hasContentClips(timeline);
+
+		if (!hasContent) {
 			const command = ffmpeg();
 			command.setFfmpegPath(ffmpegPath);
 
@@ -525,20 +536,29 @@ export async function renderTimeline(
 					"-map",
 					"2:a",
 					"-c:v libx264",
-					"-preset medium",
+					"-preset faster",
 					"-crf 23",
 					"-threads",
 					FFMPEG_THREADS.toString(),
 					"-c:a aac",
 					"-b:a 192k",
 					"-pix_fmt yuv420p",
-					"-shortest",
+					"-movflags",
+					"+faststart",
+					"-max_muxing_queue_size",
+					"1024",
+					"-t",
+					String(timeline.duration || 1),
 				])
 				.output(outputPath);
 
+			const totalDuration = timeline.duration || 1;
 			command.on("progress", (progress) => {
-				if (onProgress && progress.percent) {
-					onProgress(Math.min(99, Math.max(0, progress.percent)));
+				if (onProgress && progress.timemark) {
+					const parts = progress.timemark.split(":").map(parseFloat);
+					const currentSeconds = (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+					const percent = (currentSeconds / totalDuration) * 100;
+					onProgress(Math.min(99, Math.max(0, percent)));
 				}
 			});
 
@@ -564,7 +584,7 @@ export async function renderTimeline(
 		command.setFfmpegPath(ffmpegPath);
 
 		inputFiles.forEach((file) => {
-			command.input(file);
+			command.input(file).inputOptions(["-err_detect", "ignore_err", "-fflags", "+discardcorrupt+igndts+genpts"]);
 		});
 
 		command
@@ -575,22 +595,31 @@ export async function renderTimeline(
 				"-map",
 				"[aout]",
 				"-c:v libx264",
-				"-preset medium",
+				"-preset faster",
 				"-crf 23",
 				"-threads",
 				FFMPEG_THREADS.toString(),
 				"-c:a aac",
 				"-b:a 192k",
-				"-r 30", // 30 fps
+				"-r 30",
 				"-pix_fmt yuv420p",
-				"-t " + renderDuration,
+				"-movflags",
+				"+faststart",
+				"-max_muxing_queue_size",
+				"1024",
+				"-strict",
+				"unofficial",
+				"-t",
+				renderDuration.toString(),
 			])
 			.output(outputPath);
 
 		command.on("progress", (progress) => {
-			if (onProgress && progress.percent) {
-				const progressValue = Math.min(99, Math.max(0, progress.percent));
-				onProgress(progressValue);
+			if (onProgress && progress.timemark) {
+				const parts = progress.timemark.split(":").map(parseFloat);
+				const currentSeconds = (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+				const percent = (currentSeconds / renderDuration) * 100;
+				onProgress(Math.min(99, Math.max(0, percent)));
 			}
 		});
 
@@ -619,6 +648,8 @@ export async function downloadMediaFiles(mediaUrls: Record<string, string>): Pro
 	const envBaseUrl = process.env.NEXT_PUBLIC_BASE_URL || "";
 	const baseUrl = envBaseUrl.startsWith("http") ? envBaseUrl : envBaseUrl ? `https://${envBaseUrl}` : "http://app:3000";
 
+	console.log(`[FFmpeg] Downloading ${Object.keys(mediaUrls).length} media files (baseUrl: ${baseUrl})`);
+
 	for (const [src, url] of Object.entries(mediaUrls)) {
 		try {
 			if (url.startsWith("blob:")) {
@@ -627,10 +658,11 @@ export async function downloadMediaFiles(mediaUrls: Record<string, string>): Pro
 			}
 
 			const absoluteUrl = url.startsWith("/") ? `${baseUrl}${url}` : url;
+			console.log(`[FFmpeg] Downloading: ${absoluteUrl}`);
 
 			const response = await fetch(absoluteUrl);
 			if (!response.ok) {
-				throw new Error(`Failed to download ${absoluteUrl}: ${response.statusText}`);
+				throw new Error(`Failed to download ${absoluteUrl}: ${response.status} ${response.statusText}`);
 			}
 
 			const buffer = await response.arrayBuffer();
@@ -640,12 +672,16 @@ export async function downloadMediaFiles(mediaUrls: Record<string, string>): Pro
 
 			await fs.writeFile(filePath, Buffer.from(buffer));
 			fileMap.set(src, filePath);
+			console.log(`[FFmpeg] Downloaded: ${src} -> ${filePath} (${buffer.byteLength} bytes)`);
 		} catch (error) {
-			console.error(`Error downloading ${url}:`, error);
-			throw error;
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			const errorCause = error instanceof Error && error.cause ? ` (cause: ${JSON.stringify(error.cause)})` : "";
+			console.error(`[FFmpeg] Error downloading ${url}:`, errorMessage + errorCause);
+			throw new Error(`Failed to download media file ${url}: ${errorMessage}`);
 		}
 	}
 
+	console.log(`[FFmpeg] Successfully downloaded ${fileMap.size} files`);
 	return fileMap;
 }
 

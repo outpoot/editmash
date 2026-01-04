@@ -160,9 +160,9 @@ export default function AccountPage() {
 		const file = e.target.files?.[0];
 		if (!file) return;
 
-		const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+		const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
 		if (!allowedTypes.includes(file.type)) {
-			toast.error("Invalid file type. Allowed: JPEG, PNG, GIF, WebP");
+			toast.error("Invalid file type. Allowed: JPEG, PNG, WebP");
 			return;
 		}
 
@@ -353,7 +353,7 @@ export default function AccountPage() {
 								<input
 									ref={fileInputRef}
 									type="file"
-									accept="image/jpeg,image/png,image/gif,image/webp"
+									accept="image/jpeg,image/png,image/webp"
 									onChange={handleAvatarChange}
 									className="hidden"
 								/>
