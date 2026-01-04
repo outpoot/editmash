@@ -55,9 +55,9 @@ export async function PATCH(request: Request) {
 				return NextResponse.json({ error: "No file provided" }, { status: 400 });
 			}
 
-			const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+			const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
 			if (!allowedTypes.includes(file.type)) {
-				return NextResponse.json({ error: "Invalid file type. Allowed: JPEG, PNG, GIF, WebP" }, { status: 400 });
+				return NextResponse.json({ error: "Invalid file type. Allowed: JPEG, PNG, WebP" }, { status: 400 });
 			}
 
 			const maxSize = 5 * 1024 * 1024;

@@ -164,7 +164,9 @@ function generateVideoFilter(clip: VideoClip, inputIndex: number, outputLabel: s
 
 	const hasCrop = crop.left > 0 || crop.right > 0 || crop.top > 0 || crop.bottom > 0;
 	if (hasCrop) {
-		filters.push(`crop='max(2,iw-${crop.left}-${crop.right})':'max(2,ih-${crop.top}-${crop.bottom})':'min(${crop.left},iw-2)':'min(${crop.top},ih-2)'`);
+		filters.push(
+			`crop='max(2,iw-${crop.left}-${crop.right})':'max(2,ih-${crop.top}-${crop.bottom})':'min(${crop.left},iw-2)':'min(${crop.top},ih-2)'`
+		);
 	}
 
 	let scaleExpr: string;
@@ -223,7 +225,9 @@ function generateImageFilter(clip: ImageClip, inputIndex: number, outputLabel: s
 
 	const hasCrop = crop.left > 0 || crop.right > 0 || crop.top > 0 || crop.bottom > 0;
 	if (hasCrop) {
-		filters.push(`crop='max(2,iw-${crop.left}-${crop.right})':'max(2,ih-${crop.top}-${crop.bottom})':'min(${crop.left},iw-2)':'min(${crop.top},ih-2)'`);
+		filters.push(
+			`crop='max(2,iw-${crop.left}-${crop.right})':'max(2,ih-${crop.top}-${crop.bottom})':'min(${crop.left},iw-2)':'min(${crop.top},ih-2)'`
+		);
 	}
 
 	let scaleExpr: string;
@@ -514,7 +518,7 @@ export async function renderTimeline(
 
 	return new Promise((resolve, reject) => {
 		const hasContent = hasContentClips(timeline);
-		
+
 		if (!hasContent) {
 			const command = ffmpeg();
 			command.setFfmpegPath(ffmpegPath);
@@ -527,17 +531,22 @@ export async function renderTimeline(
 				.inputOptions(["-f", "lavfi"])
 				.complexFilter("[0:v][1:v]overlay=0:0[vout]")
 				.outputOptions([
-					"-map", "[vout]",
-					"-map", "2:a",
+					"-map",
+					"[vout]",
+					"-map",
+					"2:a",
 					"-c:v libx264",
 					"-preset faster",
 					"-crf 23",
-					"-threads", FFMPEG_THREADS.toString(),
+					"-threads",
+					FFMPEG_THREADS.toString(),
 					"-c:a aac",
 					"-b:a 192k",
 					"-pix_fmt yuv420p",
-				    "-movflags", "+faststart",
-					"-t", String(timeline.duration || 1)
+					"-movflags",
+					"+faststart",
+					"-t",
+					String(timeline.duration || 1),
 				])
 				.output(outputPath);
 
@@ -586,12 +595,14 @@ export async function renderTimeline(
 				"-c:v libx264",
 				"-preset faster",
 				"-crf 23",
-				"-threads", FFMPEG_THREADS.toString(),
+				"-threads",
+				FFMPEG_THREADS.toString(),
 				"-c:a aac",
 				"-b:a 192k",
 				"-r 30", // 30 fps
 				"-pix_fmt yuv420p",
-				"-movflags", "+faststart",
+				"-movflags",
+				"+faststart",
 				"-t",
 				renderDuration.toString(),
 			])
@@ -630,7 +641,7 @@ export async function downloadMediaFiles(mediaUrls: Record<string, string>): Pro
 
 	const envBaseUrl = process.env.NEXT_PUBLIC_BASE_URL || "";
 	const baseUrl = envBaseUrl.startsWith("http") ? envBaseUrl : envBaseUrl ? `https://${envBaseUrl}` : "http://app:3000";
-	
+
 	console.log(`[FFmpeg] Downloading ${Object.keys(mediaUrls).length} media files (baseUrl: ${baseUrl})`);
 
 	for (const [src, url] of Object.entries(mediaUrls)) {
@@ -658,7 +669,7 @@ export async function downloadMediaFiles(mediaUrls: Record<string, string>): Pro
 			console.log(`[FFmpeg] Downloaded: ${src} -> ${filePath} (${buffer.byteLength} bytes)`);
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
-			const errorCause = error instanceof Error && error.cause ? ` (cause: ${JSON.stringify(error.cause)})` : '';
+			const errorCause = error instanceof Error && error.cause ? ` (cause: ${JSON.stringify(error.cause)})` : "";
 			console.error(`[FFmpeg] Error downloading ${url}:`, errorMessage + errorCause);
 			throw new Error(`Failed to download media file ${url}: ${errorMessage}`);
 		}
