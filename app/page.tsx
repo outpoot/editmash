@@ -317,7 +317,7 @@ export default function MatchmakingPage() {
 							<div className="space-y-4 py-4">
 								<div className="space-y-2">
 									<Label htmlFor="lobby-name">Name</Label>
-									<Input id="lobby-name" placeholder={lobbyPlaceholder} value={lobbyName} onChange={(e) => setLobbyName(e.target.value)} />
+									<Input id="lobby-name" placeholder={lobbyPlaceholder} value={lobbyName} onChange={(e) => setLobbyName(e.target.value)} maxLength={32} />
 								</div>
 
 								<div className="flex items-center gap-2">
