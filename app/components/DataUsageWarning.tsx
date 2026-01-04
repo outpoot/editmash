@@ -10,7 +10,7 @@ export function DataUsageWarning() {
 		<>
 			<button
 				onClick={() => setOpen(true)}
-				className="fixed bottom-4 left-4 w-12 h-12 rounded-full bg-white dark:bg-white shadow-lg hover:shadow-xl transition-shadow flex items-center justify-center z-50 group"
+				className="fixed bottom-4 left-4 w-12 h-12 rounded-full bg-white dark:bg-card shadow-lg hover:cursor-pointer hover:shadow-xl transition-shadow flex items-center justify-center z-50 group"
 				aria-label="Data usage warning"
 			>
 				<svg viewBox="0 0 24 24" fill="none" className="w-6 h-6 text-black" xmlns="http://www.w3.org/2000/svg">
