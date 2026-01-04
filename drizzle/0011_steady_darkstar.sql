@@ -1,0 +1,1 @@
+DROP TABLE "clip_edit_operations" CASCADE;

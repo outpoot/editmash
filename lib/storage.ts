@@ -1,5 +1,5 @@
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
-import { db, lobbies, lobbyPlayers, matches, matchPlayers, clipEditOperations, user, matchMedia } from "./db";
+import { db, lobbies, lobbyPlayers, matches, matchPlayers, user, matchMedia } from "./db";
 import type { Lobby, LobbyPlayer, LobbyStatus, LobbyListItemWithConfig } from "../app/types/lobby";
 import type { Match, MatchStatus, MatchConfig, ClipEditOperation } from "../app/types/match";
 import type { TimelineState, Clip, Track } from "../app/types/timeline";
@@ -677,10 +677,19 @@ export async function updateMatchStatus(matchId: string, status: MatchStatus): P
 	await database.update(matches).set(updates).where(eq(matches.id, matchId));
 }
 
-export async function updateMatchTimeline(matchId: string, timeline: TimelineState): Promise<void> {
+export async function updateMatchTimeline(matchId: string, timeline: TimelineState, editCount?: number): Promise<void> {
 	const database = db();
 
-	await database.update(matches).set({ timelineJson: timeline, updatedAt: new Date() }).where(eq(matches.id, matchId));
+	const updates: Record<string, any> = {
+		timelineJson: timeline,
+		updatedAt: new Date(),
+	};
+
+	if (editCount !== undefined) {
+		updates.editCount = editCount;
+	}
+
+	await database.update(matches).set(updates).where(eq(matches.id, matchId));
 }
 
 export async function updateMatchRender(matchId: string, renderJobId?: string, renderUrl?: string, renderError?: string): Promise<void> {
@@ -788,51 +797,6 @@ export async function incrementPlayerClipCount(matchId: string, userId: string, 
 			.set({ clipCount: player.clipCount + delta })
 			.where(eq(matchPlayers.id, player.id));
 	}
-}
-
-// Clip edit functions
-export async function recordClipEdit(
-	matchId: string,
-	playerId: string,
-	operationType: "add" | "update" | "remove",
-	clipId: string,
-	trackId: string,
-	clipData: Clip | null,
-	previousData: Clip | null
-): Promise<void> {
-	const database = db();
-
-	await database.insert(clipEditOperations).values({
-		matchId,
-		playerId,
-		operationType,
-		clipId,
-		trackId,
-		clipDataJson: clipData,
-		previousDataJson: previousData,
-	});
-}
-
-export async function getMatchEditHistory(matchId: string): Promise<ClipEditOperation[]> {
-	const database = db();
-
-	const records = await database
-		.select()
-		.from(clipEditOperations)
-		.where(eq(clipEditOperations.matchId, matchId))
-		.orderBy(desc(clipEditOperations.createdAt));
-
-	return records.map((r) => ({
-		id: r.id,
-		matchId: r.matchId,
-		playerId: r.playerId,
-		type: r.operationType,
-		clipId: r.clipId,
-		trackId: r.trackId,
-		clipData: r.clipDataJson as Clip | null,
-		previousData: r.previousDataJson as Clip | null,
-		timestamp: r.createdAt,
-	}));
 }
 
 // other functions

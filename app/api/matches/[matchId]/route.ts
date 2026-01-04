@@ -125,10 +125,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 		}
 
 		const body = await request.json();
-		const { timeline } = body as { timeline?: TimelineState };
+		const { timeline, editCount } = body as { timeline?: TimelineState; editCount?: number };
 
 		if (timeline) {
-			await updateMatchTimeline(match.id, timeline);
+			await updateMatchTimeline(match.id, timeline, editCount);
 		}
 
 		return NextResponse.json({ success: true });
