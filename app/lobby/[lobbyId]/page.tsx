@@ -215,7 +215,7 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 	};
 
 	const isHost = lobby?.hostPlayerId === playerId;
-	const canStart = isHost && lobby && lobby.players.length >= 2;
+	const canStart = isHost && lobby && lobby.players.length >= 1;
 
 	if (playerLoading || isLoading) {
 		return (
