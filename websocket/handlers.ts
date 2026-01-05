@@ -8,6 +8,7 @@ import {
 	matchConfigs,
 	matchPlayerClipCounts,
 	matchPlayerInfos,
+	matchEditCounts,
 	chatRateLimits,
 	userConnections,
 	activeVoteKicks,
@@ -23,6 +24,8 @@ import {
 	CHAT_RATE_LIMIT_WINDOW,
 	CHAT_RATE_LIMIT_MAX_MESSAGES,
 	CHAT_COOLDOWN_MS,
+	VOTE_KICK_DURATION_MS,
+	VOTE_KICK_THRESHOLD,
 	type WebSocketData,
 	type TimelineClip,
 	type MatchConfigCache,
@@ -366,6 +369,12 @@ export async function handleJoinMatch(ws: ServerWebSocket<WebSocketData>, msg: W
 	if (msg.payload.case !== "joinMatch" || !msg.payload.value) return;
 	const { matchId, userId, username, userImage, highlightColor } = msg.payload.value;
 
+	const bannedUsers = matchBannedUsers.get(matchId);
+	if (bannedUsers && bannedUsers.has(userId)) {
+		ws.send(serializeMessage(createErrorMessage("VOTE_KICKED", "You have been vote kicked from this match and cannot rejoin.")));
+		return;
+	}
+
 	if (ws.data.matchId) {
 		handleLeaveMatch(ws, createLeaveMatchMessage(ws.data.matchId, ws.data.userId!));
 	}
@@ -437,6 +446,26 @@ export async function handleJoinMatch(ws: ServerWebSocket<WebSocketData>, msg: W
 	const playerCount = matchPlayers.get(matchId)!.size;
 	ws.send(serializeMessage(createPlayerCountMessage(matchId, playerCount)));
 
+	const chatHistory = matchChatHistory.get(matchId);
+	if (chatHistory && chatHistory.length > 0) {
+		for (const msg of chatHistory) {
+			ws.send(
+				serializeMessage(
+					createChatBroadcast(
+						matchId,
+						msg.messageId,
+						msg.userId,
+						msg.username,
+						msg.userImage,
+						msg.highlightColor,
+						msg.message,
+						msg.timestamp
+					)
+				)
+			);
+		}
+	}
+
 	broadcast(matchId, createPlayerJoinedMessage(matchId, { userId, username }), ws.data.id);
 }
 
@@ -474,10 +503,15 @@ export function handleLeaveMatch(ws: ServerWebSocket<WebSocketData>, msg: WSMess
 
 export function handleMediaUploaded(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
 	if (msg.payload.case !== "mediaUploaded" || !msg.payload.value) return;
-	const { matchId } = msg.payload.value;
+	const { matchId, media } = msg.payload.value;
 
 	if (ws.data.matchId !== matchId) {
 		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
+		return;
+	}
+
+	if (media?.name && media.name.length > 200) {
+		ws.send(serializeMessage(createErrorMessage("INVALID_MEDIA", "Media name too long")));
 		return;
 	}
 
@@ -506,6 +540,11 @@ export async function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: W
 
 	if (ws.data.matchId !== matchId) {
 		ws.send(serializeMessage(createErrorMessage("NOT_IN_MATCH", "You are not in this match")));
+		return;
+	}
+
+	if (clip?.name && clip.name.length > 200) {
+		ws.send(serializeMessage(createErrorMessage("INVALID_CLIP", "Clip name too long")));
 		return;
 	}
 
@@ -580,6 +619,9 @@ export async function handleClipAdded(ws: ServerWebSocket<WebSocketData>, msg: W
 		if (userId) {
 			incrementPlayerClipCount(matchId, userId);
 		}
+
+		const currentEditCount = matchEditCounts.get(matchId) ?? 0;
+		matchEditCounts.set(matchId, currentEditCount + 1);
 	}
 
 	broadcast(matchId, msg, ws.data.id);
@@ -627,6 +669,9 @@ export async function handleClipUpdated(ws: ServerWebSocket<WebSocketData>, msg:
 			...(updates.thumbnail && { thumbnail: updates.thumbnail }),
 			...(updates.properties && { properties: { ...updates.properties } as Record<string, unknown> }),
 		});
+
+		const currentEditCount = matchEditCounts.get(matchId) ?? 0;
+		matchEditCounts.set(matchId, currentEditCount + 1);
 	}
 
 	broadcast(matchId, msg, ws.data.id);
@@ -649,6 +694,9 @@ export function handleClipRemoved(ws: ServerWebSocket<WebSocketData>, msg: WSMes
 	if (userId) {
 		decrementPlayerClipCount(matchId, userId);
 	}
+
+	const currentEditCount = matchEditCounts.get(matchId) ?? 0;
+	matchEditCounts.set(matchId, currentEditCount + 1);
 
 	broadcast(matchId, msg, ws.data.id);
 	requestTimelineSync(matchId);
@@ -703,6 +751,9 @@ export async function handleClipBatchUpdate(ws: ServerWebSocket<WebSocketData>, 
 			}
 		}
 	}
+
+	const currentEditCount = matchEditCounts.get(matchId) ?? 0;
+	matchEditCounts.set(matchId, currentEditCount + updates.length);
 
 	broadcast(matchId, msg, ws.data.id);
 	requestTimelineSync(matchId);
@@ -783,6 +834,9 @@ export async function handleClipSplit(ws: ServerWebSocket<WebSocketData>, msg: W
 		incrementPlayerClipCount(matchId, userId);
 	}
 
+	const currentEditCount = matchEditCounts.get(matchId) ?? 0;
+	matchEditCounts.set(matchId, currentEditCount + 1);
+
 	broadcast(matchId, msg, ws.data.id);
 
 	requestTimelineSync(matchId);
@@ -851,6 +905,8 @@ export async function handleTimelineSync(ws: ServerWebSocket<WebSocketData>, msg
 		matchTimelines.set(matchId, timelineJson);
 	}
 
+	const editCount = matchEditCounts.get(matchId) ?? 0;
+
 	try {
 		const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
 		const response = await fetch(`${apiUrl}/api/matches/${matchId}`, {
@@ -859,7 +915,7 @@ export async function handleTimelineSync(ws: ServerWebSocket<WebSocketData>, msg
 				"Content-Type": "application/json",
 				Authorization: `Bearer ${WS_API_KEY}`,
 			},
-			body: JSON.stringify({ timeline: timelineJson }),
+			body: JSON.stringify({ timeline: timelineJson, editCount }),
 		});
 
 		if (response.ok) {
@@ -986,10 +1042,38 @@ export function handleChatMessage(ws: ServerWebSocket<WebSocketData>, msg: WSMes
 	const sanitizedMessage = message.trim().slice(0, 200);
 	if (!sanitizedMessage) return;
 
+	if (sanitizedMessage.toLowerCase().startsWith("!kick ")) {
+		handleKickCommand(matchId, userId, username, sanitizedMessage.slice(6).trim());
+		return;
+	}
+
+	const lowerMessage = sanitizedMessage.toLowerCase();
+	if (lowerMessage === "y" || lowerMessage === "yes") {
+		handleVoteResponse(matchId, userId, username, true);
+		return;
+	}
+
 	const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 	const userImage = ws.data.userImage ?? undefined;
 	const highlightColor = ws.data.highlightColor ?? "#3b82f6";
 	const timestamp = BigInt(Date.now());
+
+	if (!matchChatHistory.has(matchId)) {
+		matchChatHistory.set(matchId, []);
+	}
+	const history = matchChatHistory.get(matchId)!;
+	history.push({
+		messageId,
+		userId,
+		username,
+		userImage,
+		highlightColor,
+		message: sanitizedMessage,
+		timestamp,
+	});
+	if (history.length > MAX_CHAT_HISTORY) {
+		history.shift();
+	}
 
 	const broadcastMsg = createChatBroadcast(matchId, messageId, userId, username, userImage, highlightColor, sanitizedMessage, timestamp);
 

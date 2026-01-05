@@ -27,4 +27,5 @@ export interface RenderJobResponse {
 
 export interface RenderJobStatusResponse {
 	job: RenderJob;
+	queuePosition: number | null;
 }

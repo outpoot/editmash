@@ -16,6 +16,7 @@ export interface ViewSettings {
 	chatPosition: ChatPosition;
 	showRemoteSelections: boolean;
 	showRemoteClipNotifications: boolean;
+	interleaveTracks: boolean;
 }
 
 interface TopBarProps {
@@ -169,6 +170,13 @@ export default function TopBar({ timeRemaining, playersOnline, onUndo, onRedo }:
 						type: "checkbox",
 						checked: viewSettings.showRemoteClipNotifications,
 						action: () => toggleViewSetting("showRemoteClipNotifications"),
+					},
+					{ type: "separator" },
+					{
+						label: "Interleave audio/video tracks",
+						type: "checkbox",
+						checked: viewSettings.interleaveTracks,
+						action: () => toggleViewSetting("interleaveTracks"),
 					},
 				];
 			case "Help":

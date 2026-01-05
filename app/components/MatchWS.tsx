@@ -60,7 +60,7 @@ import {
 } from "@/lib/clipConstraints";
 import { toast } from "sonner";
 
-type ConnectionStatus = "connecting" | "connected" | "disconnected" | "failed";
+type ConnectionStatus = "connecting" | "connected" | "disconnected" | "failed" | "kicked";
 
 export interface RemoteSelection {
 	userId: string;
@@ -154,6 +154,7 @@ interface MatchWebSocketProviderProps {
 	onMatchStatusChange?: (status: string) => void;
 	onTimelineSyncRequested?: () => TimelineData | null;
 	onConstraintViolation?: (reason: string) => void;
+	onKicked?: () => void;
 }
 
 function mediaTypeToString(type: MediaType): "video" | "audio" | "image" {
@@ -383,6 +384,7 @@ export function MatchWS({
 	onMatchStatusChange,
 	onTimelineSyncRequested,
 	onConstraintViolation,
+	onKicked,
 }: MatchWebSocketProviderProps) {
 	const [status, setStatus] = useState<ConnectionStatus>("disconnected");
 	const [playersOnline, setPlayersOnline] = useState(0);
@@ -452,6 +454,7 @@ export function MatchWS({
 		onMatchStatusChange,
 		onTimelineSyncRequested,
 		onConstraintViolation,
+		onKicked,
 	});
 	callbacksRef.current = {
 		onRemoteMediaUploaded,
@@ -466,6 +469,7 @@ export function MatchWS({
 		onMatchStatusChange,
 		onTimelineSyncRequested,
 		onConstraintViolation,
+		onKicked,
 	};
 
 	const propsRef = useRef({ matchId, userId, username, userImage, highlightColor });
@@ -750,6 +754,8 @@ export function MatchWS({
 				if (code === "CONSTRAINT_VIOLATION") {
 					toast.error(errorMessage || "Clip operation rejected");
 					callbacksRef.current.onConstraintViolation?.(errorMessage);
+				} else if (code === "VOTE_KICKED") {
+					callbacksRef.current.onKicked?.();
 				}
 				return;
 			}
@@ -788,6 +794,8 @@ export function MatchWS({
 			setStatus(newStatus);
 			if (newStatus === "failed") {
 				callbacksRef.current.onConnectionFailed?.();
+			} else if (newStatus === "kicked") {
+				callbacksRef.current.onKicked?.();
 			}
 		};
 

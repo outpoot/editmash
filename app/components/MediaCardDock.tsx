@@ -33,6 +33,7 @@ const MediaCardDock = forwardRef<MediaCardDockRef, MediaCardDockProps>(({ maxCli
 
 	const isUnlimited = maxClips === UNLIMITED_CLIPS;
 	const myMediaItems = mediaItems.filter((item) => !item.isRemote);
+	const successfulMediaCount = myMediaItems.filter((item) => !item.uploadError).length;
 
 	useEffect(() => {
 		const unsubscribe = mediaStore.subscribe(() => {
@@ -133,7 +134,7 @@ const MediaCardDock = forwardRef<MediaCardDockRef, MediaCardDockProps>(({ maxCli
 				const hasAudio = await videoHasAudio(file);
 
 				if (hasAudio) {
-					const currentCount = mediaStore.getItems().filter((item) => !item.isRemote).length;
+					const currentCount = mediaStore.getItems().filter((item) => !item.isRemote && !item.uploadError).length;
 					const wouldExceedLimit = !isUnlimited && currentCount >= maxClips;
 
 					if (wouldExceedLimit) {
@@ -376,7 +377,7 @@ const MediaCardDock = forwardRef<MediaCardDockRef, MediaCardDockProps>(({ maxCli
 			const files = e.target.files;
 			if (!files) return;
 
-			const currentCount = myMediaItems.length;
+			const currentCount = successfulMediaCount;
 
 			let filesToProcess: File[];
 			if (isUnlimited) {
@@ -404,16 +405,16 @@ const MediaCardDock = forwardRef<MediaCardDockRef, MediaCardDockProps>(({ maxCli
 				fileInputRef.current.value = "";
 			}
 		},
-		[myMediaItems.length, maxClips, isUnlimited]
+		[successfulMediaCount, maxClips, isUnlimited]
 	);
 
 	const handleAddClick = useCallback(() => {
-		if (!isUnlimited && myMediaItems.length >= maxClips) {
+		if (!isUnlimited && successfulMediaCount >= maxClips) {
 			toast.error(`Maximum ${maxClips} clips allowed`);
 			return;
 		}
 		fileInputRef.current?.click();
-	}, [myMediaItems.length, maxClips, isUnlimited]);
+	}, [successfulMediaCount, maxClips, isUnlimited]);
 
 	const handleDragStart = useCallback((item: MediaItem) => {
 		currentDragItem = item;
@@ -425,7 +426,7 @@ const MediaCardDock = forwardRef<MediaCardDockRef, MediaCardDockProps>(({ maxCli
 
 	const processFilesFromDrop = useCallback(
 		async (files: FileList) => {
-			const currentCount = myMediaItems.length;
+			const currentCount = successfulMediaCount;
 
 			let filesToProcess: File[];
 			if (isUnlimited) {
@@ -449,7 +450,7 @@ const MediaCardDock = forwardRef<MediaCardDockRef, MediaCardDockProps>(({ maxCli
 				await processFile(file);
 			}
 		},
-		[myMediaItems.length, maxClips, isUnlimited, processFile]
+		[successfulMediaCount, maxClips, isUnlimited, processFile]
 	);
 
 	useImperativeHandle(
@@ -460,7 +461,7 @@ const MediaCardDock = forwardRef<MediaCardDockRef, MediaCardDockProps>(({ maxCli
 		[processFilesFromDrop]
 	);
 
-	const remainingSlots = isUnlimited ? Infinity : maxClips - myMediaItems.length;
+	const remainingSlots = isUnlimited ? Infinity : maxClips - successfulMediaCount;
 	const showAddButton = remainingSlots > 0;
 
 	return (
@@ -488,7 +489,7 @@ const MediaCardDock = forwardRef<MediaCardDockRef, MediaCardDockProps>(({ maxCli
 
 			<div className="mt-2 text-[11px] font-medium pointer-events-auto bg-foreground px-3 py-1 rounded-xl backdrop-blur-sm">
 				<span className={!isUnlimited && remainingSlots === 0 ? "text-red-400" : "text-primary-foreground/80"}>
-					{isUnlimited ? `${myMediaItems.length} clips` : `${myMediaItems.length} / ${maxClips} clips`}
+					{isUnlimited ? `${successfulMediaCount} clips` : `${successfulMediaCount} / ${maxClips} clips`}
 				</span>
 			</div>
 		</div>

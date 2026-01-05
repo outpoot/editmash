@@ -6,12 +6,88 @@ import "./globals.css";
 const fontSans = Inter({ subsets: ["latin"], variable: "--font-sans" });
 const fontMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" });
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://editmash.com";
+
 export const metadata: Metadata = {
-	title: "EditMash",
+	metadataBase: new URL(siteUrl),
+	title: {
+		default: "EditMash",
+		template: "%s | EditMash",
+	},
 	description:
-		"EditMash is a multiplayer video editor where large groups of people collaborate in real time to make short, chaotic, and entertaining videos together. Players join timed, rule-based sessions with limits on clips and length, shaping a shared timeline before time runs out.",
+		"Join timed matches and collaborate with dozens of players to create short, chaotic videos on a shared timeline. No skill required — just fun and creativity.",
+	keywords: [
+		"multiplayer video editor",
+		"collaborative editing",
+		"video game",
+		"real-time editing",
+		"group video creation",
+		"social video",
+		"chaotic editing",
+		"timed matches",
+		"creative chaos",
+		"video collaboration",
+		"facedev",
+		"outpoot",
+	],
+	authors: [
+		{ name: "FaceDev", url: "https://youtube.com/@FaceDevStuff" },
+		{ name: "Outpoot", url: "https://outpoot.com" },
+	],
+	creator: "FaceDev",
+	publisher: "Outpoot",
+	robots: {
+		index: true,
+		follow: true,
+		googleBot: {
+			index: true,
+			follow: true,
+			"max-video-preview": -1,
+			"max-image-preview": "large",
+			"max-snippet": -1,
+		},
+	},
 	icons: {
 		icon: "/favicon.svg",
+		apple: "/apple-touch-icon.png",
+	},
+	openGraph: {
+		type: "website",
+		locale: "en_US",
+		url: siteUrl,
+		siteName: "EditMash",
+		title: "EditMash",
+		description:
+			"Join timed matches and collaborate with dozens of players to create short, chaotic videos on a shared timeline. No skill required — just fun and creativity.",
+		images: [
+			{
+				url: "/thumbnail.png",
+				width: 1200,
+				height: 630,
+				alt: "EditMash — Create chaos together",
+			},
+		],
+	},
+	twitter: {
+		card: "summary_large_image",
+		title: "EditMash",
+		description:
+			"Join timed matches and collaborate with dozens of players to create short, chaotic videos on a shared timeline. No skill required — just fun and creativity.",
+		images: ["/thumbnail.png"],
+		site: "@facedevstuff",
+		creator: "@facedevstuff",
+	},
+	applicationName: "EditMash",
+	appleWebApp: {
+		capable: true,
+		title: "EditMash",
+		statusBarStyle: "default",
+	},
+	formatDetection: {
+		telephone: false,
+	},
+	other: {
+		"theme-color": "#1447e6",
 	},
 };
 

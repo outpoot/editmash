@@ -97,6 +97,8 @@ export const matchPlayerClipCounts = new Map<string, Map<string, number>>();
 
 export const matchPlayerInfos = new Map<string, Map<string, PlayerInfoCache>>();
 
+export const matchEditCounts = new Map<string, number>();
+
 export const chatRateLimits = new Map<string, { lastMessageTime: number; messageCount: number; windowStart: number }>();
 
 export const CHAT_RATE_LIMIT_WINDOW = 10000; // 10 seconds

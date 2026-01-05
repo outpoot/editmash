@@ -529,11 +529,8 @@ export default function VideoPreview({
 					// transformations & crop
 					try {
 						if (videoEl.readyState < 2) {
-							console.log('[VideoPreview] Video not ready to render:', { clipId: clip.id, readyState: videoEl.readyState, src: videoEl.src });
 							continue;
 						}
-						console.log('[VideoPreview] Drawing video frame:', { clipId: clip.id, currentTime: videoEl.currentTime, internalTime, isPlaying });
-
 						const { x, y } = props.position;
 						const { width, height } = props.size;
 						const { zoom, rotation, flip, crop } = props;

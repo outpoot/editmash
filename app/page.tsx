@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Skeleton } from "@/components/ui/skeleton";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { UserGroupIcon, Add01Icon, Copy01Icon, Tick01Icon, QrCode01Icon, LinkSquare01Icon } from "@hugeicons/core-free-icons";
 import { LobbyListItemWithConfig, LobbyStatus } from "./types/lobby";
@@ -28,6 +29,7 @@ export default function MatchmakingPage() {
 	const { playerId, username, isLoading: playerLoading, isAuthenticated, activeMatch } = usePlayer();
 
 	const [lobbies, setLobbies] = useState<LobbyListItemWithConfig[]>([]);
+	const [isLoadingLobbies, setIsLoadingLobbies] = useState(true);
 
 	const [showCreateDialog, setShowCreateDialog] = useState(false);
 	const [lobbyName, setLobbyName] = useState("");
@@ -63,6 +65,14 @@ export default function MatchmakingPage() {
 	const wsRef = useRef<WebSocket | null>(null);
 	const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const mountedRef = useRef(true);
+
+	useEffect(() => {
+		const timer = setTimeout(() => {
+			setIsLoadingLobbies(false);
+		}, 5000);
+
+		return () => clearTimeout(timer);
+	}, []);
 
 	const connectWebSocket = useCallback(() => {
 		const url = process.env.NEXT_PUBLIC_WS_URL;
@@ -131,6 +141,7 @@ export default function MatchmakingPage() {
 								return true;
 							})
 					);
+					setIsLoadingLobbies(false);
 				}
 			} catch (e) {
 				console.error("[WS] Parse error:", e);
@@ -263,8 +274,38 @@ export default function MatchmakingPage() {
 
 	if (playerLoading) {
 		return (
-			<div className="min-h-screen bg-background flex items-center justify-center">
-				<div className="animate-pulse text-muted-foreground">Loading...</div>
+			<div className="min-h-screen bg-background">
+				<header className="border-b bg-card">
+					<div className="container mx-auto px-4 py-4 flex items-center justify-between">
+						<div className="flex items-center gap-4">
+							<div className="flex items-center gap-2">
+								<Skeleton className="w-6 h-6 rounded-full" />
+								<Skeleton className="h-7 w-24" />
+							</div>
+							<Skeleton className="h-4 w-12" />
+						</div>
+						<div className="flex items-center gap-4">
+							<Skeleton className="h-9 w-24" />
+							<Skeleton className="w-8 h-8 rounded-full" />
+						</div>
+					</div>
+				</header>
+
+				<main className="container mx-auto px-4 py-8">
+					<div className="flex flex-wrap gap-4 mb-8">
+						<Skeleton className="h-11 w-28" />
+						<Skeleton className="h-11 w-24" />
+					</div>
+
+					<div className="space-y-4">
+						<Skeleton className="h-7 w-32" />
+						<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+							{[...Array(6)].map((_, i) => (
+								<LobbyCardSkeleton key={i} />
+							))}
+						</div>
+					</div>
+				</main>
 			</div>
 		);
 	}
@@ -317,7 +358,7 @@ export default function MatchmakingPage() {
 							<div className="space-y-4 py-4">
 								<div className="space-y-2">
 									<Label htmlFor="lobby-name">Name</Label>
-									<Input id="lobby-name" placeholder={lobbyPlaceholder} value={lobbyName} onChange={(e) => setLobbyName(e.target.value)} />
+									<Input id="lobby-name" placeholder={lobbyPlaceholder} value={lobbyName} onChange={(e) => setLobbyName(e.target.value)} maxLength={32} />
 								</div>
 
 								<div className="flex items-center gap-2">
@@ -587,9 +628,17 @@ export default function MatchmakingPage() {
 				</div>
 
 				<div className="space-y-4">
-					<h2 className="text-lg font-semibold">Lobbies {lobbies.length == 0 ? "" : `(${lobbies.length})`}</h2>
+					<h2 className="text-lg font-semibold">
+						{isLoadingLobbies ? <Skeleton className="h-7 w-32" /> : `Lobbies ${lobbies.length == 0 ? "" : `(${lobbies.length})`}`}
+					</h2>
 
-					{lobbies.length === 0 ? (
+					{isLoadingLobbies ? (
+						<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+							{[...Array(6)].map((_, i) => (
+								<LobbyCardSkeleton key={i} />
+							))}
+						</div>
+					) : lobbies.length === 0 ? (
 						<Card className="p-12 text-center">
 							<div className="flex flex-col items-center gap-4">
 								<HugeiconsIcon icon={UserGroupIcon} className="w-12 h-12 text-muted-foreground/50" />
@@ -597,6 +646,9 @@ export default function MatchmakingPage() {
 									<p className="text-muted-foreground">No open lobbies right now</p>
 									<p className="text-sm text-muted-foreground/70">Create one or wait!</p>
 								</div>
+								<Button variant="outline" onClick={() => setShowCreateDialog(true)}>
+									Create Lobby
+								</Button>
 							</div>
 						</Card>
 					) : (
@@ -632,11 +684,48 @@ export default function MatchmakingPage() {
 				<a href="/privacy" className="hover:text-foreground transition-colors">
 					Privacy
 				</a>
-				<a href="https://discord.gg/editmash" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">
+				<a href="https://discord.gg/facedev" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">
 					Discord
 				</a>
 			</footer>
 		</div>
+	);
+}
+
+function LobbyCardSkeleton() {
+	return (
+		<Card>
+			<CardContent className="p-4">
+				<div className="flex gap-4">
+					<div className="flex flex-col gap-2 shrink-0">
+						<Skeleton className="h-5 w-20" />
+						<div className="flex flex-col gap-1">
+							<Skeleton className="h-5 w-5 rounded-full" />
+							<Skeleton className="h-5 w-5 rounded-full" />
+						</div>
+					</div>
+
+					<div className="flex flex-col flex-1 min-w-0 gap-2">
+						<div className="flex items-center gap-2">
+							<Skeleton className="h-6 w-32" />
+						</div>
+
+						<Skeleton className="h-4 w-24" />
+
+						<div className="flex flex-col gap-1.5">
+							<div className="flex items-center">
+								<Skeleton className="w-6 h-6 rounded-full border-2 border-background" />
+								<Skeleton className="w-6 h-6 rounded-full border-2 border-background -ml-2" />
+								<Skeleton className="w-6 h-6 rounded-full border-2 border-background -ml-2" />
+							</div>
+							<Skeleton className="h-3 w-16" />
+						</div>
+
+						<Skeleton className="h-9 w-full mt-auto" />
+					</div>
+				</div>
+			</CardContent>
+		</Card>
 	);
 }
 

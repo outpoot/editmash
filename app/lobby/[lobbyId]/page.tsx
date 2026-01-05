@@ -224,6 +224,15 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 		);
 	}
 
+	if (!playerLoading && !isAuthenticated) {
+		router.push("/");
+		return (
+			<div className="min-h-screen bg-background flex items-center justify-center">
+				<div className="animate-pulse text-muted-foreground">Redirecting...</div>
+			</div>
+		);
+	}
+
 	if (error) {
 		return (
 			<div className="min-h-screen bg-background flex items-center justify-center">

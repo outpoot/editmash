@@ -34,13 +34,13 @@ export const ALLOWED_MIME_TYPES: Record<FileCategory, string[]> = {
 		"audio/mp4", // .m4a
 		"audio/webm",
 	],
-	image: ["image/jpeg", "image/png", "image/webp", "image/gif"],
+	image: ["image/jpeg", "image/png", "image/webp"],
 };
 
 export const ALLOWED_EXTENSIONS: Record<FileCategory, string[]> = {
 	video: ["mp4", "webm", "mov", "avi", "mkv"],
 	audio: ["mp3", "wav", "ogg", "aac", "m4a", "webm"],
-	image: ["jpg", "jpeg", "png", "webp", "gif"],
+	image: ["jpg", "jpeg", "png", "webp"],
 };
 
 export const EXTENSION_TO_MIME: Record<string, string> = {
@@ -61,7 +61,6 @@ export const EXTENSION_TO_MIME: Record<string, string> = {
 	jpeg: "image/jpeg",
 	png: "image/png",
 	webp: "image/webp",
-	gif: "image/gif",
 };
 
 export const ALL_ALLOWED_MIME_TYPES = new Set([...ALLOWED_MIME_TYPES.video, ...ALLOWED_MIME_TYPES.audio, ...ALLOWED_MIME_TYPES.image]);
@@ -95,7 +94,8 @@ export type ValidationErrorType =
 	| "invalid_mime_type"
 	| "invalid_extension"
 	| "extension_mismatch"
-	| "file_too_large";
+	| "file_too_large"
+	| "filename_too_long";
 
 export interface ValidationResult {
 	valid: boolean;
@@ -103,6 +103,8 @@ export interface ValidationResult {
 	message?: string;
 	category?: FileCategory;
 }
+
+const MAX_FILENAME_LENGTH = 200;
 
 export function validateFile(file: { name: string; size: number; type: string }): ValidationResult {
 	if (!file) {
@@ -118,6 +120,14 @@ export function validateFile(file: { name: string; size: number; type: string })
 			valid: false,
 			error: "empty_file",
 			message: "File is empty",
+		};
+	}
+
+	if (file.name.length > MAX_FILENAME_LENGTH) {
+		return {
+			valid: false,
+			error: "filename_too_long",
+			message: `Filename too long (max ${MAX_FILENAME_LENGTH} characters)`,
 		};
 	}
 

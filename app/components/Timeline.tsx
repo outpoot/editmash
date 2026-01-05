@@ -25,6 +25,7 @@ import { useTimelineDrag } from "../hooks/useTimelineDrag";
 import { useTimelineSelection } from "../hooks/useTimelineSelection";
 import { useTimelineKeyboard } from "../hooks/useTimelineKeyboard";
 import { useTimelineClipboard } from "../hooks/useTimelineClipboard";
+import { viewSettingsStore } from "../store/viewSettingsStore";
 
 function deepMergeProperties(existing: Record<string, unknown>, updates: Record<string, unknown>): Record<string, unknown> {
 	const result = { ...existing };
@@ -113,6 +114,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			type: "video" | "audio";
 		} | null>(null);
 		const [clipChangeNotifications, setClipChangeNotifications] = useState<Map<string, ClipChangeNotification[]>>(new Map());
+		const [interleaveTracks, setInterleaveTracks] = useState(viewSettingsStore.getSettings().interleaveTracks);
 
 		// Refs
 		const timelineRef = useRef<HTMLDivElement>(null);
@@ -140,6 +142,30 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 			});
 			return points;
 		}, [timelineState]);
+
+		useEffect(() => {
+			return viewSettingsStore.subscribe(() => {
+				setInterleaveTracks(viewSettingsStore.getSettings().interleaveTracks);
+			});
+		}, []);
+
+		const displayTracks = useMemo(() => {
+			if (!interleaveTracks) {
+				return timelineState.tracks;
+			}
+
+			const videoTracks = timelineState.tracks.filter((t) => t.type === "video");
+			const audioTracks = timelineState.tracks.filter((t) => t.type === "audio");
+			const interleaved = [];
+			const maxLength = Math.max(videoTracks.length, audioTracks.length);
+
+			for (let i = 0; i < maxLength; i++) {
+				if (i < videoTracks.length) interleaved.push(videoTracks[i]);
+				if (i < audioTracks.length) interleaved.push(audioTracks[i]);
+			}
+
+			return interleaved;
+		}, [timelineState.tracks, interleaveTracks]);
 
 		const updateTimelineState = useCallback((updater: (prev: TimelineState) => TimelineState) => {
 			setTimelineState((prev) => {
@@ -849,8 +875,6 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 				const newScrollLeft = scrollContainer.scrollLeft;
 				if (playheadElementRef.current) {
 					playheadElementRef.current.style.transform = `translateX(${currentTimeRef.current * pixelsPerSecond - newScrollLeft}px)`;
-					const shouldBeAbove = currentTimeRef.current === 0 && newScrollLeft < 6;
-					playheadElementRef.current.style.zIndex = shouldBeAbove ? "80" : "60";
 				}
 			};
 			scrollContainer.addEventListener("scroll", handleScroll);
@@ -1171,13 +1195,11 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 						</div>
 						<div className="flex-1 overflow-hidden relative">
 							<div ref={trackNamesRef} className="absolute left-0 right-0">
-								{timelineState.tracks.map((track, index) => (
+								{displayTracks.map((track, index) => (
 									<div
 										key={track.id}
 										data-tutorial={track.type === "video" ? "video-track" : "audio-track"}
-										className={`h-10 flex items-center px-3 bg-card ${
-											index !== timelineState.tracks.length - 1 ? "border-b border-border" : ""
-										}`}
+										className={`h-10 flex items-center px-3 bg-card ${index !== displayTracks.length - 1 ? "border-b border-border" : ""}`}
 									>
 										<div className="flex items-center gap-2">
 											<div className={`w-2 h-2 rounded-full ${track.type === "video" ? "bg-purple-500" : "bg-green-500"}`} />
@@ -1209,6 +1231,14 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 								trackNamesRef.current.style.transform = `translateY(${-container.scrollTop}px)`;
 							}
 						}}
+						onWheel={(e) => {
+							if (e.ctrlKey || e.metaKey) {
+								e.preventDefault();
+								if (scrollContainerRef.current) {
+									scrollContainerRef.current.scrollLeft += e.deltaY;
+								}
+							}
+						}}
 					>
 						<div className="min-w-full inline-block" style={{ width: `${timelineWidth + 200}px` }}>
 							<div ref={timelineRef} className="sticky top-0 z-20 bg-card">
@@ -1216,7 +1246,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 							</div>
 
 							<div className="relative">
-								{timelineState.tracks.map((track, index) => (
+								{displayTracks.map((track, index) => (
 									<div
 										key={track.id}
 										ref={(el) => {
@@ -1237,7 +1267,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 											onTrackMouseEnter={handleTrackMouseEnter}
 											toolMode={toolMode}
 											onBladeClick={handleBladeClick}
-											isLastTrack={index === timelineState.tracks.length - 1}
+											isLastTrack={index === displayTracks.length - 1}
 											onTrackMouseMove={handleTrackMouseMove}
 											bladeCursorPosition={bladeCursorPosition?.trackId === track.id ? bladeCursorPosition.x : null}
 											onMediaDrop={handleMediaDrop}
@@ -1262,7 +1292,7 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 							top: 0,
 							height: "100%",
 							willChange: isPlaying ? "transform" : "auto",
-							zIndex: currentTime === 0 ? 80 : 60,
+							zIndex: 20,
 						}}
 					>
 						<div className="absolute w-0.5 bg-red-500 h-full" />
@@ -1271,7 +1301,11 @@ const Timeline = forwardRef<TimelineRef, TimelineProps>(
 							height="10"
 							viewBox="0 0 12 10"
 							className="absolute top-0 cursor-ew-resize pointer-events-auto"
-							style={{ left: "1px", transform: "translateX(-50%)", display: "block" }}
+							style={{
+								left: "1px",
+								transform: "translateX(-50%)",
+								display: "block",
+							}}
 							onMouseDown={(e) => {
 								e.stopPropagation();
 								const startX = e.clientX;

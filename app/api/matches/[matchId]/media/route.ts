@@ -4,6 +4,7 @@ import { matchMedia, matches, user, lobbies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
+import { isNameAppropriate } from "@/lib/moderation";
 
 interface RouteParams {
 	params: Promise<{
@@ -62,6 +63,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
 		if (!name || !type || !url) {
 			return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+		}
+
+		const isAppropriate = await isNameAppropriate(name);
+		if (!isAppropriate) {
+			return NextResponse.json({ error: "Media name contains inappropriate content" }, { status: 400 });
 		}
 
 		const [lobbyRecord] = await db()

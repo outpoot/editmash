@@ -5,6 +5,7 @@ import { DEFAULT_MATCH_CONFIG, MatchConfig } from "@/app/types/match";
 import { CreateLobbyRequest, CreateLobbyResponse, LobbyListResponse, LobbyStatus } from "@/app/types/lobby";
 import { getServerSession } from "@/lib/auth";
 import { notifyWsServer } from "@/lib/wsNotify";
+import { isNameAppropriate } from "@/lib/moderation";
 
 export async function POST(request: NextRequest): Promise<NextResponse<CreateLobbyResponse | { error: string }>> {
 	try {
@@ -17,6 +18,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<CreateLob
 
 		if (!body.name || typeof body.name !== "string") {
 			return NextResponse.json({ error: "Lobby name is required" }, { status: 400 });
+		}
+
+		if (body.name.trim().length > 32) {
+			return NextResponse.json({ error: "Lobby name must be 32 characters or less" }, { status: 400 });
+		}
+
+		const isAppropriate = await isNameAppropriate(body.name);
+		if (!isAppropriate) {
+			return NextResponse.json({ error: "Lobby name contains inappropriate content" }, { status: 400 });
 		}
 
 		const userId = session.user.id;

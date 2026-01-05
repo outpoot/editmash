@@ -365,7 +365,20 @@ export function clampClipToTimeline(
 	return { startTime: clampedStart, duration: clampedDuration };
 }
 
-export function validateMatchConfig(config: Partial<ClipConstraintConfig>): ValidationResult {
+export function validateMatchConfig(config: Partial<ClipConstraintConfig & { matchDuration?: number; maxPlayers?: number; constraints?: string[] }>): ValidationResult {
+	if (config.constraints !== undefined) {
+		if (!Array.isArray(config.constraints)) {
+			return { valid: false, reason: "Constraints must be an array" };
+		}
+		if (config.constraints.length > 20) {
+			return { valid: false, reason: "Cannot have more than 20 constraints" };
+		}
+		for (const constraint of config.constraints) {
+			if (typeof constraint !== "string" || constraint.length > 100) {
+				return { valid: false, reason: "Invalid constraint format" };
+			}
+		}
+	}
 	if (config.timelineDuration !== undefined) {
 		if (config.timelineDuration <= 0) {
 			return { valid: false, reason: "Timeline duration must be positive" };
@@ -375,8 +388,32 @@ export function validateMatchConfig(config: Partial<ClipConstraintConfig>): Vali
 		}
 	}
 
+	if (config.matchDuration !== undefined) {
+		if (config.matchDuration <= 0) {
+			return { valid: false, reason: "Match duration must be positive" };
+		}
+		if (config.matchDuration > 60) {
+			return { valid: false, reason: "Match duration cannot exceed 60 minutes" };
+		}
+	}
+
+	if (config.maxPlayers !== undefined) {
+		if (config.maxPlayers < 1) {
+			return { valid: false, reason: "Must allow at least 1 player" };
+		}
+		if (config.maxPlayers > 500) {
+			return { valid: false, reason: "Max players cannot exceed 500" };
+		}
+	}
+
 	if (config.clipSizeMin !== undefined && config.clipSizeMin < 0) {
 		return { valid: false, reason: "Minimum clip size cannot be negative" };
+	}
+
+	if (config.clipSizeMax !== undefined) {
+		if (config.clipSizeMax > 60) {
+			return { valid: false, reason: "Maximum clip size cannot exceed 60 seconds" };
+		}
 	}
 
 	if (config.clipSizeMax !== undefined && config.clipSizeMin !== undefined) {
@@ -385,8 +422,13 @@ export function validateMatchConfig(config: Partial<ClipConstraintConfig>): Vali
 		}
 	}
 
-	if (config.audioMaxDb !== undefined && config.audioMaxDb < -60) {
-		return { valid: false, reason: "Audio max dB cannot be below -60 dB" };
+	if (config.audioMaxDb !== undefined) {
+		if (config.audioMaxDb < -60) {
+			return { valid: false, reason: "Audio max dB cannot be below -60 dB" };
+		}
+		if (config.audioMaxDb > 24) {
+			return { valid: false, reason: "Audio max dB cannot exceed 24 dB" };
+		}
 	}
 
 	if (config.maxVideoTracks !== undefined) {
@@ -407,8 +449,13 @@ export function validateMatchConfig(config: Partial<ClipConstraintConfig>): Vali
 		}
 	}
 
-	if (config.maxClipsPerUser !== undefined && config.maxClipsPerUser < 0) {
-		return { valid: false, reason: "Max clips per user cannot be negative" };
+	if (config.maxClipsPerUser !== undefined) {
+		if (config.maxClipsPerUser < 0) {
+			return { valid: false, reason: "Max clips per user cannot be negative" };
+		}
+		if (config.maxClipsPerUser > 100) {
+			return { valid: false, reason: "Max clips per user cannot exceed 100" };
+		}
 	}
 
 	return { valid: true };
