@@ -65,13 +65,23 @@ export function LobbyChat({ lobbyId, currentUserId, wsRef, className = "" }: Lob
 			}
 		};
 
+		const handleOpen = () => {
+			if (ws.readyState === WebSocket.OPEN) {
+				ws.send(serializeMessage(createRequestLobbyChatHistory(lobbyId)));
+			}
+		};
+
 		ws.addEventListener("message", handleMessage);
+		ws.addEventListener("open", handleOpen);
 
 		if (ws.readyState === WebSocket.OPEN) {
 			ws.send(serializeMessage(createRequestLobbyChatHistory(lobbyId)));
 		}
 
-		return () => ws.removeEventListener("message", handleMessage);
+		return () => {
+			ws.removeEventListener("message", handleMessage);
+			ws.removeEventListener("open", handleOpen);
+		};
 	}, [lobbyId, wsRef]);
 
 	useEffect(() => {

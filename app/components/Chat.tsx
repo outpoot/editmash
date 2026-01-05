@@ -401,7 +401,7 @@ export function Chat({ className = "" }: ChatProps) {
 								placeholder="To chat click here or press / key"
 								maxLength={200}
 								className={`w-full pl-3 pr-10 py-2 text-sm rounded-lg transition-all duration-200
-									${isFocused ? "bg-[#1e2730] border border-white/10" : "bg-black/50 backdrop-blur-md border border-white/[0.08]"}
+								${isFocused ? "bg-[#1e2730] border border-white/10" : "bg-black/50 backdrop-blur-md border border-white/8"}
 									text-white/90 placeholder:text-white/30
 									focus:outline-none`}
 							/>
@@ -452,7 +452,7 @@ export function Chat({ className = "" }: ChatProps) {
 								placeholder="To chat click here or press / key"
 								maxLength={200}
 								className={`w-full pl-3 pr-10 py-2 text-sm rounded-lg transition-all duration-200
-									${isFocused ? "bg-[#1e2730] border border-white/10" : "bg-black/50 backdrop-blur-md border border-white/[0.08]"}
+								${isFocused ? "bg-[#1e2730] border border-white/10" : "bg-black/50 backdrop-blur-md border border-white/8"}
 									text-white/90 placeholder:text-white/30
 									focus:outline-none`}
 							/>

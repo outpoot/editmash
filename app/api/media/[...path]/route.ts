@@ -36,13 +36,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
 		const fileName = path.join("/");
 
-		if (!fileName.startsWith("avatars/")) {
-			return NextResponse.json(
-				{ error: "Direct media access not allowed. Use direct B2 URLs." },
-				{ status: 403 }
-			);
-		}
-
 		const session = await auth.api.getSession({ headers: await headers() });
 		if (!session?.user) {
 			return NextResponse.json({ error: "Authentication required" }, { status: 401 });
@@ -127,10 +120,6 @@ export async function HEAD(request: NextRequest, { params }: { params: Promise<{
 		}
 
 		const fileName = path.join("/");
-
-		if (!fileName.startsWith("avatars/")) {
-			return new NextResponse(null, { status: 403 });
-		}
 
 		const session = await auth.api.getSession({ headers: await headers() });
 		if (!session?.user) {
