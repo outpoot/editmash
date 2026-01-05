@@ -10,15 +10,18 @@ export function getRedis(): Redis {
 		const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
 
 		global.redisClient = new Redis(redisUrl, {
-			maxRetriesPerRequest: 3,
+			maxRetriesPerRequest: null,
 			retryStrategy: (times) => {
-				if (times > 10) {
-					return null;
-				}
-				return Math.min(times * 100, 3000);
+				const delay = Math.min(times * 200, 30000);
+				console.log(`Redis reconnection attempt ${times}, retrying in ${delay}ms...`);
+				return delay;
 			},
 			lazyConnect: false,
 			enableOfflineQueue: true,
+			reconnectOnError: (err) => {
+				console.log(`Redis error, will reconnect: ${err.message}`);
+				return true;
+			},
 		});
 
 		global.redisClient.on("error", (err) => {

@@ -1,6 +1,6 @@
 export type FileCategory = "video" | "audio" | "image";
 
-const VIDEO_SIZE_LIMITS_MB  = 50;
+const VIDEO_SIZE_LIMITS_MB  = 10;
 const AUDIO_SIZE_LIMITS_MB = 10;
 const IMAGE_SIZE_LIMITS_MB = 5;
 

@@ -49,6 +49,11 @@ message WSMessage {
     // Chat messages
     ChatMessagePayload chat_message = 70;
     ChatBroadcastPayload chat_broadcast = 71;
+    
+    // Lobby chat messages
+    LobbyChatMessagePayload lobby_chat_message = 72;
+    LobbyChatBroadcastPayload lobby_chat_broadcast = 73;
+    RequestLobbyChatHistoryPayload request_lobby_chat_history = 74;
   }
 }
 
@@ -87,6 +92,9 @@ enum MessageType {
   MESSAGE_TYPE_CHAT_BROADCAST = 31;
   MESSAGE_TYPE_JOIN_LOBBY = 32;
   MESSAGE_TYPE_LEAVE_LOBBY = 33;
+  MESSAGE_TYPE_LOBBY_CHAT_MESSAGE = 34;
+  MESSAGE_TYPE_LOBBY_CHAT_BROADCAST = 35;
+  MESSAGE_TYPE_REQUEST_LOBBY_CHAT_HISTORY = 36;
 }
 
 message UserInfo {
@@ -352,6 +360,7 @@ message JoinLobbyPayload {
   string lobby_id = 1;
   string user_id = 2;
   string username = 3;
+  optional string user_image = 4;
 }
 
 message LeaveLobbyPayload {
@@ -395,4 +404,23 @@ message ChatBroadcastPayload {
   string highlight_color = 6;
   string message = 7;
   int64 timestamp = 8;
+}
+
+message LobbyChatMessagePayload {
+  string lobby_id = 1;
+  string message = 2;
+}
+
+message LobbyChatBroadcastPayload {
+  string lobby_id = 1;
+  string message_id = 2;
+  string user_id = 3;
+  string username = 4;
+  optional string user_image = 5;
+  string message = 6;
+  int64 timestamp = 7;
+}
+
+message RequestLobbyChatHistoryPayload {
+  string lobby_id = 1;
 }

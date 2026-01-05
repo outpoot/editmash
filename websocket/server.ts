@@ -3,6 +3,7 @@ import {
 	connections,
 	matchPlayers,
 	lobbySubscribers,
+	lobbyPlayers,
 	userConnections,
 	PORT,
 	IDLE_TIMEOUT,
@@ -31,6 +32,8 @@ import {
 	isZoneSubscribeMessage,
 	isClipBatchUpdateMessage,
 	isChatMessage,
+	isLobbyChatMessage,
+	isRequestLobbyChatHistory,
 	isJoinLobbyMessage,
 	isLeaveLobbyMessage,
 	createPlayerLeftMessage,
@@ -59,6 +62,8 @@ import {
 	handleClipSelection,
 	handleZoneSubscribe,
 	handleChatMessage,
+	handleLobbyChatMessage,
+	handleRequestLobbyChatHistory,
 	notifyPlayerDisconnected,
 	notifyLobbyPlayerDisconnected,
 	handleJoinLobby,
@@ -168,6 +173,16 @@ function handleMessage(ws: ServerWebSocket<WebSocketData>, rawMessage: string | 
 			return;
 		}
 
+		if (isLobbyChatMessage(message)) {
+			handleLobbyChatMessage(ws, message);
+			return;
+		}
+
+		if (isRequestLobbyChatHistory(message)) {
+			handleRequestLobbyChatHistory(ws, message);
+			return;
+		}
+
 		console.log(`[WS] Unknown message type: ${message.type}`);
 	} catch (error) {
 		console.error("[WS] Failed to parse message:", error);
@@ -209,6 +224,16 @@ function handleClose(ws: ServerWebSocket<WebSocketData>): void {
 		if (wasLastConnection) {
 			broadcast(matchId, createPlayerLeftMessage(matchId, userId));
 			notifyPlayerDisconnected(matchId, userId);
+		}
+	}
+
+	if (lobbyId) {
+		const players = lobbyPlayers.get(lobbyId);
+		if (players) {
+			players.delete(id);
+			if (players.size === 0) {
+				lobbyPlayers.delete(lobbyId);
+			}
 		}
 	}
 

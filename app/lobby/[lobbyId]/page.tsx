@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { usePlayer } from "@/app/hooks/usePlayer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -19,17 +18,17 @@ import {
 	PlayIcon,
 	CrownIcon,
 	Logout01Icon,
-	Video01Icon,
 	Clock01Icon,
 } from "@hugeicons/core-free-icons";
 import { Lobby, LobbyPlayer } from "@/app/types/lobby";
 import { MatchModifierBadges } from "@/app/components/MatchModifierBadges";
+import { LobbyChat } from "@/app/components/LobbyChat";
 import { serializeMessage, createJoinLobbyMessage, createLeaveLobbyMessage } from "@/websocket/types";
 
 export default function LobbyPage({ params }: { params: Promise<{ lobbyId: string }> }) {
 	const { lobbyId } = use(params);
 	const router = useRouter();
-	const { playerId, username, isLoading: playerLoading, isAuthenticated } = usePlayer();
+	const { playerId, username, image: userImage, isLoading: playerLoading, isAuthenticated } = usePlayer();
 
 	const [lobby, setLobby] = useState<Lobby | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
@@ -114,7 +113,7 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 		wsRef.current = ws;
 
 		ws.onopen = () => {
-			ws.send(serializeMessage(createJoinLobbyMessage(lobbyId, playerId, username)));
+			ws.send(serializeMessage(createJoinLobbyMessage(lobbyId, playerId, username, userImage ?? undefined)));
 			joinedRef.current = true;
 			console.log(`[WS] Joined lobby ${lobbyId} for presence tracking`);
 		};
@@ -151,7 +150,7 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 			wsRef.current = null;
 			joinedRef.current = false;
 		};
-	}, [lobbyId, playerId, username, playerLoading, isAuthenticated]);
+	}, [lobbyId, playerId, username, userImage, playerLoading, isAuthenticated]);
 
 	const copyCode = () => {
 		if (!lobby) return;
@@ -281,9 +280,9 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 			</header>
 
 			<main className="container mx-auto px-4 py-8">
-				<div className="grid lg:grid-cols-3 gap-8">
-					<div className="lg:col-span-2">
-						<Card>
+				<div className="grid lg:grid-cols-12 gap-6">
+					<div className="lg:col-span-5">
+						<Card className="h-full">
 							<CardHeader>
 								<div className="flex items-center justify-between">
 									<div>
@@ -299,7 +298,7 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 							</CardHeader>
 							<CardContent>
 								<ScrollArea className="h-[400px] pr-4">
-									<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+									<div className="grid grid-cols-2 md:grid-cols-3 gap-2">
 										{lobby.players.map((player) => (
 											<PlayerCard
 												key={player.id}
@@ -321,9 +320,19 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 						</Card>
 					</div>
 
-					<div className="space-y-4">
+					<div className="lg:col-span-4">
+						<LobbyChat
+							lobbyId={lobbyId}
+							currentUserId={playerId || ""}
+							currentUsername={username || "Anonymous"}
+							wsRef={wsRef}
+							className="h-[520px]"
+						/>
+					</div>
+
+					<div className="lg:col-span-3 space-y-4">
 						<Card>
-							<CardHeader>
+							<CardHeader className="pb-3">
 								<CardTitle className="text-base">Modifiers</CardTitle>
 							</CardHeader>
 							<CardContent>
