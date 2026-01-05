@@ -914,7 +914,45 @@ function mapMatchRecordToMatch(
 
 export async function deleteMatchMedia(matchId: string): Promise<void> {
 	const database = db();
+
+	const mediaFiles = await database
+		.select({ fileName: matchMedia.url, fileId: matchMedia.fileId })
+		.from(matchMedia)
+		.where(eq(matchMedia.matchId, matchId));
+
 	await database.delete(matchMedia).where(eq(matchMedia.matchId, matchId));
+
+	if (mediaFiles.length > 0) {
+		const { deleteMultipleFromB2 } = await import("./b2");
+
+		const filesToDelete = mediaFiles
+			.filter((file) => file.fileId && file.fileName)
+			.map((file) => {
+				let fileName = file.fileName!;
+				if (fileName.startsWith("/api/media/")) {
+					fileName = decodeURIComponent(fileName.split("/api/media/")[1]);
+				}
+
+				return { fileName, fileId: file.fileId! };
+			});
+
+		if (filesToDelete.length > 0) {
+			try {
+				const results = await deleteMultipleFromB2(filesToDelete);
+				const failures = results.filter((r) => !r.success);
+				if (failures.length > 0) {
+					console.error(
+						`Failed to delete ${failures.length}/${results.length} match media files from B2:`,
+						failures.map((f) => `${f.fileName}: ${f.error}`).join(", ")
+					);
+				} else {
+					console.log(`Successfully deleted ${results.length} match media files from B2`);
+				}
+			} catch (error) {
+				console.error("Error deleting match media from B2:", error);
+			}
+		}
+	}
 }
 
 export async function cleanupOldLobbies(olderThanHours: number = 24): Promise<number> {

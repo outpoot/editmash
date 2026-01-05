@@ -141,6 +141,16 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 			return NextResponse.json({ error: "Match not found" }, { status: 404 });
 		}
 
+		const [mediaRecord] = await db()
+			.select({ url: matchMedia.url, fileId: matchMedia.fileId })
+			.from(matchMedia)
+			.where(and(eq(matchMedia.id, mediaId), eq(matchMedia.matchId, lobbyRecord.matchId)))
+			.limit(1);
+
+		if (!mediaRecord) {
+			return NextResponse.json({ error: "Media not found for this match" }, { status: 404 });
+		}
+
 		const result = await db()
 			.delete(matchMedia)
 			.where(and(eq(matchMedia.id, mediaId), eq(matchMedia.matchId, lobbyRecord.matchId)))
@@ -148,6 +158,23 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
 		if (result.length === 0) {
 			return NextResponse.json({ error: "Media not found for this match" }, { status: 404 });
+		}
+
+		if (mediaRecord.fileId && mediaRecord.url) {
+			try {
+				const { deleteFromB2 } = await import("@/lib/b2");
+
+				let fileName = mediaRecord.url;
+				if (fileName.startsWith("/api/media/")) {
+					fileName = decodeURIComponent(fileName.split("/api/media/")[1]);
+				}
+
+				await deleteFromB2(fileName, mediaRecord.fileId);
+				console.log(`Deleted media file from B2: ${fileName}`);
+			} catch (error) {
+				console.error("Failed to delete media from B2:", error);
+				// continue
+			}
 		}
 
 		return NextResponse.json({ success: true });

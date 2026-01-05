@@ -24,8 +24,6 @@ import {
 	CHAT_RATE_LIMIT_WINDOW,
 	CHAT_RATE_LIMIT_MAX_MESSAGES,
 	CHAT_COOLDOWN_MS,
-	VOTE_KICK_DURATION_MS,
-	VOTE_KICK_THRESHOLD,
 	type WebSocketData,
 	type TimelineClip,
 	type MatchConfigCache,
