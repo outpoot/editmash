@@ -25,7 +25,7 @@ export async function GET() {
 		const activeMatch = await getPlayerActiveMatch(currentSession.user.id);
 		const activeLobby = await getPlayerActiveLobby(currentSession.user.id);
 
-		return NextResponse.json({ 
+		return NextResponse.json({
 			user: userData[0],
 			activeMatch,
 			activeLobby,
@@ -188,6 +188,34 @@ export async function DELETE() {
 			}
 		} catch (error) {
 			console.error("Error deleting avatar:", error);
+		}
+
+		try {
+			const { matchMedia } = await import("@/lib/db/schema");
+			const { eq } = await import("drizzle-orm");
+			const { deleteFromB2 } = await import("@/lib/b2");
+
+			const userMedia = await db
+				.select({ url: matchMedia.url, fileId: matchMedia.fileId })
+				.from(matchMedia)
+				.where(eq(matchMedia.uploadedBy, userId));
+
+			for (const media of userMedia) {
+				if (media.fileId && media.url) {
+					try {
+						let fileName = media.url;
+						if (fileName.startsWith("/api/media/")) {
+							fileName = decodeURIComponent(fileName.split("/api/media/")[1]);
+						}
+						await deleteFromB2(fileName, media.fileId);
+					} catch (error) {
+						console.error(`Failed to delete media file ${media.url}:`, error);
+					}
+				}
+			}
+		} catch (error) {
+			console.error("Error deleting user's match media:", error);
+			// continue
 		}
 
 		await db.transaction(async (tx) => {
