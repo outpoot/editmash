@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 
 const CACHE_MAX_AGE = 3600; // 1 hour
-const ALLOWED_PREFIXES = ["avatars/"];
+const ALLOWED_PREFIXES = ["avatars/", "renders/"];
 
 function validatePath(fileName: string): { valid: boolean; error?: string } {
 	if (!ALLOWED_PREFIXES.some((prefix) => fileName.startsWith(prefix))) {
