@@ -93,6 +93,12 @@ import {
 	ChatMessagePayloadSchema,
 	type ChatBroadcastPayload,
 	ChatBroadcastPayloadSchema,
+	type LobbyChatMessagePayload,
+	LobbyChatMessagePayloadSchema,
+	type LobbyChatBroadcastPayload,
+	LobbyChatBroadcastPayloadSchema,
+	type RequestLobbyChatHistoryPayload,
+	RequestLobbyChatHistoryPayloadSchema,
 } from "../src/gen/messages_pb";
 
 export {
@@ -126,6 +132,9 @@ export {
 	type LobbyDeletedPayload,
 	type JoinLobbyPayload,
 	type LeaveLobbyPayload,
+	type LobbyChatMessagePayload,
+	type LobbyChatBroadcastPayload,
+	type RequestLobbyChatHistoryPayload,
 	type ErrorPayload,
 	type PingPayload,
 	type PongPayload,
@@ -317,13 +326,13 @@ export function createLeaveMatchMessage(matchId: string, userId: string): WSMess
 	});
 }
 
-export function createJoinLobbyMessage(lobbyId: string, userId: string, username: string): WSMessageProto {
+export function createJoinLobbyMessage(lobbyId: string, userId: string, username: string, userImage?: string): WSMessageProto {
 	return create(WSMessageSchema, {
 		type: MessageType.JOIN_LOBBY,
 		timestamp: BigInt(Date.now()),
 		payload: {
 			case: "joinLobby",
-			value: create(JoinLobbyPayloadSchema, { lobbyId, userId, username }),
+			value: create(JoinLobbyPayloadSchema, { lobbyId, userId, username, userImage }),
 		},
 	});
 }
@@ -1041,6 +1050,76 @@ export interface ChatMessageData {
 	username: string;
 	userImage?: string;
 	highlightColor: string;
+	message: string;
+	timestamp: number;
+}
+
+export function isLobbyChatMessage(msg: WSMessageProto): msg is WSMessageProto & { payload: { case: "lobbyChatMessage" } } {
+	return msg.type === MessageType.LOBBY_CHAT_MESSAGE && msg.payload?.case === "lobbyChatMessage";
+}
+
+export function isLobbyChatBroadcast(msg: WSMessageProto): msg is WSMessageProto & { payload: { case: "lobbyChatBroadcast" } } {
+	return msg.type === MessageType.LOBBY_CHAT_BROADCAST && msg.payload?.case === "lobbyChatBroadcast";
+}
+
+export function isRequestLobbyChatHistory(msg: WSMessageProto): msg is WSMessageProto & { payload: { case: "requestLobbyChatHistory" } } {
+	return msg.type === MessageType.REQUEST_LOBBY_CHAT_HISTORY && msg.payload?.case === "requestLobbyChatHistory";
+}
+
+export function createLobbyChatMessage(lobbyId: string, message: string): WSMessageProto {
+	return create(WSMessageSchema, {
+		type: MessageType.LOBBY_CHAT_MESSAGE,
+		timestamp: BigInt(Date.now()),
+		payload: {
+			case: "lobbyChatMessage",
+			value: create(LobbyChatMessagePayloadSchema, { lobbyId, message }),
+		},
+	});
+}
+
+export function createLobbyChatBroadcast(
+	lobbyId: string,
+	messageId: string,
+	userId: string,
+	username: string,
+	userImage: string | undefined,
+	message: string,
+	timestamp: bigint
+): WSMessageProto {
+	return create(WSMessageSchema, {
+		type: MessageType.LOBBY_CHAT_BROADCAST,
+		timestamp: BigInt(Date.now()),
+		payload: {
+			case: "lobbyChatBroadcast",
+			value: create(LobbyChatBroadcastPayloadSchema, {
+				lobbyId,
+				messageId,
+				userId,
+				username,
+				userImage,
+				message,
+				timestamp,
+			}),
+		},
+	});
+}
+
+export function createRequestLobbyChatHistory(lobbyId: string): WSMessageProto {
+	return create(WSMessageSchema, {
+		type: MessageType.REQUEST_LOBBY_CHAT_HISTORY,
+		timestamp: BigInt(Date.now()),
+		payload: {
+			case: "requestLobbyChatHistory",
+			value: create(RequestLobbyChatHistoryPayloadSchema, { lobbyId }),
+		},
+	});
+}
+
+export interface LobbyChatMessageData {
+	messageId: string;
+	userId: string;
+	username: string;
+	userImage?: string;
 	message: string;
 	timestamp: number;
 }

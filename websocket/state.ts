@@ -135,10 +135,25 @@ export interface StoredChatMessage {
 export const MAX_CHAT_HISTORY = 50;
 export const matchChatHistory = new Map<string, StoredChatMessage[]>();
 
-export const matchMessageQueues = new Map<string, {
-	processing: boolean;
-	queue: Array<() => Promise<void>>;
-}>();
+export interface StoredLobbyChatMessage {
+	messageId: string;
+	userId: string;
+	username: string;
+	userImage?: string;
+	message: string;
+	timestamp: bigint;
+}
+
+export const lobbyChatHistory = new Map<string, StoredLobbyChatMessage[]>();
+export const lobbyPlayers = new Map<string, Set<string>>();
+
+export const matchMessageQueues = new Map<
+	string,
+	{
+		processing: boolean;
+		queue: Array<() => Promise<void>>;
+	}
+>();
 
 export const pendingBatches = new Map<
 	string,

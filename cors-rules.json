@@ -3,8 +3,19 @@
     "corsRuleName": "allowAll",
     "allowedOrigins": ["*"],
     "allowedOperations": ["b2_download_file_by_id", "b2_download_file_by_name"],
-    "allowedHeaders": ["*"],
-    "exposeHeaders": ["x-bz-content-sha1", "x-bz-file-id", "x-bz-file-name", "content-range", "content-length"],
-    "maxAgeSeconds": 3600
+    "allowedHeaders": ["range", "if-none-match", "if-modified-since", "authorization", "content-type"],
+    "exposeHeaders": [
+      "x-bz-content-sha1",
+      "x-bz-file-id", 
+      "x-bz-file-name",
+      "content-range",
+      "content-length",
+      "content-type",
+      "accept-ranges",
+      "etag",
+      "last-modified",
+      "cache-control"
+    ],
+    "maxAgeSeconds": 86400
   }
 ]
