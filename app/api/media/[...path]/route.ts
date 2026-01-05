@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { downloadFromB2 } from "@/lib/b2";
 import { ALL_ALLOWED_MIME_TYPES, getMimeTypeFromExtension } from "@/lib/validation";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 
 const CACHE_MAX_AGE = 3600; // 1 hour
-const ALLOWED_PREFIXES = ["media/", "renders/", "avatars/"];
+const ALLOWED_PREFIXES = ["avatars/"];
 
 function validatePath(fileName: string): { valid: boolean; error?: string } {
 	if (!ALLOWED_PREFIXES.some((prefix) => fileName.startsWith(prefix))) {
@@ -33,6 +35,18 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 		}
 
 		const fileName = path.join("/");
+
+		if (!fileName.startsWith("avatars/")) {
+			return NextResponse.json(
+				{ error: "Direct media access not allowed. Use direct B2 URLs." },
+				{ status: 403 }
+			);
+		}
+
+		const session = await auth.api.getSession({ headers: await headers() });
+		if (!session?.user) {
+			return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+		}
 
 		const validation = validatePath(fileName);
 		if (!validation.valid) {
@@ -113,6 +127,15 @@ export async function HEAD(request: NextRequest, { params }: { params: Promise<{
 		}
 
 		const fileName = path.join("/");
+
+		if (!fileName.startsWith("avatars/")) {
+			return new NextResponse(null, { status: 403 });
+		}
+
+		const session = await auth.api.getSession({ headers: await headers() });
+		if (!session?.user) {
+			return new NextResponse(null, { status: 401 });
+		}
 
 		const validation = validatePath(fileName);
 		if (!validation.valid) {

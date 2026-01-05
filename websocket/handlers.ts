@@ -14,7 +14,11 @@ import {
 	activeVoteKicks,
 	matchBannedUsers,
 	matchChatHistory,
+	lobbyChatHistory,
+	lobbyPlayers,
 	MAX_CHAT_HISTORY,
+	VOTE_KICK_DURATION_MS,
+	VOTE_KICK_THRESHOLD,
 	WS_API_KEY,
 	ZONE_BUFFER,
 	CHAT_RATE_LIMIT_WINDOW,
@@ -27,7 +31,6 @@ import {
 	type MatchConfigCache,
 	type PlayerInfoCache,
 	type ActiveVoteKick,
-	type StoredChatMessage,
 } from "./state";
 import {
 	type WSMessage,
@@ -43,6 +46,7 @@ import {
 	createZoneClipsMessage,
 	createClipIdMappingMessage,
 	createChatBroadcast,
+	createLobbyChatBroadcast,
 	toLobbyInfoProto,
 	createTrackProto,
 	createClipDataProto,
@@ -219,16 +223,22 @@ export async function notifyLobbyPlayerDisconnected(lobbyId: string, userId: str
 
 export function handleJoinLobby(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
 	if (msg.payload.case !== "joinLobby" || !msg.payload.value) return;
-	const { lobbyId, userId, username } = msg.payload.value;
+	const { lobbyId, userId, username, userImage } = msg.payload.value;
 
 	ws.data.lobbyId = lobbyId;
 	ws.data.userId = userId;
 	ws.data.username = username;
+	ws.data.userImage = userImage ?? null;
 
 	if (!userConnections.has(userId)) {
 		userConnections.set(userId, new Set());
 	}
 	userConnections.get(userId)!.add(ws.data.id);
+
+	if (!lobbyPlayers.has(lobbyId)) {
+		lobbyPlayers.set(lobbyId, new Set());
+	}
+	lobbyPlayers.get(lobbyId)!.add(ws.data.id);
 
 	console.log(`[WS] Player ${username} (${userId}) joined lobby ${lobbyId}`);
 }
@@ -236,6 +246,15 @@ export function handleJoinLobby(ws: ServerWebSocket<WebSocketData>, msg: WSMessa
 export function handleLeaveLobby(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
 	if (msg.payload.case !== "leaveLobby" || !msg.payload.value) return;
 	const { lobbyId, userId } = msg.payload.value;
+
+	const players = lobbyPlayers.get(lobbyId);
+	if (players) {
+		players.delete(ws.data.id);
+		if (players.size === 0) {
+			lobbyPlayers.delete(lobbyId);
+			lobbyChatHistory.delete(lobbyId);
+		}
+	}
 
 	ws.data.lobbyId = null;
 
@@ -1321,4 +1340,105 @@ function kickUserFromMatch(matchId: string, targetUserId: string): void {
 			ws.close(4000, "Vote kicked");
 		}
 	}
+}
+
+export function handleLobbyChatMessage(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
+	if (msg.payload.case !== "lobbyChatMessage" || !msg.payload.value) return;
+	const { lobbyId, message } = msg.payload.value;
+
+	if (ws.data.lobbyId !== lobbyId) {
+		ws.send(serializeMessage(createErrorMessage("NOT_IN_LOBBY", "You are not in this lobby")));
+		return;
+	}
+
+	const userId = ws.data.userId;
+	const username = ws.data.username;
+
+	if (!userId || !username) {
+		ws.send(serializeMessage(createErrorMessage("NOT_AUTHENTICATED", "User info not available")));
+		return;
+	}
+
+	const now = Date.now();
+	let rateData = chatRateLimits.get(ws.data.id);
+	if (!rateData) {
+		rateData = { lastMessageTime: 0, messageCount: 0, windowStart: now };
+		chatRateLimits.set(ws.data.id, rateData);
+	}
+
+	if (now - rateData.windowStart > CHAT_RATE_LIMIT_WINDOW) {
+		rateData.windowStart = now;
+		rateData.messageCount = 0;
+	}
+
+	if (now - rateData.lastMessageTime < CHAT_COOLDOWN_MS) {
+		ws.send(serializeMessage(createErrorMessage("RATE_LIMITED", "You're sending messages too fast")));
+		return;
+	}
+
+	if (rateData.messageCount >= CHAT_RATE_LIMIT_MAX_MESSAGES) {
+		const timeLeft = Math.ceil((rateData.windowStart + CHAT_RATE_LIMIT_WINDOW - now) / 1000);
+		ws.send(serializeMessage(createErrorMessage("RATE_LIMITED", `Too many messages. Try again in ${timeLeft}s`)));
+		return;
+	}
+
+	rateData.lastMessageTime = now;
+	rateData.messageCount++;
+
+	const sanitizedMessage = message.trim().slice(0, 200);
+	if (!sanitizedMessage) return;
+
+	const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+	const userImage = ws.data.userImage ?? undefined;
+	const timestamp = BigInt(Date.now());
+
+	if (!lobbyChatHistory.has(lobbyId)) {
+		lobbyChatHistory.set(lobbyId, []);
+	}
+	const history = lobbyChatHistory.get(lobbyId)!;
+	history.push({
+		messageId,
+		userId,
+		username,
+		userImage,
+		message: sanitizedMessage,
+		timestamp,
+	});
+	if (history.length > MAX_CHAT_HISTORY) {
+		history.shift();
+	}
+
+	const broadcastMsg = createLobbyChatBroadcast(lobbyId, messageId, userId, username, userImage, sanitizedMessage, timestamp);
+	const players = lobbyPlayers.get(lobbyId);
+	if (players) {
+		for (const connId of players) {
+			const conn = connections.get(connId);
+			if (conn) {
+				conn.send(serializeMessage(broadcastMsg));
+			}
+		}
+	}
+}
+
+export function handleRequestLobbyChatHistory(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
+	if (msg.payload.case !== "requestLobbyChatHistory" || !msg.payload.value) return;
+	const { lobbyId } = msg.payload.value;
+
+	if (ws.data.lobbyId !== lobbyId) {
+		ws.send(serializeMessage(createErrorMessage("NOT_IN_LOBBY", "You are not in this lobby")));
+		return;
+	}
+
+	const history = lobbyChatHistory.get(lobbyId);
+	if (history && history.length > 0) {
+		for (const msg of history) {
+			ws.send(
+				serializeMessage(
+					createLobbyChatBroadcast(lobbyId, msg.messageId, msg.userId, msg.username, msg.userImage, msg.message, msg.timestamp)
+				)
+			);
+		}
+	}
+
+	console.log(`[WS] Sent ${history?.length || 0} chat history messages to lobby ${lobbyId}`);
 }

@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { uploadToB2 } from "@/lib/b2";
 import { validateFile, getFileExtension } from "@/lib/validation";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 
 export async function POST(request: NextRequest) {
 	try {
+		const session = await auth.api.getSession({ headers: await headers() });
+		if (!session?.user) {
+			return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+		}
+
 		const formData = await request.formData();
 		const file = formData.get("file") as File;
 
@@ -31,10 +38,8 @@ export async function POST(request: NextRequest) {
 
 		const uploadedFile = await uploadToB2(buffer, fileName, file.type);
 
-		const proxiedUrl = `/api/media/${encodeURIComponent(uploadedFile.fileName)}`;
-
 		return NextResponse.json({
-			url: proxiedUrl,
+			url: uploadedFile.url,
 			fileId: uploadedFile.fileId,
 			fileName: uploadedFile.fileName,
 			contentType: uploadedFile.contentType,
