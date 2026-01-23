@@ -85,6 +85,13 @@
       "when": 1767546810560,
       "tag": "0011_steady_darkstar",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1769199259855,
+      "tag": "0012_glorious_malcolm_colcord",
+      "breakpoints": true
     }
   ]
 }

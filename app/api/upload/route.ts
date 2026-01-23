@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { uploadToB2 } from "@/lib/b2";
-import { validateFile, getFileExtension } from "@/lib/validation";
+import { validateFile, getFileExtension, getFileCategory } from "@/lib/validation";
+import { validateVideoFile, validateImageFile } from "@/lib/mediaValidation";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 
@@ -30,10 +31,27 @@ export async function POST(request: NextRequest) {
 
 		const arrayBuffer = await file.arrayBuffer();
 		const buffer = Buffer.from(arrayBuffer);
+		const extension = getFileExtension(file.name);
+		const category = getFileCategory(file.type);
+
+		if (category === "video") {
+			const dimensionValidation = await validateVideoFile(buffer, extension);
+			if (!dimensionValidation.valid) {
+				console.warn(`[Upload] Rejected video with invalid dimensions: ${dimensionValidation.error}`);
+				return NextResponse.json({ error: dimensionValidation.error }, { status: 400 });
+			}
+			console.log(`[Upload] Video validated: ${dimensionValidation.metadata?.width}x${dimensionValidation.metadata?.height}`);
+		} else if (category === "image") {
+			const dimensionValidation = await validateImageFile(buffer, extension);
+			if (!dimensionValidation.valid) {
+				console.warn(`[Upload] Rejected image with invalid dimensions: ${dimensionValidation.error}`);
+				return NextResponse.json({ error: dimensionValidation.error }, { status: 400 });
+			}
+			console.log(`[Upload] Image validated: ${dimensionValidation.metadata?.width}x${dimensionValidation.metadata?.height}`);
+		}
 
 		const timestamp = Date.now();
 		const randomString = Math.random().toString(36).substring(7);
-		const extension = getFileExtension(file.name);
 		const fileName = `media/${timestamp}_${randomString}.${extension}`;
 
 		const uploadedFile = await uploadToB2(buffer, fileName, file.type);

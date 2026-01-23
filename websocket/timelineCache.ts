@@ -10,6 +10,7 @@ import {
 	activeVoteKicks,
 	matchBannedUsers,
 	matchChatHistory,
+	clipDeleteRateLimits,
 	BATCH_WINDOW_MS,
 	type TimelineClip,
 	type CachedTimeline,
@@ -120,6 +121,12 @@ export function cleanupMatchResources(matchId: string): void {
 		if (key.startsWith(`${matchId}:`)) {
 			clearTimeout(batch.timeout);
 			pendingBatches.delete(key);
+		}
+	}
+
+	for (const key of clipDeleteRateLimits.keys()) {
+		if (key.startsWith(`${matchId}:`)) {
+			clipDeleteRateLimits.delete(key);
 		}
 	}
 }

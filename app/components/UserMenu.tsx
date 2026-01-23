@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession, signIn, signOut } from "@/lib/auth-client";
@@ -17,7 +17,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Logout01Icon, Loading03Icon, UserIcon, Settings01Icon, HelpCircleIcon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
+import {
+	Logout01Icon,
+	Loading03Icon,
+	UserIcon,
+	Settings01Icon,
+	HelpCircleIcon,
+	ViewIcon,
+	ViewOffIcon,
+	UserGroupIcon,
+} from "@hugeicons/core-free-icons";
 
 function GoogleIcon({ className }: { className?: string }) {
 	return (
@@ -49,6 +58,29 @@ export function UserMenu() {
 	const [isSigningIn, setIsSigningIn] = useState(false);
 	const [isSigningOut, setIsSigningOut] = useState(false);
 	const [showEmail, setShowEmail] = useState(false);
+	const [isAdmin, setIsAdmin] = useState(false);
+
+	useEffect(() => {
+		async function checkAdmin() {
+			if (!session?.user) {
+				setIsAdmin(false);
+				return;
+			}
+			try {
+				const response = await fetch("/api/user/status");
+				if (response.ok) {
+					const data = await response.json();
+					setIsAdmin(data.isAdmin);
+				} else {
+					setIsAdmin(false);
+				}
+			} catch (error) {
+				console.error("Error checking admin status:", error);
+				setIsAdmin(false);
+			}
+		}
+		checkAdmin();
+	}, [session]);
 
 	const censorEmail = (email: string) => {
 		const atIndex = email.indexOf("@");
@@ -161,9 +193,7 @@ export function UserMenu() {
 					<div className="flex flex-col space-y-1">
 						<p className="text-sm font-medium leading-none">{user.name}</p>
 						<div className="flex items-center gap-1">
-							<p className="text-xs leading-none text-muted-foreground">
-								{showEmail ? user.email : censorEmail(user.email || "")}
-							</p>
+							<p className="text-xs leading-none text-muted-foreground">{showEmail ? user.email : censorEmail(user.email || "")}</p>
 							<button
 								type="button"
 								onClick={(e) => {
@@ -173,10 +203,7 @@ export function UserMenu() {
 								}}
 								className="text-muted-foreground hover:text-foreground transition-colors"
 							>
-								<HugeiconsIcon
-									icon={showEmail ? ViewOffIcon : ViewIcon}
-									className="h-3 w-3"
-								/>
+								<HugeiconsIcon icon={showEmail ? ViewOffIcon : ViewIcon} className="h-3 w-3" />
 							</button>
 						</div>
 					</div>
@@ -187,6 +214,12 @@ export function UserMenu() {
 						<HugeiconsIcon icon={UserIcon} className="h-4 w-4" />
 						Account
 					</DropdownMenuItem>
+					{isAdmin && (
+						<DropdownMenuItem className="cursor-pointer" onClick={() => router.push("/users")}>
+							<HugeiconsIcon icon={UserGroupIcon} className="h-4 w-4" />
+							Manage Users
+						</DropdownMenuItem>
+					)}
 				</DropdownMenuGroup>
 				<DropdownMenuSeparator />
 				<DropdownMenuGroup>

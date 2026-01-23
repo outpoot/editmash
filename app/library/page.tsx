@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, ArrowLeft02Icon, ArrowRight02Icon, FavouriteIcon, Calendar03Icon, UserGroupIcon, Video01Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowLeft02Icon, ArrowRight02Icon, FavouriteIcon, Calendar03Icon, UserGroupIcon, Video01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import { UserMenu } from "../components/UserMenu";
 
 interface LibraryVideo {
@@ -34,6 +34,21 @@ export default function LibraryPage() {
 	const [sortBy, setSortBy] = useState<"date" | "likes">("date");
 	const [currentPage, setCurrentPage] = useState(1);
 	const [hasMore, setHasMore] = useState(true);
+	const [isAdmin, setIsAdmin] = useState(false);
+	const [deletingMatch, setDeletingMatch] = useState<string | null>(null);
+
+	useEffect(() => {
+		async function checkAdmin() {
+			try {
+				const response = await fetch("/api/user/status");
+				if (response.ok) {
+					const data = await response.json();
+					setIsAdmin(data.isAdmin);
+				}
+			} catch {}
+		}
+		checkAdmin();
+	}, []);
 
 	const fetchVideos = useCallback(async () => {
 		try {
@@ -84,6 +99,23 @@ export default function LibraryPage() {
 		} catch (err) {
 			setVideos((prev) => prev.map((v) => (v.id === matchId ? { ...v, liked: video.liked, likeCount: video.likeCount } : v)));
 			toast.error("Failed to like video");
+		}
+	};
+
+	const handleDelete = async (matchId: string, e: React.MouseEvent) => {
+		e.stopPropagation();
+		if (!confirm("Are you sure you want to delete this match?")) return;
+
+		setDeletingMatch(matchId);
+		try {
+			const response = await fetch(`/api/admin/matches/${matchId}`, { method: "DELETE" });
+			if (!response.ok) throw new Error("Failed to delete");
+			setVideos((prev) => prev.filter((v) => v.id !== matchId));
+			toast.success("Match deleted");
+		} catch (err) {
+			toast.error("Failed to delete match");
+		} finally {
+			setDeletingMatch(null);
 		}
 	};
 
@@ -154,7 +186,15 @@ export default function LibraryPage() {
 					<>
 						<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 							{videos.map((video) => (
-								<VideoCard key={video.id} video={video} onLike={handleLike} formatDate={formatDate} />
+								<VideoCard 
+									key={video.id} 
+									video={video} 
+									onLike={handleLike} 
+									onDelete={handleDelete}
+									formatDate={formatDate} 
+									isAdmin={isAdmin}
+									isDeleting={deletingMatch === video.id}
+								/>
 							))}
 						</div>
 
@@ -205,11 +245,17 @@ export default function LibraryPage() {
 function VideoCard({
 	video,
 	onLike,
+	onDelete,
 	formatDate,
+	isAdmin,
+	isDeleting,
 }: {
 	video: LibraryVideo;
 	onLike: (matchId: string, e: React.MouseEvent) => void;
+	onDelete: (matchId: string, e: React.MouseEvent) => void;
 	formatDate: (date: string) => string;
+	isAdmin: boolean;
+	isDeleting: boolean;
 }) {
 	const router = useRouter();
 
@@ -235,6 +281,16 @@ function VideoCard({
 						{video.timelineDuration}s
 					</Badge>
 				</div>
+				{isAdmin && (
+					<button
+						onClick={(e) => onDelete(video.id, e)}
+						disabled={isDeleting}
+						className="absolute top-2 right-2 p-1.5 rounded bg-destructive/80 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive disabled:opacity-50"
+						title="Delete match"
+					>
+						<HugeiconsIcon icon={Delete02Icon} className="w-4 h-4" />
+					</button>
+				)}
 			</div>
 			<CardContent className="p-3">
 				<div className="flex items-start justify-between gap-2">

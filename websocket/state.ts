@@ -105,6 +105,9 @@ export const CHAT_RATE_LIMIT_WINDOW = 10000; // 10 seconds
 export const CHAT_RATE_LIMIT_MAX_MESSAGES = 5; // max 5 messages per window
 export const CHAT_COOLDOWN_MS = 1000; // 1 second between messages
 
+export const CLIP_DELETE_COOLDOWN_MS = 1000;
+export const clipDeleteRateLimits = new Map<string, number>();
+
 export interface ActiveVoteKick {
 	targetUserId: string;
 	targetUsername: string;
