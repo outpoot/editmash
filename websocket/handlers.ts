@@ -67,6 +67,7 @@ import {
 	type ClipForValidation,
 	type TimelineForValidation,
 } from "../lib/clipConstraints";
+import { isNameAppropriate } from "../lib/moderation";
 
 export async function fetchLobbies() {
 	try {
@@ -994,7 +995,7 @@ export function handleZoneSubscribe(ws: ServerWebSocket<WebSocketData>, msg: WSM
 	ws.send(serializeMessage(createZoneClipsMessage(matchId, startTime, endTime, zoneTracks)));
 }
 
-export function handleChatMessage(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
+export async function handleChatMessage(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): Promise<void> {
 	if (msg.payload.case !== "chatMessage" || !msg.payload.value) return;
 	const { matchId, message } = msg.payload.value;
 
@@ -1039,6 +1040,12 @@ export function handleChatMessage(ws: ServerWebSocket<WebSocketData>, msg: WSMes
 
 	const sanitizedMessage = message.trim().slice(0, 200);
 	if (!sanitizedMessage) return;
+
+	const isAppropriate = await isNameAppropriate(sanitizedMessage);
+	if (!isAppropriate) {
+		ws.send(serializeMessage(createErrorMessage("INAPPROPRIATE_CONTENT", "Message contains inappropriate content")));
+		return;
+	}
 
 	if (sanitizedMessage.toLowerCase().startsWith("!kick ")) {
 		handleKickCommand(matchId, userId, username, sanitizedMessage.slice(6).trim());
@@ -1340,7 +1347,7 @@ function kickUserFromMatch(matchId: string, targetUserId: string): void {
 	}
 }
 
-export function handleLobbyChatMessage(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): void {
+export async function handleLobbyChatMessage(ws: ServerWebSocket<WebSocketData>, msg: WSMessage): Promise<void> {
 	if (msg.payload.case !== "lobbyChatMessage" || !msg.payload.value) return;
 	const { lobbyId, message } = msg.payload.value;
 
@@ -1385,6 +1392,12 @@ export function handleLobbyChatMessage(ws: ServerWebSocket<WebSocketData>, msg: 
 
 	const sanitizedMessage = message.trim().slice(0, 200);
 	if (!sanitizedMessage) return;
+
+	const isAppropriate = await isNameAppropriate(sanitizedMessage);
+	if (!isAppropriate) {
+		ws.send(serializeMessage(createErrorMessage("INAPPROPRIATE_CONTENT", "Message contains inappropriate content")));
+		return;
+	}
 
 	const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 	const userImage = ws.data.userImage ?? undefined;
