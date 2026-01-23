@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { BannedCheck } from "./components/BannedCheck";
 import "./globals.css";
 
 const fontSans = Inter({ subsets: ["latin"], variable: "--font-sans" });
@@ -104,7 +105,9 @@ export default function RootLayout({
 				</head>
 			)}
 			<body className="antialiased">
-				{children}
+				<BannedCheck>
+					{children}
+				</BannedCheck>
 				<Toaster />
 			</body>
 		</html>
