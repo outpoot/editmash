@@ -213,9 +213,17 @@ async function triggerRender(matchId: string): Promise<void> {
 		})),
 	};
 
-	const renderJob = await createRenderJob({ timelineState: renderableTimeline, matchId });
-	await storage.updateMatchRender(matchId, renderJob.id);
-	await setRenderProgress(matchId, 0);
+	try {
+		const renderJob = await createRenderJob({ timelineState: renderableTimeline, matchId });
+		await storage.updateMatchRender(matchId, renderJob.id);
+		await setRenderProgress(matchId, 0);
+	} catch (error) {
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		console.error(`[Match ${matchId}] Render job creation failed:`, errorMessage);
+		await storage.updateMatchRender(matchId, undefined, undefined, errorMessage);
+		await storage.updateMatchStatus(matchId, "failed");
+		throw error;
+	}
 }
 
 export async function getMatchStatus(

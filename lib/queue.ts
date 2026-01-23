@@ -14,6 +14,8 @@ const RENDER_PROGRESS_PREFIX = "render:progress:";
 const SLOT_TTL = 60;
 const HEARTBEAT_INTERVAL = 15000;
 const PROGRESS_TTL = 300;
+const REDIS_READY_TIMEOUT_MS = 60000;
+const REDIS_RETRY_INTERVAL_MS = 2000;
 
 const MAX_SLOTS = Math.max(Math.floor(os.cpus().length / 2) - 4, 1);
 
@@ -21,6 +23,27 @@ const global = globalThis as unknown as {
 	heartbeatInterval: NodeJS.Timeout | undefined;
 	currentSlotToken: string | null;
 };
+
+async function waitForRedisReady(): Promise<void> {
+	const start = Date.now();
+
+	while (true) {
+		try {
+			const pong = await getRedis().ping();
+			if (pong === "PONG") {
+				return;
+			}
+		} catch {
+			// retry
+		}
+
+		if (Date.now() - start >= REDIS_READY_TIMEOUT_MS) {
+			throw new Error("Redis unavailable after 60s");
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, REDIS_RETRY_INTERVAL_MS));
+	}
+}
 
 async function getJob(jobId: string): Promise<RenderJob | null> {
 	const jobData = await getRedis().hget(JOBS_KEY, jobId);
@@ -161,6 +184,7 @@ export async function setRenderProgress(matchId: string, progress: number): Prom
 }
 
 export async function createRenderJob(job: Omit<RenderJob, "id" | "status" | "progress" | "createdAt">): Promise<RenderJob> {
+	await waitForRedisReady();
 	const renderJob: RenderJob = {
 		...job,
 		id: `job_${Date.now()}_${Math.random().toString(36).substring(7)}`,
@@ -199,6 +223,7 @@ async function updateJob(jobId: string, updates: Partial<RenderJob>): Promise<vo
 }
 
 async function processNextJob(): Promise<void> {
+	await waitForRedisReady();
 	const queueLength = await getQueueLength();
 	if (queueLength === 0) {
 		return;
@@ -254,11 +279,20 @@ async function processNextJob(): Promise<void> {
 			}
 		});
 
-		console.log(`[Queue] Job ${jobId}: Downloading ${Object.keys(mediaUrls).length} unique media files`);
-		const mediaFiles = await downloadMediaFiles(mediaUrls);
-		await updateJob(jobId, { progress: 10 });
-		if (matchId) {
-			await setRenderProgress(matchId, 10);
+		let mediaFiles: Map<string, string> | null = null;
+		if (hasContent) {
+			console.log(`[Queue] Job ${jobId}: Downloading ${Object.keys(mediaUrls).length} unique media files`);
+			mediaFiles = await downloadMediaFiles(mediaUrls);
+			await updateJob(jobId, { progress: 10 });
+			if (matchId) {
+				await setRenderProgress(matchId, 10);
+			}
+		} else {
+			mediaFiles = new Map();
+			await updateJob(jobId, { progress: 10 });
+			if (matchId) {
+				await setRenderProgress(matchId, 10);
+			}
 		}
 
 		const outputDir = path.join(os.tmpdir(), "editmash", "renders");
@@ -299,7 +333,9 @@ async function processNextJob(): Promise<void> {
 			}
 		});
 
-		await cleanupTempFiles(mediaFiles);
+		if (mediaFiles) {
+			await cleanupTempFiles(mediaFiles);
+		}
 		await fs.unlink(outputPath);
 
 		const proxiedUrl = `/api/media/${encodeURIComponent(uploadedFile.fileName)}`;
