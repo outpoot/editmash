@@ -12,6 +12,20 @@ export const MAX_IMAGE_WIDTH = 4000;
 export const MAX_IMAGE_HEIGHT = 4000;
 export const MAX_IMAGE_PIXELS = MAX_IMAGE_WIDTH * MAX_IMAGE_HEIGHT;
 
+export const MAX_URL_LENGTH = 2048;
+
+export function validateMediaUrl(url: string): boolean {
+	if (!url || typeof url !== "string" || url.length > MAX_URL_LENGTH) {
+		return false;
+	}
+	try {
+		const parsed = new URL(url);
+		return ["http:", "https:"].includes(parsed.protocol);
+	} catch {
+		return false;
+	}
+}
+
 export interface MediaMetadata {
 	width: number;
 	height: number;
