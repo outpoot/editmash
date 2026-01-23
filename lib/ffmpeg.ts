@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs/promises";
 import fsSync from "fs";
 import os from "os";
+import { probeMediaFile, validateVideoDimensions, validateImageDimensions } from "./mediaValidation";
 
 const getFFmpegPath = (): string => {
 	const platform = process.platform;
@@ -671,6 +672,33 @@ export async function downloadMediaFiles(mediaUrls: Record<string, string>): Pro
 			const filePath = path.join(tempDir, fileName);
 
 			await fs.writeFile(filePath, Buffer.from(buffer));
+			
+			const extLower = extension.toLowerCase().replace(".", "");
+			const isVideo = ["mp4", "webm", "mov", "avi", "mkv"].includes(extLower);
+			const isImage = ["jpg", "jpeg", "png", "webp", "gif"].includes(extLower);
+			
+			if (isVideo || isImage) {
+				try {
+					const metadata = await probeMediaFile(filePath);
+					const validation = isVideo 
+						? validateVideoDimensions(metadata)
+						: validateImageDimensions(metadata);
+					
+					if (!validation.valid) {
+						await fs.unlink(filePath);
+						throw new Error(`Media validation failed for ${url}: ${validation.error}`);
+					}
+					console.log(`[FFmpeg] Validated ${isVideo ? "video" : "image"}: ${metadata.width}x${metadata.height}`);
+				} catch (probeError) {
+					const errorMsg = probeError instanceof Error ? probeError.message : String(probeError);
+					if (errorMsg.includes("Invalid") || errorMsg.includes("corrupted") || errorMsg.includes("validation failed")) {
+						await fs.unlink(filePath);
+						throw new Error(`Invalid or corrupted media file: ${url}`);
+					}
+					console.warn(`[FFmpeg] Could not probe ${url}: ${errorMsg}`);
+				}
+			}
+			
 			fileMap.set(src, filePath);
 			console.log(`[FFmpeg] Downloaded: ${src} -> ${filePath} (${buffer.byteLength} bytes)`);
 		} catch (error) {
