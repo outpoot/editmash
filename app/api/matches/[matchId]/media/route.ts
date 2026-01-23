@@ -5,6 +5,7 @@ import { eq, and } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { isNameAppropriate } from "@/lib/moderation";
+import { validateMediaUrl } from "@/lib/mediaValidation";
 
 interface RouteParams {
 	params: Promise<{
@@ -63,6 +64,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
 		if (!name || !type || !url) {
 			return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+		}
+
+		if (!validateMediaUrl(url)) {
+			return NextResponse.json({ error: "Invalid media URL" }, { status: 400 });
 		}
 
 		const isAppropriate = await isNameAppropriate(name);

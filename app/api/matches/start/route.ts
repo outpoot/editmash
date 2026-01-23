@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { startMatchFromLobby } from "@/lib/matchManager";
 import { StartMatchRequest, StartMatchResponse } from "@/app/types/match";
 import { notifyWsServer } from "@/lib/wsNotify";
+import { getServerSession } from "@/lib/auth";
+import { getLobbyByIdInternal } from "@/lib/storage";
 
 export async function POST(request: NextRequest): Promise<NextResponse<StartMatchResponse | { error: string }>> {
 	try {
@@ -9,6 +11,20 @@ export async function POST(request: NextRequest): Promise<NextResponse<StartMatc
 
 		if (!body.lobbyId || typeof body.lobbyId !== "string") {
 			return NextResponse.json({ error: "Lobby ID is required" }, { status: 400 });
+		}
+
+		const session = await getServerSession();
+		if (!session) {
+			return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+		}
+
+		const lobby = await getLobbyByIdInternal(body.lobbyId);
+		if (!lobby) {
+			return NextResponse.json({ error: "Lobby not found" }, { status: 404 });
+		}
+
+		if (lobby.hostPlayerId !== session.user.id) {
+			return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 		}
 
 		const result = await startMatchFromLobby(body.lobbyId);
