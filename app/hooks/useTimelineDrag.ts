@@ -2,6 +2,13 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { TimelineState, Clip, DragState } from "../types/timeline";
 import { getTrackAtY, placeClipOnTimeline, calculateSnappedTime, SnapCalculationOptions } from "../components/timeline/utils";
 
+function isClipCompatibleWithTrack(clipType: Clip["type"], trackType: "video" | "audio"): boolean {
+	return (
+		(trackType === "video" && (clipType === "video" || clipType === "image")) ||
+		(trackType === "audio" && clipType === "audio")
+	);
+}
+
 interface UseTimelineDragOptions {
 	pixelsPerSecond: number;
 	timelineState: TimelineState;
@@ -182,10 +189,7 @@ export function useTimelineDrag({
 								const targetTrackIndex = newState.tracks.findIndex((t) => t.id === currentTrackId);
 								const targetTrack = newState.tracks[targetTrackIndex];
 
-								const isCompatible =
-									targetTrack &&
-									((targetTrack.type === "video" && (clip.type === "video" || clip.type === "image")) ||
-										(targetTrack.type === "audio" && clip.type === "audio"));
+								const isCompatible = targetTrack && isClipCompatibleWithTrack(clip.type, targetTrack.type);
 
 								if (isCompatible) {
 									newState.tracks[sourceTrackIndex].clips = newState.tracks[sourceTrackIndex].clips.filter(
@@ -266,11 +270,13 @@ export function useTimelineDrag({
 					if (currentDragState.type === "move") {
 						let actualTrackId = currentDragState.trackId;
 						let clip: Clip | undefined;
+						let sourceTrackId: string | undefined;
 
 						for (const track of prev.tracks) {
 							const foundClip = track.clips.find((c) => c.id === currentDragState.clipId);
 							if (foundClip) {
 								clip = foundClip;
+								sourceTrackId = track.id;
 								actualTrackId = track.id;
 								break;
 							}
@@ -278,7 +284,32 @@ export function useTimelineDrag({
 
 						if (!clip) return prev;
 
-						const result = placeClipOnTimeline(clip, actualTrackId, prev);
+						let workingState = prev;
+						const currentTrack = prev.tracks.find((t) => t.id === actualTrackId);
+						if (currentTrack && !isClipCompatibleWithTrack(clip.type, currentTrack.type)) {
+							const originalTrack = prev.tracks.find((t) => t.id === currentDragState.originalTrackId);
+							if (originalTrack && sourceTrackId !== currentDragState.originalTrackId) {
+								const newState = {
+									...prev,
+									tracks: prev.tracks.map((t) => ({
+										...t,
+										clips: [...t.clips],
+									})),
+								};
+								const sourceIdx = newState.tracks.findIndex((t) => t.id === sourceTrackId);
+								const originalIdx = newState.tracks.findIndex((t) => t.id === currentDragState.originalTrackId);
+								if (sourceIdx !== -1 && originalIdx !== -1) {
+									newState.tracks[sourceIdx].clips = newState.tracks[sourceIdx].clips.filter((c) => c.id !== clip!.id);
+									newState.tracks[originalIdx].clips.push(clip!);
+									actualTrackId = currentDragState.originalTrackId;
+									workingState = newState;
+								}
+							} else {
+								actualTrackId = currentDragState.originalTrackId;
+							}
+						}
+
+						const result = placeClipOnTimeline(clip, actualTrackId, workingState);
 
 						pendingCallbacks.push(() => onClipUpdated?.(actualTrackId, clip!));
 						for (const { trackId, clipId } of result.removedClips) {

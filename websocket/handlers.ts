@@ -16,6 +16,7 @@ import {
 	matchChatHistory,
 	lobbyChatHistory,
 	lobbyPlayers,
+	clipDeleteRateLimits,
 	MAX_CHAT_HISTORY,
 	VOTE_KICK_DURATION_MS,
 	VOTE_KICK_THRESHOLD,
@@ -24,6 +25,7 @@ import {
 	CHAT_RATE_LIMIT_WINDOW,
 	CHAT_RATE_LIMIT_MAX_MESSAGES,
 	CHAT_COOLDOWN_MS,
+	CLIP_DELETE_COOLDOWN_MS,
 	type WebSocketData,
 	type TimelineClip,
 	type MatchConfigCache,
@@ -134,7 +136,7 @@ export async function fetchLobbies() {
 						players: lobby.players ?? [],
 						matchConfig: lobby.matchConfig,
 						matchEndsAt: lobby.matchEndsAt ?? null,
-					}))
+					})),
 				);
 			} catch (e) {
 				console.error(`[WS] Failed to parse waiting lobbies:`, e);
@@ -161,7 +163,7 @@ export async function fetchLobbies() {
 						players: lobby.players ?? [],
 						matchConfig: lobby.matchConfig,
 						matchEndsAt: lobby.matchEndsAt ?? null,
-					}))
+					})),
 				);
 			} catch (e) {
 				console.error(`[WS] Failed to parse in-match lobbies:`, e);
@@ -458,9 +460,9 @@ export async function handleJoinMatch(ws: ServerWebSocket<WebSocketData>, msg: W
 						msg.userImage,
 						msg.highlightColor,
 						msg.message,
-						msg.timestamp
-					)
-				)
+						msg.timestamp,
+					),
+				),
 			);
 		}
 	}
@@ -687,6 +689,20 @@ export function handleClipRemoved(ws: ServerWebSocket<WebSocketData>, msg: WSMes
 		return;
 	}
 
+	if (userId) {
+		const rateLimitKey = `${matchId}:${userId}`;
+		const now = Date.now();
+		const lastDeleteTime = clipDeleteRateLimits.get(rateLimitKey) || 0;
+
+		if (now - lastDeleteTime < CLIP_DELETE_COOLDOWN_MS) {
+			const timeLeft = Math.ceil((CLIP_DELETE_COOLDOWN_MS - (now - lastDeleteTime)) / 1000);
+			ws.send(serializeMessage(createErrorMessage("RATE_LIMITED", `Please wait ${timeLeft}s before deleting another clip`)));
+			return;
+		}
+
+		clipDeleteRateLimits.set(rateLimitKey, now);
+	}
+
 	updateCacheClipRemoved(matchId, trackId, clipId);
 	removeClipIdMapping(matchId, clipId);
 
@@ -723,6 +739,46 @@ export async function handleClipBatchUpdate(ws: ServerWebSocket<WebSocketData>, 
 		}
 
 		const { fullId: clipId, trackId } = clipInfo;
+
+		// validate track type for cross-track moves
+		if (delta.newTrackId && delta.newTrackId !== trackId) {
+			const cachedTimeline = matchTimelines.get(matchId);
+			if (!cachedTimeline) {
+				console.warn(`[WS] No cached timeline for match ${matchId}, rejecting cross-track move`);
+				ws.send(serializeMessage(createErrorMessage("INVALID_STATE", "Timeline not available, cannot validate track move")));
+				return;
+			}
+
+			const sourceTrack = cachedTimeline.tracks.find((t) => t.id === trackId);
+			const targetTrack = cachedTimeline.tracks.find((t) => t.id === delta.newTrackId);
+
+			if (!sourceTrack) {
+				console.warn(`[WS] Source track ${trackId} not found in cache for batch update in match ${matchId}`);
+				ws.send(serializeMessage(createErrorMessage("INVALID_TRACK", "Source track not found")));
+				return;
+			}
+
+			if (!targetTrack) {
+				console.warn(`[WS] Target track ${delta.newTrackId} not found in cache for batch update in match ${matchId}`);
+				ws.send(serializeMessage(createErrorMessage("INVALID_TRACK", "Target track not found")));
+				return;
+			}
+
+			const clip = sourceTrack.clips.find((c) => c.id === clipId);
+			if (!clip) {
+				console.warn(`[WS] Clip ${clipId} not found in source track ${trackId} for match ${matchId}`);
+				ws.send(serializeMessage(createErrorMessage("INVALID_CLIP", "Clip not found in source track")));
+				return;
+			}
+
+			const isVideoClip = clip.type === "video" || clip.type === "image";
+			const isAudioClip = clip.type === "audio";
+
+			if ((targetTrack.type === "video" && isAudioClip) || (targetTrack.type === "audio" && isVideoClip)) {
+				ws.send(serializeMessage(createErrorMessage("TRACK_TYPE_MISMATCH", `Cannot move ${clip.type} clip to ${targetTrack.type} track`)));
+				return;
+			}
+		}
 
 		if (config) {
 			const updateForValidation: Partial<ClipForValidation> = {
@@ -826,7 +882,7 @@ export async function handleClipSplit(ws: ServerWebSocket<WebSocketData>, msg: W
 			sourceDuration: newClip.sourceDuration,
 			thumbnail: newClip.thumbnail,
 			properties: newClip.properties ? ({ ...newClip.properties } as Record<string, unknown>) : {},
-		}
+		},
 	);
 
 	if (userId) {
@@ -893,11 +949,11 @@ export async function handleTimelineSync(ws: ServerWebSocket<WebSocketData>, msg
 									cropBottom: clip.properties.cropBottom,
 									cropLeft: clip.properties.cropLeft,
 									cropRight: clip.properties.cropRight,
-							  }
+								}
 							: {},
 					})),
 				})),
-		  }
+			}
 		: null;
 
 	if (timelineJson) {
@@ -987,7 +1043,7 @@ export function handleZoneSubscribe(ws: ServerWebSocket<WebSocketData>, msg: WSM
 					sourceDuration: clip.sourceDuration,
 					thumbnail: clip.thumbnail,
 					properties: clip.properties,
-				})
+				}),
 			),
 		});
 	});
@@ -1167,7 +1223,7 @@ function getMatchPlayersInfo(matchId: string): Array<{ userId: string; username:
 
 function fuzzyMatchPlayers(
 	query: string,
-	players: Array<{ userId: string; username: string; connId: string }>
+	players: Array<{ userId: string; username: string; connId: string }>,
 ): Array<{ userId: string; username: string; connId: string }> {
 	const lowerQuery = query.toLowerCase();
 
@@ -1271,8 +1327,8 @@ function handleKickCommand(matchId: string, initiatorUserId: string, initiatorUs
 	broadcastSystemMessage(
 		matchId,
 		`Vote kick ${target.username}? Type 'y' to vote. (${voteKick.votesFor.size}/${votesNeeded} votes, ${Math.ceil(
-			VOTE_KICK_DURATION_MS / 1000
-		)}s remaining)`
+			VOTE_KICK_DURATION_MS / 1000,
+		)}s remaining)`,
 	);
 
 	setTimeout(() => {
@@ -1328,7 +1384,7 @@ function handleVoteResponse(matchId: string, userId: string, username: string, v
 		const timeRemaining = Math.ceil((VOTE_KICK_DURATION_MS - (Date.now() - voteKick.startedAt)) / 1000);
 		broadcastSystemMessage(
 			matchId,
-			`Vote kick ${voteKick.targetUsername}? Type 'y' to vote. (${currentVotes}/${votesNeeded} votes, ${timeRemaining}s remaining)`
+			`Vote kick ${voteKick.targetUsername}? Type 'y' to vote. (${currentVotes}/${votesNeeded} votes, ${timeRemaining}s remaining)`,
 		);
 	}
 }
@@ -1445,8 +1501,8 @@ export function handleRequestLobbyChatHistory(ws: ServerWebSocket<WebSocketData>
 		for (const msg of history) {
 			ws.send(
 				serializeMessage(
-					createLobbyChatBroadcast(lobbyId, msg.messageId, msg.userId, msg.username, msg.userImage, msg.message, msg.timestamp)
-				)
+					createLobbyChatBroadcast(lobbyId, msg.messageId, msg.userId, msg.username, msg.userImage, msg.message, msg.timestamp),
+				),
 			);
 		}
 	}
