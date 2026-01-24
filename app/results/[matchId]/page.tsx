@@ -6,19 +6,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	Video01Icon,
 	UserGroupIcon,
 	Clock01Icon,
-	Download01Icon,
-	Home01Icon,
 	Loading03Icon,
 	CheckmarkCircle01Icon,
 	CancelCircleIcon,
 	ArrowLeft01Icon,
+	Delete02Icon,
 } from "@hugeicons/core-free-icons";
+import { toast } from "sonner";
 import { Match } from "@/app/types/match";
 
 interface MatchResponse {
@@ -36,6 +35,8 @@ export default function ResultsPage({ params }: { params: Promise<{ matchId: str
 	const [renderProgress, setRenderProgress] = useState<number | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const [isAdmin, setIsAdmin] = useState(false);
+	const [isDeleting, setIsDeleting] = useState(false);
 
 	const fetchMatch = useCallback(async () => {
 		try {
@@ -60,8 +61,21 @@ export default function ResultsPage({ params }: { params: Promise<{ matchId: str
 	}, [matchId]);
 
 	useEffect(() => {
+		async function checkAdmin() {
+			try {
+				const response = await fetch("/api/user/status");
+				if (response.ok) {
+					const data = await response.json();
+					setIsAdmin(data.isAdmin);
+				}
+			} catch {}
+		}
+		checkAdmin();
+	}, []);
+
+	useEffect(() => {
 		fetchMatch();
-		
+
 		if (match?.status === "rendering") {
 			const interval = setInterval(() => {
 				fetchMatch();
@@ -69,6 +83,23 @@ export default function ResultsPage({ params }: { params: Promise<{ matchId: str
 			return () => clearInterval(interval);
 		}
 	}, [fetchMatch, match?.status]);
+
+	const handleDelete = async () => {
+		if (!match) return;
+		if (!confirm("Are you sure you want to delete this match?")) return;
+
+		setIsDeleting(true);
+		try {
+			const response = await fetch(`/api/admin/matches/${match.id}`, { method: "DELETE" });
+			if (!response.ok) throw new Error("Failed to delete");
+			toast.success("Match deleted");
+			router.push("/library");
+		} catch (err) {
+			toast.error("Failed to delete match");
+		} finally {
+			setIsDeleting(false);
+		}
+	};
 
 	if (isLoading) {
 		return (
@@ -109,6 +140,12 @@ export default function ResultsPage({ params }: { params: Promise<{ matchId: str
 							<h1 className="text-xl font-bold">{match.lobbyName}</h1>
 						</div>
 					</div>
+					{isAdmin && (
+						<Button variant="destructive" size="sm" onClick={handleDelete} disabled={isDeleting} className="gap-1.5">
+							<HugeiconsIcon icon={Delete02Icon} className="w-4 h-4" />
+							{isDeleting ? "Deleting..." : "Delete"}
+						</Button>
+					)}
 				</div>
 			</header>
 
@@ -184,7 +221,15 @@ export default function ResultsPage({ params }: { params: Promise<{ matchId: str
 	);
 }
 
-function RenderStatus({ match, queuePosition, renderProgress }: { match: Match; queuePosition: number | null; renderProgress: number | null }) {
+function RenderStatus({
+	match,
+	queuePosition,
+	renderProgress,
+}: {
+	match: Match;
+	queuePosition: number | null;
+	renderProgress: number | null;
+}) {
 	if (match.status === "rendering") {
 		return (
 			<div className="aspect-video bg-muted rounded-lg flex flex-col items-center justify-center gap-3">
@@ -197,13 +242,12 @@ function RenderStatus({ match, queuePosition, renderProgress }: { match: Match; 
 						</>
 					) : (
 						<>
-							<p className="text-sm font-medium">Rendering your video... {renderProgress !== null ? `${Math.round(renderProgress)}%` : ""}</p>
+							<p className="text-sm font-medium">
+								Rendering your video... {renderProgress !== null ? `${Math.round(renderProgress)}%` : ""}
+							</p>
 							{renderProgress !== null && (
 								<div className="w-48 h-1.5 bg-muted-foreground/20 rounded-full mt-2 overflow-hidden">
-									<div
-										className="h-full bg-primary rounded-full transition-all duration-300"
-										style={{ width: `${renderProgress}%` }}
-									/>
+									<div className="h-full bg-primary rounded-full transition-all duration-300" style={{ width: `${renderProgress}%` }} />
 								</div>
 							)}
 							<p className="text-xs text-muted-foreground mt-1">This may take a few minutes</p>

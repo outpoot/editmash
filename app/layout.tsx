@@ -104,10 +104,10 @@ export default function RootLayout({
 					<script crossOrigin="anonymous" src="//unpkg.com/react-scan/dist/auto.global.js" />
 				</head>
 			)}
+			<script defer data-domain="editmash.com" src="https://analytics.outpoot.com/js/script.file-downloads.js"></script>
+
 			<body className="antialiased">
-				<BannedCheck>
-					{children}
-				</BannedCheck>
+				<BannedCheck>{children}</BannedCheck>
 				<Toaster />
 			</body>
 		</html>
