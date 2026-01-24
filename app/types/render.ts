@@ -2,6 +2,7 @@ import { TimelineState } from "./timeline";
 
 export interface RenderJob {
 	id: string;
+	matchId?: string;
 	timelineState: TimelineState;
 	status: "pending" | "processing" | "completed" | "failed";
 	progress: number;
@@ -16,6 +17,7 @@ export interface RenderJob {
 
 export interface RenderJobRequest {
 	timelineState: TimelineState;
+	matchId?: string;
 	mediaUrls?: Record<string, string>;
 	sourceFileIds?: Array<{ fileName: string; fileId: string }>;
 }
