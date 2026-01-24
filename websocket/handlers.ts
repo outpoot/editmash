@@ -288,9 +288,9 @@ async function fetchMatchConfig(matchId: string): Promise<MatchConfigCache | nul
 			clipSizeMin: config.clipSizeMin ?? 0.5,
 			clipSizeMax: config.clipSizeMax ?? 10,
 			audioMaxDb: config.audioMaxDb ?? 6,
-			maxVideoTracks: config.maxVideoTracks ?? 20,
-			maxAudioTracks: config.maxAudioTracks ?? 20,
-			maxClipsPerUser: config.maxClipsPerUser ?? 10,
+			maxVideoTracks: Math.floor(config.maxVideoTracks ?? 20),
+			maxAudioTracks: Math.floor(config.maxAudioTracks ?? 20),
+			maxClipsPerUser: Math.floor(config.maxClipsPerUser ?? 10),
 			constraints: config.constraints ?? [],
 		};
 

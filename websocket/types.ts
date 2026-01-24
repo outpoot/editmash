@@ -669,13 +669,26 @@ export function toLobbyInfoProto(lobby: {
 	};
 	matchEndsAt?: string | null;
 }): LobbyInfoProto {
+	const sanitizedMatchConfig = {
+		timelineDuration: lobby.matchConfig.timelineDuration,
+		matchDuration: lobby.matchConfig.matchDuration,
+		maxPlayers: Math.floor(lobby.matchConfig.maxPlayers),
+		audioMaxDb: lobby.matchConfig.audioMaxDb,
+		clipSizeMin: lobby.matchConfig.clipSizeMin,
+		clipSizeMax: lobby.matchConfig.clipSizeMax,
+		maxVideoTracks: Math.floor(lobby.matchConfig.maxVideoTracks),
+		maxAudioTracks: Math.floor(lobby.matchConfig.maxAudioTracks),
+		maxClipsPerUser: Math.floor(lobby.matchConfig.maxClipsPerUser),
+		constraints: lobby.matchConfig.constraints,
+	};
+
 	return create(LobbyInfoSchema, {
 		id: lobby.id,
 		name: lobby.name,
 		joinCode: lobby.joinCode,
 		hostUsername: lobby.hostUsername,
-		playerCount: lobby.playerCount,
-		maxPlayers: lobby.maxPlayers,
+		playerCount: Math.floor(lobby.playerCount),
+		maxPlayers: Math.floor(lobby.maxPlayers),
 		status: lobby.status,
 		isSystemLobby: lobby.isSystemLobby,
 		createdAt: lobby.createdAt,
@@ -686,7 +699,7 @@ export function toLobbyInfoProto(lobby: {
 				image: p.image ?? undefined,
 			})
 		),
-		matchConfig: create(MatchConfigSchema, lobby.matchConfig),
+		matchConfig: create(MatchConfigSchema, sanitizedMatchConfig),
 		matchEndsAt: lobby.matchEndsAt ?? undefined,
 	});
 }
