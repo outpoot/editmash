@@ -1,7 +1,8 @@
 import { RenderJob } from "../app/types/render";
-import { renderTimeline, downloadMediaFiles, cleanupTempFiles } from "./ffmpeg";
+import { renderTimeline, downloadMediaFiles, cleanupTempFiles, hasContentClips } from "./ffmpeg";
 import { uploadToB2, deleteMultipleFromB2 } from "./b2";
 import { getRedis, closeRedisConnection } from "./redis";
+import { getMatchByIdInternal, updateMatchRender, updateMatchStatus, updateLobbyMatchId, updateLobbyStatus, deleteMatchMedia } from "./storage";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
@@ -13,6 +14,8 @@ const RENDER_PROGRESS_PREFIX = "render:progress:";
 const SLOT_TTL = 60;
 const HEARTBEAT_INTERVAL = 15000;
 const PROGRESS_TTL = 300;
+const REDIS_READY_TIMEOUT_MS = 60000;
+const REDIS_RETRY_INTERVAL_MS = 2000;
 
 const MAX_SLOTS = Math.max(Math.floor(os.cpus().length / 2) - 4, 1);
 
@@ -20,6 +23,27 @@ const global = globalThis as unknown as {
 	heartbeatInterval: NodeJS.Timeout | undefined;
 	currentSlotToken: string | null;
 };
+
+async function waitForRedisReady(): Promise<void> {
+	const start = Date.now();
+
+	while (true) {
+		try {
+			const pong = await getRedis().ping();
+			if (pong === "PONG") {
+				return;
+			}
+		} catch {
+			// retry
+		}
+
+		if (Date.now() - start >= REDIS_READY_TIMEOUT_MS) {
+			throw new Error("Redis unavailable after 60s");
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, REDIS_RETRY_INTERVAL_MS));
+	}
+}
 
 async function getJob(jobId: string): Promise<RenderJob | null> {
 	const jobData = await getRedis().hget(JOBS_KEY, jobId);
@@ -160,6 +184,7 @@ export async function setRenderProgress(matchId: string, progress: number): Prom
 }
 
 export async function createRenderJob(job: Omit<RenderJob, "id" | "status" | "progress" | "createdAt">): Promise<RenderJob> {
+	await waitForRedisReady();
 	const renderJob: RenderJob = {
 		...job,
 		id: `job_${Date.now()}_${Math.random().toString(36).substring(7)}`,
@@ -198,6 +223,7 @@ async function updateJob(jobId: string, updates: Partial<RenderJob>): Promise<vo
 }
 
 async function processNextJob(): Promise<void> {
+	await waitForRedisReady();
 	const queueLength = await getQueueLength();
 	if (queueLength === 0) {
 		return;
@@ -230,6 +256,14 @@ async function processNextJob(): Promise<void> {
 			return;
 		}
 
+		const matchId = job.matchId;
+		const matchInfo = matchId ? await getMatchByIdInternal(matchId) : null;
+		const hasContent = hasContentClips(job.timelineState);
+
+		if (matchId) {
+			await setRenderProgress(matchId, 0);
+		}
+
 		startHeartbeat(slotToken);
 
 		await updateJob(jobId, { status: "processing", startedAt: Date.now() });
@@ -245,13 +279,25 @@ async function processNextJob(): Promise<void> {
 			}
 		});
 
-		console.log(`[Queue] Job ${jobId}: Downloading ${Object.keys(mediaUrls).length} unique media files`);
-		const mediaFiles = await downloadMediaFiles(mediaUrls);
-		await updateJob(jobId, { progress: 10 });
+		let mediaFiles: Map<string, string> | null = null;
+		if (hasContent) {
+			console.log(`[Queue] Job ${jobId}: Downloading ${Object.keys(mediaUrls).length} unique media files`);
+			mediaFiles = await downloadMediaFiles(mediaUrls);
+			await updateJob(jobId, { progress: 10 });
+			if (matchId) {
+				await setRenderProgress(matchId, 10);
+			}
+		} else {
+			mediaFiles = new Map();
+			await updateJob(jobId, { progress: 10 });
+			if (matchId) {
+				await setRenderProgress(matchId, 10);
+			}
+		}
 
 		const outputDir = path.join(os.tmpdir(), "editmash", "renders");
 		await fs.mkdir(outputDir, { recursive: true });
-		const outputFileName = `render_${jobId}.mp4`;
+		const outputFileName = `render_${matchId || jobId}.mp4`;
 		const outputPath = path.join(outputDir, outputFileName);
 
 		console.log(`[Queue] Job ${jobId}: Starting render to ${outputPath}`);
@@ -260,10 +306,18 @@ async function processNextJob(): Promise<void> {
 			updateJob(jobId || "", { progress: adjustedProgress }).catch((err) => {
 				console.error(`Error updating render progress for job ${jobId}:`, err);
 			});
+			if (matchId) {
+				setRenderProgress(matchId, adjustedProgress).catch((err) => {
+					console.error(`Error updating render progress for match ${matchId}:`, err);
+				});
+			}
 		});
 
 		console.log(`[Queue] Job ${jobId}: Render complete, uploading to B2`);
 		await updateJob(jobId, { progress: 80 });
+		if (matchId) {
+			await setRenderProgress(matchId, 80);
+		}
 
 		const outputBuffer = await fs.readFile(outputPath);
 		const b2FileName = `renders/${outputFileName}`;
@@ -272,9 +326,16 @@ async function processNextJob(): Promise<void> {
 			updateJob(jobId || "", { progress: adjustedProgress }).catch((err) => {
 				console.error(`Error updating upload progress for job ${jobId}:`, err);
 			});
+			if (matchId) {
+				setRenderProgress(matchId, adjustedProgress).catch((err) => {
+					console.error(`Error updating upload progress for match ${matchId}:`, err);
+				});
+			}
 		});
 
-		await cleanupTempFiles(mediaFiles);
+		if (mediaFiles) {
+			await cleanupTempFiles(mediaFiles);
+		}
 		await fs.unlink(outputPath);
 
 		const proxiedUrl = `/api/media/${encodeURIComponent(uploadedFile.fileName)}`;
@@ -287,6 +348,23 @@ async function processNextJob(): Promise<void> {
 			outputFileId: uploadedFile.fileId,
 		});
 
+		if (matchId) {
+			try {
+				await updateMatchRender(matchId, jobId, proxiedUrl);
+				await updateMatchStatus(matchId, "completed");
+				if (matchInfo) {
+					await updateLobbyMatchId(matchInfo.lobbyId, matchId);
+					if (hasContent) {
+						await updateLobbyStatus(matchInfo.lobbyId, "closed");
+					}
+				}
+				await deleteMatchMedia(matchId);
+				await setRenderProgress(matchId, 100);
+			} catch (error) {
+				console.error(`[Queue] Failed to update match ${matchId} after render:`, error);
+			}
+		}
+
 	} catch (error) {
 		if (jobId) {
 			await updateJob(jobId, {
@@ -294,6 +372,14 @@ async function processNextJob(): Promise<void> {
 				error: error instanceof Error ? error.message : String(error),
 				completedAt: Date.now(),
 			});
+			if (job?.matchId) {
+				try {
+					await updateMatchRender(job.matchId, jobId, undefined, error instanceof Error ? error.message : String(error));
+					await updateMatchStatus(job.matchId, "failed");
+				} catch (matchError) {
+					console.error(`[Queue] Failed to update match ${job.matchId} after render failure:`, matchError);
+				}
+			}
 		}
 		console.error(`Error processing job:`, error);
 	} finally {
