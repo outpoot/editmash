@@ -118,8 +118,8 @@ export default function ResultsPage({ params }: { params: Promise<{ matchId: str
 						<CardDescription>{error || "Match not found"}</CardDescription>
 					</CardHeader>
 					<CardContent>
-						<Button onClick={() => router.push("/")} className="w-full">
-							Home
+						<Button onClick={() => router.push("/library")} className="w-full">
+							Library
 						</Button>
 					</CardContent>
 				</Card>
@@ -132,7 +132,7 @@ export default function ResultsPage({ params }: { params: Promise<{ matchId: str
 			<header className="border-b bg-card">
 				<div className="container mx-auto px-4 py-4 flex items-center justify-between">
 					<div className="flex items-center gap-4">
-						<Button variant="ghost" size="icon" onClick={() => router.push("/")}>
+						<Button variant="ghost" size="icon" onClick={() => router.push("/library")}>
 							<HugeiconsIcon icon={ArrowLeft01Icon} className="w-5 h-5" />
 						</Button>
 						<div className="flex items-center gap-3">
