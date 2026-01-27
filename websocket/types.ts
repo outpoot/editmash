@@ -644,6 +644,16 @@ export function createPongMessage(): WSMessageProto {
 	});
 }
 
+function safeInt(value: unknown, fallback: number): number {
+	const num = Number(value);
+	return Number.isFinite(num) ? Math.floor(num) : fallback;
+}
+
+function safeNumber(value: unknown, fallback: number): number {
+	const num = Number(value);
+	return Number.isFinite(num) ? num : fallback;
+}
+
 export function toLobbyInfoProto(lobby: {
 	id: string;
 	name: string;
@@ -670,16 +680,16 @@ export function toLobbyInfoProto(lobby: {
 	matchEndsAt?: string | null;
 }): LobbyInfoProto {
 	const sanitizedMatchConfig = {
-		timelineDuration: lobby.matchConfig.timelineDuration,
-		matchDuration: lobby.matchConfig.matchDuration,
-		maxPlayers: Math.floor(lobby.matchConfig.maxPlayers),
-		audioMaxDb: lobby.matchConfig.audioMaxDb,
-		clipSizeMin: lobby.matchConfig.clipSizeMin,
-		clipSizeMax: lobby.matchConfig.clipSizeMax,
-		maxVideoTracks: Math.floor(lobby.matchConfig.maxVideoTracks),
-		maxAudioTracks: Math.floor(lobby.matchConfig.maxAudioTracks),
-		maxClipsPerUser: Math.floor(lobby.matchConfig.maxClipsPerUser),
-		constraints: lobby.matchConfig.constraints,
+		timelineDuration: safeNumber(lobby.matchConfig?.timelineDuration, 60),
+		matchDuration: safeNumber(lobby.matchConfig?.matchDuration, 300),
+		maxPlayers: safeInt(lobby.matchConfig?.maxPlayers, 8),
+		audioMaxDb: safeNumber(lobby.matchConfig?.audioMaxDb, 0),
+		clipSizeMin: safeNumber(lobby.matchConfig?.clipSizeMin, 1),
+		clipSizeMax: safeNumber(lobby.matchConfig?.clipSizeMax, 10),
+		maxVideoTracks: safeInt(lobby.matchConfig?.maxVideoTracks, 3),
+		maxAudioTracks: safeInt(lobby.matchConfig?.maxAudioTracks, 2),
+		maxClipsPerUser: safeInt(lobby.matchConfig?.maxClipsPerUser, 10),
+		constraints: lobby.matchConfig?.constraints ?? [],
 	};
 
 	return create(LobbyInfoSchema, {
@@ -687,12 +697,12 @@ export function toLobbyInfoProto(lobby: {
 		name: lobby.name,
 		joinCode: lobby.joinCode,
 		hostUsername: lobby.hostUsername,
-		playerCount: Math.floor(lobby.playerCount),
-		maxPlayers: Math.floor(lobby.maxPlayers),
+		playerCount: safeInt(lobby.playerCount, 0),
+		maxPlayers: safeInt(lobby.maxPlayers, 8),
 		status: lobby.status,
 		isSystemLobby: lobby.isSystemLobby,
 		createdAt: lobby.createdAt,
-		players: lobby.players.map((p) =>
+		players: (lobby.players ?? []).map((p) =>
 			create(PlayerInfoSchema, {
 				id: p.id,
 				username: p.username,
