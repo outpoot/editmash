@@ -133,6 +133,7 @@ export default function MatchmakingPage() {
 										image: p.image,
 									})) ?? [],
 								matchEndsAt: l.matchEndsAt ? new Date(l.matchEndsAt) : null,
+								closesAt: l.closesAt ? new Date(l.closesAt) : null,
 							}))
 							.filter((lobby) => {
 								if (lobby.status === "in_match" && lobby.matchEndsAt) {

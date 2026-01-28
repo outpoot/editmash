@@ -114,6 +114,7 @@ export async function fetchLobbies() {
 				constraints: string[];
 			};
 			matchEndsAt?: string | null;
+			closesAt?: string | null;
 		}[] = [];
 
 		if (waitingRes.ok) {
@@ -136,6 +137,7 @@ export async function fetchLobbies() {
 						players: lobby.players ?? [],
 						matchConfig: lobby.matchConfig,
 						matchEndsAt: lobby.matchEndsAt ?? null,
+						closesAt: lobby.closesAt ?? null,
 					})),
 				);
 			} catch (e) {
@@ -163,6 +165,7 @@ export async function fetchLobbies() {
 						players: lobby.players ?? [],
 						matchConfig: lobby.matchConfig,
 						matchEndsAt: lobby.matchEndsAt ?? null,
+						closesAt: lobby.closesAt ?? null,
 					})),
 				);
 			} catch (e) {

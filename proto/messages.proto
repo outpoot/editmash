@@ -334,6 +334,7 @@ message LobbyInfo {
   repeated PlayerInfo players = 10;
   MatchConfig match_config = 11;
   optional string match_ends_at = 12;
+  optional string closes_at = 13;
 }
 
 message SubscribeLobbiesPayload {}

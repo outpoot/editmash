@@ -678,6 +678,7 @@ export function toLobbyInfoProto(lobby: {
 		constraints: string[];
 	};
 	matchEndsAt?: string | null;
+	closesAt?: string | null;
 }): LobbyInfoProto {
 	const sanitizedMatchConfig = {
 		timelineDuration: safeNumber(lobby.matchConfig?.timelineDuration, 60),
@@ -711,6 +712,7 @@ export function toLobbyInfoProto(lobby: {
 		),
 		matchConfig: create(MatchConfigSchema, sanitizedMatchConfig),
 		matchEndsAt: lobby.matchEndsAt ?? undefined,
+		closesAt: lobby.closesAt ?? undefined,
 	});
 }
 
