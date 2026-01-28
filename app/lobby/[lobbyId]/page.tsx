@@ -19,6 +19,7 @@ import {
 	CrownIcon,
 	Logout01Icon,
 	Clock01Icon,
+	Alert02Icon,
 } from "@hugeicons/core-free-icons";
 import { Lobby, LobbyPlayer } from "@/app/types/lobby";
 import { MatchModifierBadges } from "@/app/components/MatchModifierBadges";
@@ -38,6 +39,7 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 	const [isLeaving, setIsLeaving] = useState(false);
 	const [showLeaveDialog, setShowLeaveDialog] = useState(false);
 	const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
+	const [autoCloseCountdown, setAutoCloseCountdown] = useState<string | null>(null);
 
 	const wsRef = useRef<WebSocket | null>(null);
 	const joinedRef = useRef(false);
@@ -80,6 +82,32 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 		const interval = setInterval(fetchLobby, 2000);
 		return () => clearInterval(interval);
 	}, [fetchLobby]);
+
+	useEffect(() => {
+		if (!lobby?.closesAt) {
+			setAutoCloseCountdown(null);
+			return;
+		}
+
+		const updateCountdown = () => {
+			const now = Date.now();
+			const closesAt = new Date(lobby.closesAt!).getTime();
+			const remaining = Math.max(0, closesAt - now);
+
+			if (remaining <= 0) {
+				setAutoCloseCountdown("0:00");
+				return;
+			}
+
+			const minutes = Math.floor(remaining / 60000);
+			const seconds = Math.floor((remaining % 60000) / 1000);
+			setAutoCloseCountdown(`${minutes}:${seconds.toString().padStart(2, "0")}`);
+		};
+
+		updateCountdown();
+		const interval = setInterval(updateCountdown, 1000);
+		return () => clearInterval(interval);
+	}, [lobby?.closesAt]);
 
 	useEffect(() => {
 		if (!lobby || !playerId || playerLoading || !isAuthenticated) return;
@@ -348,6 +376,15 @@ export default function LobbyPage({ params }: { params: Promise<{ lobbyId: strin
 								<MatchModifierBadges matchConfig={lobby.matchConfig} showMaxPlayers={true} />
 							</CardContent>
 						</Card>
+
+						{autoCloseCountdown && (
+							<Alert className="bg-orange-50 border-orange-200 dark:bg-orange-950/20 dark:border-orange-900/50">
+								<HugeiconsIcon icon={Alert02Icon} className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+								<AlertDescription className="text-orange-900 dark:text-orange-100">
+									Lobby closes in <span className="font-mono font-bold">{autoCloseCountdown}</span> if match doesn't start
+								</AlertDescription>
+							</Alert>
+						)}
 
 						<div className="space-y-3">
 							<Button variant="outline" size="lg" className="w-full gap-2" onClick={copyCode}>

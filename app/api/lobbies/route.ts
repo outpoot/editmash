@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createLobby, listLobbies, ensureSystemLobbiesExist, cleanupStaleMatches, getPlayerActiveLobby } from "@/lib/storage";
+import { createLobby, listLobbies, ensureSystemLobbiesExist, cleanupStaleMatches, cleanupExpiredLobbies, getPlayerActiveLobby } from "@/lib/storage";
 import { validateMatchConfig } from "@/lib/clipConstraints";
 import { DEFAULT_MATCH_CONFIG, MatchConfig } from "@/app/types/match";
 import { CreateLobbyRequest, CreateLobbyResponse, LobbyListResponse, LobbyStatus } from "@/app/types/lobby";
@@ -77,6 +77,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<LobbyListR
 
 		if (!status || status === "waiting") {
 			await cleanupStaleMatches();
+			await cleanupExpiredLobbies();
 			await ensureSystemLobbiesExist();
 		}
 

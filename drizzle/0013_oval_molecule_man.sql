@@ -1,0 +1,1 @@
+ALTER TABLE "lobbies" ADD COLUMN "closes_at" timestamp;

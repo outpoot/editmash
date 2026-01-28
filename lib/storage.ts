@@ -111,6 +111,8 @@ export async function createLobby(
 ): Promise<{ lobbyId: string; joinCode: string }> {
 	const database = db();
 
+	const closesAt = isSystemLobby ? null : new Date(Date.now() + 10 * 60 * 1000);
+
 	const maxRetries = 5;
 	for (let attempt = 0; attempt < maxRetries; attempt++) {
 		const joinCode = generateJoinCode();
@@ -126,6 +128,7 @@ export async function createLobby(
 					matchConfigJson: matchConfig,
 					isSystemLobby,
 					isListed,
+					closesAt,
 				})
 				.returning({ id: lobbies.id, joinCode: lobbies.joinCode });
 
@@ -257,6 +260,7 @@ export async function listLobbies(status?: LobbyStatus): Promise<LobbyListItemWi
 			maxPlayers: record.matchConfigJson.maxPlayers,
 			hostUsername: host?.userName || (record.isSystemLobby ? "System" : "Unknown"),
 			isSystemLobby: record.isSystemLobby,
+			closesAt: record.closesAt,
 			createdAt: record.createdAt,
 			matchConfig: record.matchConfigJson as MatchConfig,
 			players: playersWithUsers.map((p) => ({
@@ -337,7 +341,8 @@ export async function addPlayerToLobby(
 	});
 
 	if (isFirstPlayerInSystemLobby) {
-		await database.update(lobbies).set({ hostPlayerId: userId, updatedAt: new Date() }).where(eq(lobbies.id, lobby.id));
+		const closesAt = new Date(Date.now() + 10 * 60 * 1000);
+		await database.update(lobbies).set({ hostPlayerId: userId, closesAt, updatedAt: new Date() }).where(eq(lobbies.id, lobby.id));
 	}
 
 	return { success: true, message: "Successfully joined lobby" };
@@ -424,9 +429,12 @@ export async function removePlayerFromLobby(lobbyId: string, userId: string): Pr
 				.update(lobbyPlayers)
 				.set({ isHost: true })
 				.where(and(eq(lobbyPlayers.lobbyId, lobbyId), eq(lobbyPlayers.userId, newHostId)));
-			await database.update(lobbies).set({ hostPlayerId: newHostId, updatedAt: new Date() }).where(eq(lobbies.id, lobbyId));
+			
+			const closesAt = lobbyRecord.isSystemLobby ? new Date(Date.now() + 10 * 60 * 1000) : lobbyRecord.closesAt;
+			await database.update(lobbies).set({ hostPlayerId: newHostId, closesAt, updatedAt: new Date() }).where(eq(lobbies.id, lobbyId));
 		} else if (lobby.status === "waiting") {
-			await database.update(lobbies).set({ status: "closed", updatedAt: new Date() }).where(eq(lobbies.id, lobbyId));
+			const closesAt = lobbyRecord.isSystemLobby ? null : lobbyRecord.closesAt;
+			await database.update(lobbies).set({ status: "closed", closesAt, updatedAt: new Date() }).where(eq(lobbies.id, lobbyId));
 		}
 	}
 
@@ -488,6 +496,31 @@ export async function cleanupStaleMatches(): Promise<number> {
 			await database.update(lobbies).set({ status: "closed", updatedAt: new Date() }).where(eq(lobbies.id, lobby.id));
 			cleanedCount++;
 		}
+	}
+
+	return cleanedCount;
+}
+
+export async function cleanupExpiredLobbies(): Promise<number> {
+	const database = db();
+	const now = new Date();
+
+	const expiredLobbies = await database
+		.select({ id: lobbies.id })
+		.from(lobbies)
+		.where(and(
+			eq(lobbies.status, "waiting"),
+			sql`${lobbies.closesAt} IS NOT NULL AND ${lobbies.closesAt} <= ${now}`
+		));
+
+	let cleanedCount = 0;
+	for (const lobby of expiredLobbies) {
+		await database.update(lobbies).set({ status: "closed", updatedAt: new Date() }).where(eq(lobbies.id, lobby.id));
+		cleanedCount++;
+	}
+
+	if (cleanedCount > 0) {
+		console.log(`[System] Closed ${cleanedCount} expired lobbies`);
 	}
 
 	return cleanedCount;
@@ -823,6 +856,7 @@ function mapLobbyRecordToLobby(
 		matchId: string | null;
 		isSystemLobby: boolean;
 		isListed: boolean;
+		closesAt: Date | null;
 		createdAt: Date;
 		updatedAt: Date;
 	},
@@ -845,6 +879,7 @@ function mapLobbyRecordToLobby(
 		})),
 		matchId: record.matchId,
 		isListed: record.isListed,
+		closesAt: record.closesAt,
 		createdAt: record.createdAt,
 		updatedAt: record.updatedAt,
 	};

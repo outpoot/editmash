@@ -21,6 +21,7 @@ export interface Lobby {
 	players: LobbyPlayer[];
 	matchId: string | null;
 	isListed: boolean;
+	closesAt: Date | null;
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -58,6 +59,7 @@ export interface LobbyListItem {
 	maxPlayers: number;
 	hostUsername: string;
 	isSystemLobby: boolean;
+	closesAt: Date | null;
 	createdAt: Date;
 	players: { id: string; username: string; image?: string | null }[];
 	matchEndsAt?: Date | null;
