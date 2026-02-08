@@ -165,8 +165,8 @@ const MediaCardDock = forwardRef<MediaCardDockRef, MediaCardDockProps>(({ maxCli
 										return;
 									}
 
-									const audioFileName = file.name.replace(/\.[^/.]+$/, "") + "_audio.wav";
-									const audioFile = new File([audioBlob], audioFileName, { type: "audio/wav" });
+									const audioFileName = file.name.replace(/\.[^/.]+$/, "") + "_audio.m4a";
+									const audioFile = new File([audioBlob], audioFileName, { type: "audio/mp4" });
 									const audioTempUrl = URL.createObjectURL(audioBlob);
 									const audioItemId = `${Date.now()}-${Math.random()}`;
 
